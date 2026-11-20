@@ -81,6 +81,10 @@ Touka 為本機部署系統（localhost），安全邊界設計如下：
 
 Touka 的權限是以「使用者都互相信任」來設計的：擁有靈魂的使用者權限很大，帳號之間的隔離也不完整。請不要把帳號開給不信任的人，也不要在沒有額外防護的情況下把服務開到網路上（預設只綁本機）。
 
+### SNS 機器人誰都能私訊（ADR-0327）
+
+知道機器人帳號的人都能私訊它，機器人沒有「誰能和它聊」的名單。外人叫得到的靈魂只限機器人綁的靈魂，以及它唯一的人類擁有者的其他靈魂（ADR-0276、ADR-0327）；這些靈魂的家原文、前情與舊家尾端照舊會進回給外人的請求（維護者 2026-11-07、2026-11-08 的決定）。另外，管理員或任何擁有靈魂的使用者都能改機器人綁哪個靈魂、替任何靈魂加群聊別名（設定頁不檢查擁有者），所以一般使用者可以把機器人改綁到別人的靈魂再從 SNS 跟它聊；在「互相信任的人使用」的前提下照留。
+
 ### MCP 隔離的邊界與已知限制（C2-3）
 
 - 第三方／scaffold 在本機 Landlock 穩定不可用時仍直接啟動（包含原生 Windows、舊 kernel 映像）；它們仍有 Touka 的檔案權限。檢查中或暫時故障時等待，不先放行。自建在層級 `none` 不自動啟動，人類確認後的 direct 同樣沒有隔離。
@@ -186,6 +190,13 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 ## Known Resolved Vulnerabilities
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
+
+### SNS 外人叫得到別的擁有者的靈魂（2026-11-21，ADR-0327）
+
+| 弱點 | 修正與驗證 |
+|---|---|
+| Telegram 的 `/switch <名字>` 任何外人都能打，整台機器人（所有聊天室）換成那個代理人，直到下一次 `/switch`；閘道把換過的當成機器人綁的靈魂，ADR-0276 的「同一位擁有者」規則就以它為準，等於外人可以挑任何一位擁有者的任何靈魂聊天 | 拿掉 `/switch`，訊息一律用機器人綁的靈魂交給閘道；之後打 `/switch` 沒有反應。`tests/unit/test_sns_reach_security.py`（先試著 `/switch`，再看閘道被呼叫當下的靈魂） |
+| SNS 的「@名字」進群聊，SNS 沒有呼叫者身分，群聊對每位成員的檢查整個跳過：外人 @ 群聊白名單裡別的擁有者的靈魂，那個靈魂就回話，它的家原文、前情與舊家尾端也進回給外人的請求（ADR-0306、ADR-0307 記的殘留） | 閘道把機器人綁的靈魂（正式化過）寫進 `sns_soul`；群聊沒有身分時照它檢查每位成員：要是同一個靈魂，或機器人唯一的人類擁有者也擁有的靈魂（`utils/sns_reach.sns_may_reach`，和單靈魂目標同一條規則），有一位不行整輪不派發，讀不到使用者清單也不派發；沒有身分也沒有 `sns_soul` 的群聊一律不派發。說明句不寫出擁有者，但和「找不到」那句不同，外人能試出別名在不在白名單（照留）。`tests/unit/test_sns_reach_security.py`（真的閘道接真的群聊分發器） |
 
 ### 同名的新靈魂接手刪掉的靈魂留下的東西（2026-11-20，ADR-0326 PR 1）
 
@@ -543,7 +554,7 @@ dep1 順帶修好一個既有錯誤：被隔離的 MCP 工具（標頭政策）�
 | 初始管理員交付 | 密碼檔寫入 OSError 後仍提交 users，形成無法取得初始密碼的帳戶 | OSError 在 users commit 前回固定 `PERSISTENCE_ERROR`，原 users 不變；既有 admin 不重設 | ADR-0232 |
 | Gemini 顯式快取副本 | Touka 為對話（含無痕）在 Google 端另建 1 小時顯式快取 | 全停：一般與無痕、初次與迴圈中都不建顯式快取，每輪照常送 system_instruction／tools（Google 仍可能依其政策保留請求） | ADR-0241、ADR-0243 |
 | 未登入聊天（HIGH） | `/messages`、`/chat/completions`（含 `/v1`）沒帶憑證時改用 Guest 情境照樣進 pipeline：指定靈魂名字就套上它的人設、注入家對話，並用伺服器金鑰呼叫模型；外部無卡與「系統認領後的本機無卡」都成立 | 兩個端點改掛授權閘道 `require_authenticated`（Depends），沒有已驗證身分一律 401 `AUTH_INVALID_TOKEN`、進不了 pipeline；刪除 `_build_guest_context`，免登入清單移除 4 筆。首裝前本機無卡請求照舊領卡（LDH：帶 X-Agent-ID 時照那個 ID 發，否則發 DebugAgent；程式未改）；SNS 程式內部路徑不經 HTTP 閘、行為不變。回歸測試 `tests/unit/test_unauthenticated_chat_security.py`。這一列只擋「未登入」；「已登入的非擁有者」原列為已知殘留，已由下一列修掉 | ADR-0245 |
-| 非擁有者指定別人的靈魂（HIGH） | 已登入但不是擁有者的使用者（含 `/auth/register` 自助註冊、註冊後立即可用）或別的代理 token，把 `model` 或 `X-Touka-Soul-ID` 指向別人的靈魂，就會被套上人設、注入家對話與前情摘要，並用伺服器金鑰呼叫模型；群聊 `@別名`、子代理 `sub_model=<靈魂>` 同一根因（MonitorLayer 認出靈魂後只是不換身分，SoulLayer 注入時不看擁有權） | 授權閘道 `require_soul_access` 驗兩次：MonitorLayer 解析出靈魂目標後，與 SoulLayer 注入前（對真的要注入的靈魂 ID）。人類要擁有該靈魂或是 admin，代理只能是靈魂本身或 DebugAgent（admin 經 X-Agent-ID 代打保留 admin 權），否則 403 `AUTH_PERMISSION_DENIED`。再審補上的繞法：CustomModelLayer 跳過靈魂請求，同名自訂模型（標頭指自己的靈魂＋model 指別人同名的自訂模型）換不掉目標；自訂模型建立、改名拒絕靈魂名稱（409）；子代理組裝時去掉繼承的靈魂與 session 標頭，臨時身分指定靈魂一律拒絕；計分卡 `model` 是靈魂時路由先用真正的呼叫者驗。群聊每位成員同樣檢查（`can_drive_soul`），一位不行整輪不派發。SNS 程式內部路徑沒有身分、不經 HTTP 閘，照舊。殘留：首裝前領到的 DebugAgent 卡效期 7 天，系統認領後這段期間仍可指定任何靈魂。回歸測試 `tests/unit/test_soul_target_ownership_security.py`、`tests/unit/test_soul_target_bypass_security.py` | ADR-0245 |
+| 非擁有者指定別人的靈魂（HIGH） | 已登入但不是擁有者的使用者（含 `/auth/register` 自助註冊、註冊後立即可用）或別的代理 token，把 `model` 或 `X-Touka-Soul-ID` 指向別人的靈魂，就會被套上人設、注入家對話與前情摘要，並用伺服器金鑰呼叫模型；群聊 `@別名`、子代理 `sub_model=<靈魂>` 同一根因（MonitorLayer 認出靈魂後只是不換身分，SoulLayer 注入時不看擁有權） | 授權閘道 `require_soul_access` 驗兩次：MonitorLayer 解析出靈魂目標後，與 SoulLayer 注入前（對真的要注入的靈魂 ID）。人類要擁有該靈魂或是 admin，代理只能是靈魂本身或 DebugAgent（admin 經 X-Agent-ID 代打保留 admin 權），否則 403 `AUTH_PERMISSION_DENIED`。再審補上的繞法：CustomModelLayer 跳過靈魂請求，同名自訂模型（標頭指自己的靈魂＋model 指別人同名的自訂模型）換不掉目標；自訂模型建立、改名拒絕靈魂名稱（409）；子代理組裝時去掉繼承的靈魂與 session 標頭，臨時身分指定靈魂一律拒絕；計分卡 `model` 是靈魂時路由先用真正的呼叫者驗。群聊每位成員同樣檢查（`can_drive_soul`），一位不行整輪不派發。SNS 程式內部路徑沒有身分、不經 HTTP 閘，照舊（群聊的部分 2026-11-21 補上，見 ADR-0327）。殘留：首裝前領到的 DebugAgent 卡效期 7 天，系統認領後這段期間仍可指定任何靈魂。回歸測試 `tests/unit/test_soul_target_ownership_security.py`、`tests/unit/test_soul_target_bypass_security.py` | ADR-0245 |
 | 自訂模型路徑穿越（HIGH） | `custom_soul` 路徑直接拼 `custom/<ID>`、不擋穿越：聊天 `model="../soul/<靈魂>"`（Windows 另有 `..\soul\<靈魂>`）會把靈魂目錄的設定當成自訂模型讀進來；經 `POST /ui/custom_models/<ID>`（Windows 用反斜線）：Owner 代理或 admin 建立新的 `..\..\<名稱>` 會在資料夾外建目錄、寫檔（沙盒測試修補前實際寫到沙盒外）；admin（或通過擁有權檢查的代理）「更新」`..\soul\<靈魂>` 會改寫靈魂的 `config.json` | `custom_soul` 路徑必須留在 `custom/` 底下（禁令 17，`validate_no_symlink_escape`／`is_relative_to`），否則回 None、讀寫都不做；建立與改名時新 ID 含 `/`、`\` 或 `..` 回 422 `VALIDATION_ERROR`。回歸測試 `tests/unit/test_soul_target_bypass_security.py` | ADR-0245 |
 | session 歸屬（MEDIUM） | 靈魂對話的前情摘要只用 session_id 查、不看 session 屬於誰；沒帶 `ui_persistence` 的舊串流路徑也只用 session_id 把回覆寫回。擁有 Bob 的人送「model／標頭 Bob＋別人 session 的 session_id」，就讀到對方的前情摘要，回覆還寫進對方的 session、連 session 綁的 agent 都被改成 Bob；用一般模型帶別人的 session_id，回覆一樣會寫進去；SNS 的 session ID（`sns_{platform}_{channel}`）可預測 | SoulLayer 判定 session 綁定：session 綁的 agent（經 `identify_agent` 正規化）等於要注入的靈魂、且呼叫者能驅動它（`can_drive_soul`），才注入前情摘要；舊串流路徑的靈魂回覆也只在綁定成立時寫回；一般模型對話寫回前照路由的 session 存取規則（`can_access_session`，路由與 dispatcher 共用）。`can_access_session`（R-U2-SESSION 修正）：admin／Debugger 全放行、人類是 session owner 本人放行、**非人類代理只接受 session 綁的 agent 等於自己**（不走 `is_owner` 的無擁有者／30 天分支）、其餘人類走 `is_owner`。沒有權限就不建 buffer、不寫回、不觸發滑動視窗、不回 403。`connect_mcp_server`／`activate_skill` 寫 session 前要求綁定等於執行中的 agent 且 upsert 不改綁定（R-U2-SESSION attack_b）；`set_home`（R-U2-SESSION 再審第 2、3 次 attack_d／前綴標籤）檢查只加不減：復原「呼叫者能用 `req.agent_id`」（擋 `ToukaSoul<X>`／`ToukaGroup` 無人擁有的標籤）＋目標 session 存在（404）＋`identify_agent` 正規化後綁定等於 `req.agent_id`＋呼叫者能存取目標 session，否則 403。MonitorLayer 清中斷旗標移到授權之後。`ui_persistence` 路徑（已驗擁有者）不變；SNS 請求不帶 session_id，照舊。回歸測試 `tests/unit/test_session_binding_security.py`、`tests/unit/test_session_binding_attack_security.py` | ADR-0245 |
 | 跨廠商備援 | 主要模型失敗時只比名稱就改用上次能用的模型，請求可能被送到使用者沒選的廠商 | 只有兩者路由家族相同且可判定才備援，否則回原錯誤 | ADR-0241 |
@@ -970,7 +981,7 @@ ADR-0239 唯讀盤點找到的子程序缺口。每項先有失敗測試，回�
 - **Guest 退役**：原本同時給未登入訪客、自訂模型與子代理用的 Guest 角色移除；子代理改用專屬的 `Subagent`，工具清單逐項照抄原 Guest（`test_guest_role_retirement.py`）。
 - **非靈魂沒有代理權限**：只有靈魂、DebugAgent、DispatchAgent 套用覆寫、類型規則與能力；自訂模型、群聊或任意 ID 一律 Base、沒有工具與能力，因此也不能被心跳喚醒（`test_soul_only_agent_roles.py`）。
 - **X-Agent-ID 只切靈魂**：擁有者或管理員用標頭切向非靈魂 ID 一律 403。`POST /identity` 拒絕為其他 ID 寫覆寫（422），`Subagent`／`System` 不可指派。
-- **群聊只限靈魂**：別名只解析到靈魂，原始模型 ID 與 regex 不再展開；SNS `@別名` 同樣只到靈魂（`test_group_soul_only.py`）。
+- **群聊只限靈魂**：別名只解析到靈魂，原始模型 ID 與 regex 不再展開；SNS `@別名` 同樣只到靈魂（`test_group_soul_only.py`），而且只到機器人擁有者的靈魂（ADR-0327，`test_sns_reach_security.py`）。
 - **非擁有者不能指定別人的靈魂**（後續修補）：見產品修復表「非擁有者指定別人的靈魂（HIGH）」「自訂模型路徑穿越（HIGH）」「session 歸屬（MEDIUM）」三列；群聊每位成員同樣檢查（`test_soul_target_ownership_security.py`、`test_soul_target_bypass_security.py`）。
 - **心跳白名單降級錯誤**：把靈魂加進白名單時不再寫成 `Base` 覆寫（`HeartbeatWhitelist.test.tsx`）。
 
@@ -1039,7 +1050,7 @@ openai SDK 3.24 為 Responses API 新加入（3b）；建構前就照 Claude 的
 
 | 位置 | 原有缺口 | 修復摘要 |
 |------|----------|----------|
-| `services/mainline_service.py`、`services/soul_service.py` | 換家後、交接完成前，舊家原文會放進新家、子對話、群聊與心跳（在家時）的請求；沒有界線的話，舊內容裡的要求會像這一輪的指令 | 每段舊家原文包一層 `source="old_home_pending_handover"` 的歷史資料界線（`mark_history`，同家原文的中和規則），只送角色與內容；總量有上限（`OLD_HOME_TOKEN_BUDGET`，只帶尾端）；`tests/unit/test_mainline_service.py`。殘留：SNS 家模式、SNS 獨立頻道（對方都是外人）與 SNS 群聊的請求也帶舊家原文，和家原文、前情一樣（維護者 2026-11-07 決定 PR 1 照帶；2026-11-08 再確認，只有子對話回報不進 SNS，見下一節）；群聊白名單裡別的擁有者的靈魂被外人 @ 時，那個靈魂的家原文與舊家尾端也會進回給外人的請求（家原文是既有行為），2b 不動，列在路線圖候選（維護者 2026-11-08）。 |
+| `services/mainline_service.py`、`services/soul_service.py` | 換家後、交接完成前，舊家原文會放進新家、子對話、群聊與心跳（在家時）的請求；沒有界線的話，舊內容裡的要求會像這一輪的指令 | 每段舊家原文包一層 `source="old_home_pending_handover"` 的歷史資料界線（`mark_history`，同家原文的中和規則），只送角色與內容；總量有上限（`OLD_HOME_TOKEN_BUDGET`，只帶尾端）；`tests/unit/test_mainline_service.py`。殘留：SNS 家模式、SNS 獨立頻道（對方都是外人）與 SNS 群聊的請求也帶舊家原文，和家原文、前情一樣（維護者 2026-11-07 決定 PR 1 照帶；2026-11-08 再確認，只有子對話回報不進 SNS，見下一節）；群聊白名單裡別的擁有者的靈魂被外人 @ 時，那個靈魂的家原文與舊家尾端也會進回給外人的請求（家原文是既有行為），2b 不動，列在路線圖候選（維護者 2026-11-08）；2026-11-21 已修（ADR-0327）：外人只叫得到機器人擁有者的靈魂。 |
 | `services/proxy_service.py`、`utils/async_db.py`、`routers/ui_interjections.py`、`routers/heartbeat.py`、`routers/ui_sessions.py` | 以前換家只清家標記，舊家還能開新的一輪、插話、換到別的靈魂或被刪，內容離開主線也沒有紀錄 | 舊家由交接紀錄推導；共同入口在 hook 之前擋、准入交易再驗、新增插話與心跳（家模式、頻道、指定、重跑）擋、換靈魂擋、交接開始後（這段舊家最新一筆紀錄交接中、完成、失敗或做到某一步）存檔閘擋寫入、交接完成前不能刪；內部頻道不能設成家；讀不到紀錄時這一輪失敗（不放寬）；`tests/unit/test_old_home_gates.py`、`test_home_transitions.py`、`test_heartbeat_session_scope_security.py` |
 | `middleware/layers/monitor.py`、`services/proxy_service.py`、`utils/async_db.py` | 審查第 1 輪：對話編號放在標頭（`x-touka-session-id`、`x-toukachat-session-id`）時共同入口整個跳過舊家檢查，舊家能開新的一輪；共同入口在確認請求者能用這段對話之前就記新家開始用、回「是不是舊家」，知道編號的人能把別人沒用過的新家記成開始用，也能探測 | 對話編號由 `turn_session_id` 解析（本文、兩個標頭），MonitorLayer 與共同入口同一個答案；`check_old_home` 帶請求者身分，用和存檔相同的歸屬與權限規則（`_session_access`），不能用時什麼都不寫、不回舊家狀態，交給後面的層照原樣拒絕；`tests/unit/test_old_home_gates.py::test_a_session_id_sent_in_a_header_is_checked_the_same_way`、`test_a_caller_who_cannot_use_the_conversation_learns_and_marks_nothing` |
 | `utils/async_db.py` | 審查第 2 輪：對話列的 `agent_id` 是舊前綴（`ToukaSoulX`）時，人類擁有者比對逐字失敗，共同入口當成「不能用」而略過舊家檢查；後面各層卻把前綴正規化後代打寫入，從 IDE 舊路徑或外部相容路徑送出就能在舊家開新的一輪、回覆寫進舊家 | `_session_access` 另外接受「能驅動這段對話正規化後的靈魂」的請求者（`can_drive_soul`：擁有者、admin、靈魂本身、DebugAgent），和後面各層放行到呼叫模型的條件一致，舊家照樣擋；記新家「開始用」只限這一輪存得進去的請求者（通過存檔檢查或人類），DebugAgent、代打別的靈魂的非人類身分不記（審查第 3 輪），人工測試不會改到別的靈魂的紀錄；不能驅動的人照舊什麼都不知道；`tests/unit/test_old_home_gates.py::test_a_legacy_prefixed_old_home_is_refused_to_whoever_can_drive_the_soul`、`test_only_a_caller_whose_turn_is_saved_marks_the_new_home_started` |

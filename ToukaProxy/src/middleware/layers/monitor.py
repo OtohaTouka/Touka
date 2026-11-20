@@ -130,8 +130,9 @@ class MonitorLayer(ProxyLayer):
                 )
 
         # 3.6 目標是靈魂時先驗呼叫者（ADR-0245 修補），不行就在套人設、家對話之前 403。
-        # 沒有身分只會是不經 HTTP 閘的程式內部路徑（SNS）；HTTP 聊天端點已由
-        # require_authenticated 保證有身分。
+        # 沒有身分只會是不經 HTTP 閘的程式內部路徑（SNS）：單一靈魂的目標已由閘道照
+        # sns_may_reach 決定；「@名字」群聊由群聊分發器照 sns_soul 檢查（ADR-0327）。
+        # HTTP 聊天端點已由 require_authenticated 保證有身分。
         caller = ctx.get("identity")
         if is_toukasoul and caller is not None:
             require_soul_access(caller, AgentIdentity(agent_id=target_agent_id))

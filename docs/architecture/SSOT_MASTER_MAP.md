@@ -58,7 +58,7 @@
 - 區字串（交給沙盒規則、argv、部署條目的資料）：`ResourceManager.zone_text`；回傳或收區字串的函式由 `tests/lint/test_zone_path_guard.py` 的 TF 算出，釘在 `ZONE_TEXT_PRODUCERS`／`ZONE_TEXT_RECEIVERS`，去處只准 `G4_DESTINATIONS`／`G4_ALLOWED`（ADR-0293 PR 2）。
 - sandbox state 根（ST）：RM 的 `_state_setting_or_default`（`_zone_roots` 用）與 `sandbox_state_root`；Touka 要在 ST 讀寫的路徑只經 `services/isolation/profiles.proxy_state_zone`／`proxy_state_owner`（版面與 RM 不一致時在建資料夾前丟 `ProfileError`）。
 - 技能名稱：`utils/isolation_policy.is_skill_segment`（`validate_skill_id`、`tool_root`、`SkillService._skill_dir` 與 `SkillModel` 都只經它；執行器保留名單引用 `sandbox_kernel/spec.listing_kind`）。`config/skills/<名稱>` 只經 `SkillService._skill_dir` 解析（另擋只差大小寫的別名，目錄名稱用 `ResourceManager.list_child_names`）；更新、安裝、刪除時的系統技能保護只經 `SkillService._refuse_system_skill`（`_is_system_skill`）；內建系統技能名稱 `RESERVED_SYSTEM_SKILL_IDS` 定義在 `skill_service`，`SkillLayer` 引用同一份。演化技能資料夾的 `ZonePath` 由 `EvolutionPathGuard.tool_zone` 交出。
-- 靈魂與代理人名稱（ADR-0303）：拼路徑前一律 `is_zone_segment`。靈魂資料夾只經 `SoulService._soul_dir`，名稱要逐字出現在目錄列表，別名不算靈魂。名稱與別名檢查只經 `soul_io`：新的代理人 ID（靈魂、自訂模型）用 `check_new_agent_name`（`soul`、`legacy`、`custom`、`stats` 與個人空間；不收 `~`），刪除用 `check_soul_name`，編輯既有靈魂用 `check_soul_folder_name`；個人空間用區內走訪。目標代理人的「認得」檢查只經 `agent_service.check_known_target`，內容快照與舊對話端點共用（範圍是代理人清單）。`is_owner` 的「逐字已知」判斷是 `agent_service.is_known_id`（不含群組這類設定項目）。靈魂資料夾名稱以根目錄修改時間為鍵快取，最多沿用 2 秒，只用來確認名稱在列表裡，不在就重列。非人類編輯靈魂的同一擁有者判斷是 `authorization_gateway.shares_human_owner`。解析前比對磁碟或分享開頭，只經 `memory_server.utils.drive_bound.same_drive`（Windows 原樣交給系統的內部路徑寫法一律不收），檔案工具 `_enforce_root_bound` 與 `ResourceManager.is_within_workspace` 共用。
+- 靈魂與代理人名稱（ADR-0303）：拼路徑前一律 `is_zone_segment`。靈魂資料夾只經 `SoulService._soul_dir`，名稱要逐字出現在目錄列表，別名不算靈魂。名稱與別名檢查只經 `soul_io`：新的代理人 ID（靈魂、自訂模型）用 `check_new_agent_name`（`soul`、`legacy`、`custom`、`stats` 與個人空間；不收 `~`），刪除用 `check_soul_name`，編輯既有靈魂用 `check_soul_folder_name`；個人空間用區內走訪。目標代理人的「認得」檢查只經 `agent_service.check_known_target`，內容快照與舊對話端點共用（範圍是代理人清單）。`is_owner` 的「逐字已知」判斷是 `agent_service.is_known_id`（不含群組這類設定項目）。靈魂資料夾名稱以根目錄修改時間為鍵快取，最多沿用 2 秒，只用來確認名稱在列表裡，不在就重列。非人類編輯靈魂的同一擁有者判斷是 `authorization_gateway.shares_human_owner`。SNS 外人叫得到哪些靈魂另見 §3-K（ADR-0327）的 `sns_may_reach`，兩者不能互相替代。解析前比對磁碟或分享開頭，只經 `memory_server.utils.drive_bound.same_drive`（Windows 原樣交給系統的內部路徑寫法一律不收），檔案工具 `_enforce_root_bound` 與 `ResourceManager.is_within_workspace` 共用。
 - 破壞性操作前的連結檢查：`services/agent_reset/orchestrator.refuse_linked_drive`（重置、刪除靈魂、刪除與改名自訂模型共用，錯誤碼 `AGENT_DRIVE_LINKED`）；停掉代理人的指令：`tools/terminal.stop_agent_commands`；改名 `ResourceManager.rename_agent_container`，刪自訂模型資料夾 `ResourceManager.remove_custom_model_dir`；刪除自訂模型資料夾只經 `routers/custom_models._remove_model_dir`（刪除路由、`/v1/models` 的刪除與建立失敗的回滾都經它）。
 - 設了 `vault_jail_arg` 的 MCP 伺服器：`services/mcp_vault_jail.apply` 以固定原因拒絕（`tool_executor` 在審批卡與 hook 之前呼叫）。
 - 例外被產品程式接住也看得到：`zone_paths.add_observer`／`report`（`ZoneEvent`）；測試期間的絆線與紀錄在 `tests/support/`，換 data 根只經 `zone_data_root` fixture 與 `tests/support/zone_roots.point_zone_roots`。
@@ -705,6 +705,14 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | `ToukaProxy/src/services/agent_leftovers.py` | 清掉以名字為鍵、靈魂刪了還留著的東西：建立時 `clear_for_new_soul`（排程→身分對照→統計，失敗就不建立）、刪除時 `remove_stats_on_soul_delete` 與鎖外的 `remove_schedules_after_delete`（15 秒，不往外丟）。系統用的排程橋只在這裡建。 |
 | `ToukaProxy/src/services/mission_boards.py` 的 `is_unclaimed`／`new_board_unclaimed` | 「這個名字沒人用」的唯一判斷，清看板與清殘留共用。 |
 | `ToukaProxy/src/services/permission_service.py` 的 `edit_identity_map`、`remove_agent_overrides` | 身分對照的唯一寫入口：行程鎖內重讀磁碟、改、原子寫入、立刻重載。檔案讀不到或不是物件時，`edit_identity_map` 把 None 交給呼叫端決定（`remove_agent_overrides` 不寫；`/identity` 存檔照寫管理員送來的內容）。 |
+
+### 3-K. 資訊安全守衛層：SNS 外人叫得到的靈魂（ADR-0327）
+
+| 來源 | 責任與使用邊界 |
+|---|---|
+| `ToukaProxy/src/utils/sns_reach.py` 的 `sns_may_reach` | 機器人綁的靈魂的外人能不能叫到某個靈魂：同一個靈魂可以，否則來源要恰好一位人類擁有者、而且這位也擁有目標。閘道「不加 @ 轉給別的靈魂」與群聊分發器共用。和 `authorization_gateway.shares_human_owner` 不同（多了同一個靈魂、來源恰好一位擁有者），不能互相替代。 |
+| `ToukaProxy/src/models/context.py` 的 `PipelineContext.sns_soul` | 只由 SNS 閘道寫入（機器人綁的靈魂，正式化過）；群聊沒有呼叫者身分時的檢查依據，有身分時不讀。 |
+| `ToukaProxy/src/services/dispatchers/group.py` 的 `_refusal` | 群聊名單的唯一放行判斷：有身分用 `can_drive_soul`，沒有身分照 `sns_soul` 用 `sns_may_reach`，兩者都沒有就不派發。 |
 
 ### 4. 工具調用大一統 (Unified Tooling SSOT)
 *   **調用模式**: 系統全面收攏為 **Command-Action Dispatcher** 模式。

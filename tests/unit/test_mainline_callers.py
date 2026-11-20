@@ -28,7 +28,7 @@ from src.utils import soul_prelude_db as db_mod
 from src.utils.async_db import SessionSnapshot
 from src.utils.soul_prelude_db import PreludeSegment
 
-from tests.support.session_scope import A, seed
+from tests.support.session_scope import ADMIN, A, seed
 from tests.support.session_scope import scope_db as scope_db
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("scope_db")]
@@ -136,7 +136,13 @@ async def test_group_hands_the_right_mode_to_the_mainline(monkeypatch, incognito
     request = OpenAIChatRequest(
         model="ToukaGroup", messages=[OpenAIMessage(role="user", content="@小愛 早")]
     )
-    ctx = PipelineContext(incognito=incognito, sns_source=sns)
+    # 群聊要有身分；SNS 進來的沒有身分，帶機器人綁的靈魂（ADR-0327）
+    ctx = PipelineContext(
+        incognito=incognito,
+        sns_source=sns,
+        identity=None if sns else ADMIN,
+        sns_soul=A.agent_id if sns else None,
+    )
     async for _chunk in group.dispatch_group_stream(request, "req-g", 0.0, ctx):
         pass
     assert modes == [mode]

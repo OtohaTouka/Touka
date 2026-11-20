@@ -25,6 +25,9 @@ from src.tools.builtin.research import research
 
 from tests.helpers.claude_stream import delegate_stream_to_create
 
+# 群聊要有呼叫者身分（ADR-0327）
+GROUP_ADMIN = AgentIdentity.for_role("group-admin", "admin", is_human=True)
+
 
 def _text_response(text: str) -> MagicMock:
     """組裝一個「純文字、無工具」的 Claude 回應（用於觸發 ReAct 續跑）。"""
@@ -245,7 +248,9 @@ async def test_group_dispatcher_emits_group_progress(monkeypatch):
     )
 
     chunks = []
-    async for chunk in dispatch_group_stream(request, "req-group-1", 0.0, PipelineContext()):
+    async for chunk in dispatch_group_stream(
+        request, "req-group-1", 0.0, PipelineContext(identity=GROUP_ADMIN)
+    ):
         chunks.append(chunk)
 
     group_evs = []

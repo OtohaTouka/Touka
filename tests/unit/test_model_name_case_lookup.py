@@ -284,7 +284,8 @@ async def test_group_member_uses_the_connection_original_name(
     request = OpenAIChatRequest(
         model="ToukaGroup", messages=[OpenAIMessage(role="user", content="@A hi")]
     )
-    _ = [c async for c in group.dispatch_group_stream(request, "r", 0.0, PipelineContext())]
+    ctx = PipelineContext(identity=AgentIdentity.for_role("group-admin", "admin", is_human=True))
+    _ = [c async for c in group.dispatch_group_stream(request, "r", 0.0, ctx)]
     assert models == [QWEN]
 
 

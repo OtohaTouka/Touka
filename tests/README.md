@@ -306,6 +306,7 @@ tests/
 | `test_mission_board_out_of_agent_reach_security.py` ⭐ | （ADR-0325）任務看板在 `data/missions/<逐字編號的雜湊>.json`，不在任何代理人資料夾：檔名與鎖名、不是單一段的編號、舊位置的假看板不被讀、路上有連結時讀寫拒絕、督導照舊讀 DispatchAgent 看板、只差大小寫的兩個編號各有各的看板、刪除與搬移看板（搬移時改寫 `agent_id`、同編號不動、讀不懂的原樣搬）。 |
 | `test_mission_board_migration.py` | （ADR-0325）升級後舊看板只搬一次：搬過去並刪舊檔、記號、不覆蓋、壞看板與連結略過並記錯誤、`agent_id` 只差大小寫或是改名前的舊編號時改寫、讀回不一致、列不完整不寫記號、系統編號被設成 Owner、候選順序（含 Linux 上模擬不分大小寫的磁碟）、啟動時在外部 MCP 之前且失敗不擋啟動。 |
 | `test_mission_board_lifecycle.py` | （ADR-0325）看板跟著代理人走：刪除靈魂與自訂模型、同名與只差大小寫的舊模型（刪除與改名）、改名搬看板與失敗回滾、建立時清殘留看板（所有拒絕檢查之後）、別的身分有看板時 409、判斷讀不到時不建立（含 users.json 壞掉）、重置、備份與還原、個人資料匯出。 |
+| `test_sns_reach_security.py` ⭐ | （ADR-0327）SNS 外人只叫得到機器人擁有者的靈魂：Telegram 只剩 `/start`、試著 `/switch` 後訊息仍交給綁的靈魂；`sns_may_reach` 的各種情況；真的閘道接真的群聊分發器：別的擁有者的靈魂、整句拒絕、同一位擁有者照常、`ToukaSoul` 前綴、沒有或兩位擁有者、沿用的名單、讀不到使用者清單、沒有身分也沒有 `sns_soul`；閘道只在換目標時讀使用者清單 |
 | `test_samename_takeover_security.py` ⭐ | （ADR-0326 PR 1）刪掉的靈魂留下的東西不給同名的新靈魂：用真的 ToukaHeartbeat app（ASGI，不連網路），刪除與兩條建立路徑的排程、身分設定、統計；拒絕在清除之前（兩條建立路徑）；名字有人用時不清（模型清單停用、離線的也算）；刪除時統計與鎖外清排程失敗都不擋（含意料外的例外）、15 秒上限；轉換資料夾也擋人類同名；身分對照從磁碟重讀、立刻生效、兩個寫入交錯不互蓋；排程逐筆刪的版本衝突與次數上限；用編輯建立的兩道撞名檢查；自訂模型聊天身分仍是人類。 |
 | `test_mission_board_write_deny_security.py` ⭐ | （ADR-0324）AI 的檔案工具不能改任務看板：寫入類動作與 write／edit／insert／delete 碰根目錄的 `missions/`（大小寫、子資料夾、`..`、絕對路徑）都被拒、檔不變、回結構化 permission_denied 並建議 mission_tools；相似名稱照常可寫、讀照常、系統經 MissionManager 照常存看板 |
 | `test_terminal_auth.py` | C8：終端機 `approve`/`reject` 端點 JWT + 角色驗證 |

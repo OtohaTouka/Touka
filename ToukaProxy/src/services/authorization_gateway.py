@@ -134,7 +134,8 @@ def shares_human_owner(target: AgentIdentity, caller: AgentIdentity) -> bool:
     """有一位人類使用者同時擁有 ``target`` 與 ``caller``（``owned_agents`` 逐字比對）。
 
     非人類用「編輯靈魂」改別的靈魂時用（sec-9 PR 1b、ADR-0303）：切成靈魂的使用者只能改自己
-    擁有的靈魂；沒有擁有者的靈魂不算。
+    擁有的靈魂；沒有擁有者的靈魂不算。SNS 外人能叫到哪些靈魂另有 ``utils.sns_reach.sns_may_reach``
+    （多了同一個靈魂直接成立、來源恰好一位擁有者，ADR-0327），不能互相替代。
     """
     return any(
         target.agent_id in user.owned_agents and caller.agent_id in user.owned_agents
