@@ -11,7 +11,7 @@
 - `POST /v1/souls` 與 `POST /v1/souls/{soul_id}`（用編輯建立新資料夾）：所有拒絕檢查之後、名字不屬於任何代理人時，先清這個名字的心跳排程、身分覆寫、統計，再清看板（ADR-0325）。心跳位址設定了卻連不上、結果不明或寫錯時，回排程橋的錯誤（例如 502 `HEARTBEAT_UPSTREAM_FAILED`），什麼都不建；身分覆寫或統計清不掉回 500 `SYSTEM_ERROR`。沒設心跳位址時不檢查排程。
 - `POST /v1/souls/{soul_id}` 建立新資料夾或轉換既有資料夾：和人類帳號同名回 422 `VALIDATION_ERROR`、和有 `config.json` 的自訂模型同名回 409 `MODEL_ALREADY_EXISTS`（和 `POST /v1/souls` 一樣）。建立新資料夾時名字還在某人的擁有清單或模型清單裡，算修復既有靈魂，排程、身分覆寫、統計、看板都不清。
 - `POST /v1/identity`：畫面上看不到的舊覆寫在寫入鎖內從磁碟讀（不讀快取），剛被刪除靈魂清掉的不會寫回；格式不對的舊覆寫略過。回應不變。
-- 參數、成功回應形狀不變；OpenAPI 只有 `POST /v1/identity` 的說明多一行。
+- 參數、成功回應形狀不變；OpenAPI 只有說明文字改變：`POST /v1/identity` 多一行、`DELETE /v1/souls/{soul_id}` 的清除範圍。
 
 ## 子代理的結果講清楚（2026-11-16，ADR-0318 PR 1）
 
