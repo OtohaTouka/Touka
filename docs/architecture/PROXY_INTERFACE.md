@@ -551,7 +551,7 @@ GET 回裸 list，輸出型別預設以正確呈現 sparse 舊排程；ETag 保�
 POST 為 upsert，mutation 必須 If-Match；bridge 先取得當前 revision／所有權，HB 在同一 transaction lock 內再驗，
 競態回409且無副作用。沒有重新啟用 Proxy scheduler。
 
-固定 `HEARTBEAT_EXTERNAL_URL` origin、拒絕 userinfo/query/fragment、無 redirect、單送且整體10秒。
+固定 `HEARTBEAT_EXTERNAL_URL` origin（路徑只收空的、`/`、`/trigger`，取主機與埠；compose 預設帶 `/trigger`，2026-11-20）、拒絕 userinfo/query/fragment、無 redirect、單送且整體10秒。
 空 shared secret 不送 HTTP；服務401/403轉上游失敗，mutation timeout回結果未知。
 只有新 schedules APIRoute 對 RequestValidationError 做安全轉碼，不回 input/content/ctx；其他路由契約不擴改。
 HB模型由純SSOT生成投影；出貨error example補齊舊選定registry的缺項，保留既有覆寫且不寫回。

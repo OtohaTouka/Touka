@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 import jwt
@@ -26,6 +28,17 @@ from ToukaHeartbeat.token_provider import StorageTokenProvider
 SIGNING_KEY = "synthetic-heartbeat-bridge-signing-key"
 SERVICE_SECRET = "synthetic-heartbeat-bridge-service"  # noqa: S105
 ORIGIN = "http://heartbeat-fixture.invalid:8082"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+_COMPOSE_DEFAULT = re.compile(r"HEARTBEAT_EXTERNAL_URL=\$\{HEARTBEAT_INTERNAL_URL:-([^}]+)\}")
+_ROOT_EXAMPLE_VALUE = re.compile(r"^HEARTBEAT_INTERNAL_URL=(\S+)$", re.MULTILINE)
+_PROXY_EXAMPLE_COMMENT = re.compile(r"^# HEARTBEAT_EXTERNAL_URL=(\S+)$", re.MULTILINE)
+# Every place that ships a value for the Proxy's Heartbeat address.
+_SHIPPED_ADDRESSES = (
+    ("docker-compose.yml", _COMPOSE_DEFAULT),
+    ("docker-compose.ghcr.yml", _COMPOSE_DEFAULT),
+    (".env.example", _ROOT_EXAMPLE_VALUE),
+    ("ToukaProxy/.env.example", _PROXY_EXAMPLE_COMMENT),
+)
 
 
 @pytest.fixture
@@ -297,6 +310,16 @@ def test_mutation_timeout_reports_unknown_and_is_never_resent(bridge_app) -> Non
         "http://user@heartbeat-fixture.invalid",
         "http://heartbeat-fixture.invalid?x=1",
         "http://heartbeat-fixture.invalid#fragment",
+        # Only the Heartbeat root or its /trigger address: a service secret must not
+        # reach another service mounted under some other path on the same host.
+        "http://heartbeat-fixture.invalid/touka-hb/trigger",
+        "http://heartbeat-fixture.invalid/v1/heartbeat/awaken",
+        "http://heartbeat-fixture.invalid/trigger/",
+        "http://heartbeat-fixture.invalid/Trigger",
+        "http://heartbeat-fixture.invalid/trigger;x",
+        # Compared as written: a later decode or normalise step must not let these in.
+        "http://heartbeat-fixture.invalid/%74rigger",
+        "http://heartbeat-fixture.invalid//trigger",
     ],
 )
 def test_bridge_rejects_ambiguous_fixed_origin_before_outbound(
@@ -306,3 +329,60 @@ def test_bridge_rejects_ambiguous_fixed_origin_before_outbound(
     monkeypatch.setattr(router, "HEARTBEAT_EXTERNAL_URL", origin)
     assert client.get("/v1/heartbeat/schedules", headers=auth()).status_code == 502
     assert requests == []
+
+
+@pytest.mark.parametrize("path", ["", "/", "/trigger"])
+def test_bridge_uses_the_host_of_the_heartbeat_root_or_trigger_address(
+    bridge_app, monkeypatch: pytest.MonkeyPatch, path
+) -> None:
+    client, _storage, requests, _controls, _users_path = bridge_app
+    monkeypatch.setattr(router, "HEARTBEAT_EXTERNAL_URL", ORIGIN + path)
+    response = client.get("/v1/heartbeat/schedules", headers=auth())
+    assert response.status_code == 200, response.text
+    assert [str(request.url) for request in requests] == [ORIGIN + "/v1/schedules"]
+
+
+def test_bridge_keeps_an_ipv6_heartbeat_host(bridge_app, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, _storage, requests, _controls, _users_path = bridge_app
+    monkeypatch.setattr(router, "HEARTBEAT_EXTERNAL_URL", "http://[::1]:8082/trigger")
+    response = client.get("/v1/heartbeat/schedules", headers=auth())
+    assert response.status_code == 200, response.text
+    assert [str(request.url) for request in requests] == ["http://[::1]:8082/v1/schedules"]
+
+
+def test_every_file_that_ships_the_heartbeat_address_is_checked() -> None:
+    """A new deployment file that sets the address must join _SHIPPED_ADDRESSES."""
+    candidates = [
+        *REPO_ROOT.glob("docker-compose*.yml"),
+        *REPO_ROOT.glob("*/docker-compose*.yml"),
+        *REPO_ROOT.glob(".env.example"),
+        *REPO_ROOT.glob("*/.env.example"),
+    ]
+    setting = re.compile(r"HEARTBEAT_(?:EXTERNAL|INTERNAL)_URL=")
+    found = {
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in candidates
+        if setting.search(path.read_text(encoding="utf-8"))
+    }
+    assert found == {relative_path for relative_path, _pattern in _SHIPPED_ADDRESSES}
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "pattern"),
+    _SHIPPED_ADDRESSES,
+    ids=[relative_path for relative_path, _pattern in _SHIPPED_ADDRESSES],
+)
+def test_bridge_accepts_the_shipped_heartbeat_address(
+    bridge_app, monkeypatch: pytest.MonkeyPatch, relative_path, pattern
+) -> None:
+    """Deployment files are fed in as written, not copied by hand (ADR-0230)."""
+    client, _storage, requests, _controls, _users_path = bridge_app
+    values = pattern.findall((REPO_ROOT / relative_path).read_text(encoding="utf-8"))
+    assert len(values) == 1, relative_path
+    shipped = urlsplit(values[0])
+    monkeypatch.setattr(router, "HEARTBEAT_EXTERNAL_URL", values[0])
+    response = client.get("/v1/heartbeat/schedules", headers=auth())
+    assert response.status_code == 200, response.text
+    assert [str(request.url) for request in requests] == [
+        f"{shipped.scheme}://{shipped.netloc}/v1/schedules"
+    ]

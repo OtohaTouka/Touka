@@ -5,6 +5,8 @@
 - 範圍：Heartbeat／Proxy human bridge／Chat 排程管理；來源候選，未發布／未部署。
 - 前置：[ADR-0229](0229-trusted-tool-execution-classification.md)；[Heartbeat 介面](../HEARTBEAT_INTERFACE.md)。
 
+> 🔧 **2026-11-20 補充（同名接手計畫 PR 0，見 [CHANGELOG](../../CHANGELOG.md)）**：固定 origin 可以寫成心跳服務的 `/trigger` 位址（compose 與 `.env.example` 出貨的寫法 `http://touka-heartbeat:8082/trigger`），bridge 取它的主機與埠。路徑只收空的、`/`、`/trigger`，其他照舊拒絕，免得服務金鑰送到同一台主機上別的路徑。在這之前，Docker 預設設定下 bridge 一建立就拒絕，排程頁一直回 502。
+
 ## 問題
 
 舊 StorageService 將缺檔、讀取與解析失敗合併成預設設定，可能以新 token 或空排程
@@ -53,7 +55,7 @@ HB 在交易 lock 內 CAS 檢查，衝突 409 且副作用零，包含查無 ID 
 既有 secret caller 可不帶 If-Match，保留相容性。
 Proxy GET 將已驗證預設 active/mode 等輸出給 UI；HB 原 bytes／presence／opaque ETag 不改。
 
-bridge 只連固定驗證 origin，拒絕 userinfo/query/fragment、不跟 redirect、單送、整體 10 秒。
+bridge 只連固定驗證 origin（可寫成 `/trigger` 位址，見上方 2026-11-20 補充），拒絕 userinfo/query/fragment、不跟 redirect、單送、整體 10 秒。
 空 secret 不送 HTTP；service 401/403 不偽裝成人類登入失敗；mutation timeout 回結果未知。
 新 schedules 路由的 validation error 不回傳原 input/content/ctx，其他舊路由錯誤契約不擴改。
 

@@ -13,6 +13,12 @@ from src.models.heartbeat_schedule import HeartbeatSchedule, schedules_revision
 
 _SCHEDULES = TypeAdapter(list[HeartbeatSchedule])
 _OUTBOUND_TIMEOUT_SECONDS = 10.0
+# The shipped Heartbeat address is its trigger URL (docker-compose*.yml and
+# .env.example write ``http://touka-heartbeat:8082/trigger``). Schedules live on
+# the same root, so that one path maps to its host. Any other path is refused:
+# the service secret must not reach another service under a path on that host.
+_HEARTBEAT_TRIGGER_PATH = "/trigger"
+_ACCEPTED_ADDRESS_PATHS = frozenset({"", "/", _HEARTBEAT_TRIGGER_PATH})
 _SAFE_PHASES = frozenset(
     {
         "read",
@@ -54,7 +60,7 @@ class HeartbeatScheduleBridge:
                 or parsed.password is not None
                 or parsed.query
                 or parsed.fragment
-                or parsed.path not in {"", "/"}
+                or parsed.path not in _ACCEPTED_ADDRESS_PATHS
             ):
                 raise ToukaException(ErrorCode.HEARTBEAT_UPSTREAM_FAILED)
             _ = parsed.port  # Property access validates a supplied port.
