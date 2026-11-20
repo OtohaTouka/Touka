@@ -41,7 +41,6 @@ class TelegramAdapter(BaseSNSAdapter):
         super().__init__(token, agent_id)
         self.is_multi_agent = is_multi_agent
         self.session_mode = session_mode
-        self.current_agent_override: str | None = None
 
         self.application = ApplicationBuilder().token(self.token).build()
 
@@ -50,19 +49,8 @@ class TelegramAdapter(BaseSNSAdapter):
             if update.message:
                 await update.message.reply_text("Hello! I am your Touka proxy bot (Unified Mode).")
 
-        async def switch_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-            """處理 /switch 指令以手動切換代理人."""
-            if not update.message:
-                return
-
-            if not context.args:
-                await update.message.reply_text("請提供要切換的 Agent ID，例如: /switch AgentName")
-                return
-
-            new_agent = context.args[0]
-            self.current_agent_override = new_agent
-            await update.message.reply_text(f"已手動切換至 Agent: {new_agent}")
-
+        # 沒有 /switch：任何外人都能用它把整台機器人換到任何代理人（ADR-0327）。
+        # 要找同一位擁有者的別的靈魂，在訊息裡寫它的名字或「@名字」。
         async def respond_to_message(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
             """處理一般文字訊息."""
             if not update.message or not update.message.text:
@@ -90,24 +78,14 @@ class TelegramAdapter(BaseSNSAdapter):
                     **telegram_sender_fields(update),
                 )
 
-                # 2. 處理 Agent Override
-                original_agent_id = self.agent_id
-                if self.current_agent_override:
-                    self.agent_id = self.current_agent_override
-
-                # 3. 交給 Gateway 處理 (SRP)
-                try:
-                    await sns_gateway.on_event(self, event, self.session_mode)
-                finally:
-                    # 恢復原始設定
-                    self.agent_id = original_agent_id
+                # 2. 交給 Gateway 處理 (SRP)；一律用機器人綁的靈魂
+                await sns_gateway.on_event(self, event, self.session_mode)
 
             except Exception:
                 logger.exception("Telegram Gateway error during message processing")
                 await update.message.reply_text("❌ 內部錯誤，請稍後再試。")
 
         self.application.add_handler(CommandHandler("start", start_command))
-        self.application.add_handler(CommandHandler("switch", switch_command))
         self.application.add_handler(
             MessageHandler(filters.TEXT & (~filters.COMMAND), respond_to_message)
         )

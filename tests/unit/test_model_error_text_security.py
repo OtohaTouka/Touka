@@ -460,7 +460,11 @@ async def test_plain_group_sends_the_masked_text_out_but_not_to_the_next_member(
     request = OpenAIChatRequest(
         model="ToukaGroup", messages=[OpenAIMessage(role="user", content="@Alice @Bob 哈囉")]
     )
-    context = PipelineContext(session_id="sess-mask-group", agent_id="Alice")
+    context = PipelineContext(
+        session_id="sess-mask-group",
+        agent_id="Alice",
+        identity=AgentIdentity.for_role("group-admin", "admin", is_human=True),
+    )
     chunks: list[str] = []
     with patch("src.handlers.react_core.ToolExecutor"):
         async for chunk in dispatch_group_stream(request, "req-group", 0.0, context):

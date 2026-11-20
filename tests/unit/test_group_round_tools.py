@@ -321,6 +321,9 @@ def test_an_incognito_group_says_incognito() -> None:
 
 ROSTER = [{"name": "A", "id": "Alice"}, {"name": "B", "id": "Bob"}]
 
+# 群聊要有呼叫者身分（ADR-0327）
+GROUP_ADMIN = AgentIdentity.for_role("group-admin", "admin", is_human=True)
+
 
 def _install(
     monkeypatch: pytest.MonkeyPatch,
@@ -372,7 +375,9 @@ def _text(chunks: list[str]) -> str:
 
 async def _run(messages: list[OpenAIMessage], ctx: PipelineContext | None = None) -> list[str]:
     request = OpenAIChatRequest(model="ToukaGroup", messages=messages)
-    stream = group.dispatch_group_stream(request, "r", 0.0, ctx or PipelineContext())
+    stream = group.dispatch_group_stream(
+        request, "r", 0.0, ctx or PipelineContext(identity=GROUP_ADMIN)
+    )
     return [chunk async for chunk in stream]
 
 
@@ -397,7 +402,7 @@ async def test_members_get_the_conversation_id_so_stop_reaches_them(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     seen = _install(monkeypatch, {"Alice": ["好"], "Bob": ["嗯"]})
-    await _run([_user("@A @B 早")], PipelineContext(session_id="sess-g"))
+    await _run([_user("@A @B 早")], PipelineContext(session_id="sess-g", identity=GROUP_ADMIN))
     assert [kwargs.get("session_id") for _request, kwargs in seen] == ["sess-g", "sess-g"]
 
 
@@ -467,7 +472,10 @@ async def test_an_sns_group_still_sends_the_fixed_text_without_the_mark(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install(monkeypatch, {"Bob": ["嗯"]}, fail={"Alice": "固定失敗文字"})
-    out = _text(await _run([_user("@A @B 早")], PipelineContext(sns_source=True)))
+    owner = SimpleNamespace(owned_agents=["Alice", "Bob"])  # 機器人的擁有者也擁有 Bob
+    monkeypatch.setattr(group.AuthService, "get_all_users", lambda _self: [owner])
+    ctx = PipelineContext(sns_source=True, sns_soul="Alice")
+    out = _text(await _run([_user("@A @B 早")], ctx))
     assert "固定失敗文字" in out
     assert "這一輪出錯：" not in out
 

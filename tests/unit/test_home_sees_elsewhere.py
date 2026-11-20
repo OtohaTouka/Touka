@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from collections import OrderedDict
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -124,6 +125,9 @@ async def test_the_snapshot_counts_turns_elsewhere_in_the_window(sandbox_db: Any
 
 ROSTER = [{"name": "A", "id": "Alice"}, {"name": "B", "id": "Bob"}]
 
+# 群聊要有呼叫者身分（ADR-0327）
+GROUP_ADMIN = AgentIdentity.for_role("group-admin", "admin", is_human=True)
+
 
 def _install(monkeypatch: pytest.MonkeyPatch, *, fail: set[str] = frozenset()) -> None:
     monkeypatch.setattr(group, "parse_group_roster", lambda *_a: ROSTER)
@@ -162,8 +166,8 @@ async def test_a_plain_group_records_each_member_who_spoke(
     monkeypatch: pytest.MonkeyPatch, recorded: list[Any]
 ) -> None:
     _install(monkeypatch, fail={"Bob"})
-    await _run_group(PipelineContext(session_id="sess-g"))
-    await _run_group(PipelineContext(session_id="sess-g"))
+    await _run_group(PipelineContext(session_id="sess-g", identity=GROUP_ADMIN))
+    await _run_group(PipelineContext(session_id="sess-g", identity=GROUP_ADMIN))
     # 對話編號是用戶端送的：只存雜湊，不存原字串（審查 L2）
     assert recorded == [("Alice", "group_turn", ce.hashed_ref("sess-g"), None)] * 2
 
@@ -172,7 +176,7 @@ async def test_an_api_group_without_a_conversation_uses_a_fixed_subject(
     monkeypatch: pytest.MonkeyPatch, recorded: list[Any]
 ) -> None:
     _install(monkeypatch)
-    await _run_group(PipelineContext())
+    await _run_group(PipelineContext(identity=GROUP_ADMIN))
     assert recorded == [
         ("Alice", "group_turn", ce.GROUP_NO_SESSION_SUBJECT, None),
         ("Bob", "group_turn", ce.GROUP_NO_SESSION_SUBJECT, None),
@@ -183,7 +187,7 @@ async def test_an_incognito_group_records_nothing(
     monkeypatch: pytest.MonkeyPatch, recorded: list[Any]
 ) -> None:
     _install(monkeypatch)
-    await _run_group(PipelineContext(session_id="sess-g", incognito=True))
+    await _run_group(PipelineContext(session_id="sess-g", incognito=True, identity=GROUP_ADMIN))
     assert recorded == []
 
 
@@ -191,7 +195,9 @@ async def test_an_sns_group_leaves_the_members_who_spoke_to_the_gateway(
     monkeypatch: pytest.MonkeyPatch, recorded: list[Any]
 ) -> None:
     _install(monkeypatch, fail={"Bob"})
-    ctx = PipelineContext(sns_source=True)
+    owner = SimpleNamespace(owned_agents=["Alice", "Bob"])  # 機器人的擁有者也擁有 Bob
+    monkeypatch.setattr(group.AuthService, "get_all_users", lambda _self: [owner])
+    ctx = PipelineContext(sns_source=True, sns_soul="Alice")
     await _run_group(ctx)
     assert recorded == []  # 經 SNS 的群聊不記 group_turn
     assert [soul.agent_id for soul in ce.group_spoken_souls(ctx)] == ["Alice"]

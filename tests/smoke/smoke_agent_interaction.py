@@ -29,6 +29,7 @@ if str(MEMORY_SRC_DIR) not in sys.path:
 # Import core components
 from src.adapters.schemas import OpenAIChatRequest, OpenAIMessage
 from src.models.context import PipelineContext
+from src.models.identity import AgentIdentity
 from src.services.dispatchers.group import dispatch_group_stream  # noqa: E402
 from src.utils.group_member_view import PEER_HEADER_TEMPLATE
 
@@ -100,7 +101,10 @@ async def run_agent_interaction_smoke_test():
 
         # Execute dispatcher
         responses = []
-        async for chunk in dispatch_group_stream(request, "test-req-id", 0.0, PipelineContext(**{"is_native": True})):
+        # 群聊要有呼叫者身分（ADR-0327）
+        admin = AgentIdentity.for_role("group-admin", "admin", is_human=True)
+        ctx = PipelineContext(is_native=True, identity=admin)
+        async for chunk in dispatch_group_stream(request, "test-req-id", 0.0, ctx):
             responses.append(chunk)
 
         # 3. 驗證斷言 (Assertions)

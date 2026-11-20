@@ -2,6 +2,13 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## SNS 外人只叫得到機器人擁有者的靈魂；拿掉 Telegram `/switch`（2026-11-21，ADR-0327）
+
+- Telegram 只剩 `/start`；打 `/switch` 沒有反應，訊息一律用機器人綁的靈魂。
+- SNS 的「@名字」群聊：成員要是機器人綁的靈魂，或機器人唯一的人類擁有者也擁有的靈魂（`utils/sns_reach.sns_may_reach`，和不加 @ 轉給別的靈魂同一條規則）。有一位不行整輪不派發，串流內回「群聊只限這個機器人的擁有者的靈魂。」（讀不到使用者清單也是這句）。
+- `PipelineContext.sns_soul`：SNS 閘道寫入機器人綁的靈魂（正式化過的編號）。群聊沒有呼叫者身分時照它檢查；有身分時不讀。沒有身分也沒有 `sns_soul` 的群聊不派發，回「群聊需要身分，這一輪不派發。」
+- HTTP 端點、有身分的群聊（網頁、IDE、心跳）不變；沒有新端點、新錯誤碼，OpenAPI 不變。
+
 ## 刪掉的靈魂留下的東西不給同名的新靈魂（2026-11-20，ADR-0326 PR 1）
 
 - `DELETE /v1/souls/{soul_id}`：
@@ -150,7 +157,7 @@
 - HTTP 歸屬拒絕為 403 `SESSION_SCOPE_MISMATCH`（1221）；UI 條件保存沿既有 `persistence.status="failed", error_code=1221` 外形，不把每個保存拒絕改成 HTTP 403。stale revision 沿 `SESSION_SAVE_FAILED`，不明保存為 `unknown`。明示串流准入衝突回 409、不明回 503；生成／保存終態仍分開，保存成功帶提交後 revision。
 - UI 不可建立 `touka.` ID，admin 亦同；保留頻道也不能換綁。心跳獨立模式的省略／空字串／`pulse_channel_default` 解析為 `touka.hb.v1.<hash>`；SNS 為 `touka.sns.v1.<hash>`，完整雜湊分別涵蓋靈魂與靈魂＋平台＋頻道。舊 `pulse_channel_default`／`sns_*` 保留、不搬、不續寫；詳見 `HEARTBEAT_INTERFACE.md`。
 - 家定位／注入共用 `read_home_snapshot`，驗 `is_home=1` 且正式化的 `agent_id`、`home_for_agent`、請求靈魂三者相同；多家、退休家與矛盾家拒絕，不任取一筆。顯示不回 ID、注入不回歷史；心跳／SNS 不把拒絕當成沒有家。儲存讀取失敗維持 typed persistence failure。
-- SNS 單靈魂偵測僅能指向 adapter 自己，或其唯一人類擁有者同時擁有的靈魂；不確定就拒絕，不借 admin／Debugger 放寬。閘道以可信身分存檔，pipeline 只收固定的目標靈魂 ID 與 `request.session_id`、不帶身分（外人訊息的技能與特權維持零）；assistant 保存失敗不外送，例外原文不送給平台。`ToukaGroup` 不選／不寫單靈魂 session，也未新增群聊儲存。
+- SNS 單靈魂偵測僅能指向 adapter 自己，或其唯一人類擁有者同時擁有的靈魂；不確定就拒絕，不借 admin／Debugger 放寬。閘道以可信身分存檔，pipeline 只收固定的目標靈魂 ID 與 `request.session_id`、不帶身分（外人訊息的技能與特權維持零）；assistant 保存失敗不外送，例外原文不送給平台。`ToukaGroup` 不選／不寫單靈魂 session，也未新增群聊儲存；「@名字」群聊的成員照同一條規則（ADR-0327）。Telegram 沒有 `/switch`。
 - marker 只在受管 INSERT 設 1，舊列預設 0、更新永不提升；部署加欄與重啟會作廢舊 revision，須重讀 snapshot。准入換綁後生成失敗／取消／no_text 不回滾，不能自動重送模型；所有 writer 須一併升級。
 - `POST /v1/souls` 與 `POST /v1/souls/{id}` 補建靈魂時，在寫 config 前、後各以單一交易降低正式 ID／別名的 agent_id 或 home_for_agent 列 marker，第二次涵蓋期間的人類存檔；失敗回固定 `SESSION_SAVE_FAILED`，第二次失敗回滾新靈魂／復原原設定。新增或轉換的 ID 以 `ToukaSoul` 開頭（不分大小寫）時，在降標記前回 `VALIDATION_ERROR`。既有靈魂的一般更新保留 marker；不刪對話、不改內容或擁有者。工具補建仍限同一靈魂，見 ADR-0277。
 - `POST /v1/system/restore/run` 的背景還原先經 ResourceManager 在當次資料根原子寫入 `.session-restore-pending`，寫入失敗不啟動子程序；標記存在時，ui／all 對話搜尋在讀列前回固定 `internal_error`。還原成功或失敗都在報完成或重啟前經 Proxy SessionService 將現存對話庫全部 marker 降為 0，成功才刪持久標記；備份不含 DB 亦同。降標記或刪標記失敗以 `failed`／`SYSTEM_BACKUP_FAILED` 回報、不重啟。缺庫不建立，缺表／欄視為無列可降，交正常 startup migration（預設 0）。啟動在 migration 後、服務請求與 bots 前補降待處理還原；失敗保留標記並記固定 `SESSION_RESTORE_RECOVERY_FAILED`，不阻擋啟動、搜尋仍拒絕。還原的 UI 對話不可搜尋，只有還原後新建的能依正常條件搜尋；續寫不恢復舊標記。還原 `.env` 改用另一資料根不在此保護範圍，見 ADR-0277。
@@ -245,11 +252,11 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 ## 模型溝通層第 2a 段：只留靈魂（ADR-0245）
 
 - 聊天要登入：`/messages`、`/chat/completions`（含 `/v1`）沒有已驗證身分回 401 `AUTH_INVALID_TOKEN`，不進 pipeline；首次安裝前的本機領卡照舊（禁令 60）。`/chat/upload` 只放行人類、admin 代打與 Owner／Debugger，其餘回 403 `AUTH_UNAUTHORIZED_ACCESS`。
-- 指定靈魂要有權（修補）：`model`、`X-Touka-Soul-ID`、session 連結或身分解析出的目標是靈魂時，人類要擁有它或是 admin，代理只能是靈魂本身或 DebugAgent（admin 經 X-Agent-ID 代打仍算 admin），否則在套人設之前回 403 `AUTH_PERMISSION_DENIED`。群聊每位成員同樣檢查，有一位不行整輪不派發，回串流內錯誤訊息（HTTP 200，和其他群聊錯誤相同）。SNS 內部路徑照舊。SoulLayer 注入前對真的要注入的靈魂再驗一次；同名自訂模型不能換掉已授權的靈魂。`POST /ui/custom_models/{id}` 建立新模型與 `POST /ui/custom_models/{id}/rename` 的新 ID：和靈魂撞名回 409 `MODEL_ALREADY_EXISTS`（ADR-0250 起不分大小寫，也擋和其他自訂模型只差大小寫），含 `/`、反斜線或 `..` 回 422 `VALIDATION_ERROR`。`POST /v1/debug/scorecard/run` 的 `model` 解析成靈魂時，呼叫者也要通過同一條規則，否則 403。沒有新增錯誤碼。
+- 指定靈魂要有權（修補）：`model`、`X-Touka-Soul-ID`、session 連結或身分解析出的目標是靈魂時，人類要擁有它或是 admin，代理只能是靈魂本身或 DebugAgent（admin 經 X-Agent-ID 代打仍算 admin），否則在套人設之前回 403 `AUTH_PERMISSION_DENIED`。群聊每位成員同樣檢查，有一位不行整輪不派發，回串流內錯誤訊息（HTTP 200，和其他群聊錯誤相同）。SNS 內部路徑沒有身分：單一靈魂照上面「SNS 單靈魂偵測」的規則，群聊照機器人綁的靈魂（`sns_soul`）檢查成員；沒有身分也沒有 `sns_soul` 的群聊不派發（ADR-0327）。SoulLayer 注入前對真的要注入的靈魂再驗一次；同名自訂模型不能換掉已授權的靈魂。`POST /ui/custom_models/{id}` 建立新模型與 `POST /ui/custom_models/{id}/rename` 的新 ID：和靈魂撞名回 409 `MODEL_ALREADY_EXISTS`（ADR-0250 起不分大小寫，也擋和其他自訂模型只差大小寫），含 `/`、反斜線或 `..` 回 422 `VALIDATION_ERROR`。`POST /v1/debug/scorecard/run` 的 `model` 解析成靈魂時，呼叫者也要通過同一條規則，否則 403。沒有新增錯誤碼。
 - 代理角色：`Owner`／`Base`／`Subagent`／`Debugger`／`System`（Guest 退役，Subagent 只給 in-process 子代理）。只有靈魂、DebugAgent、DispatchAgent 套用 `identity_map` 的覆寫、類型規則與能力；其他 ID 一律 Base、沒有能力，live 設定的舊值讀取時略過並記 AUDIT 警告、不改檔。舊 `ToukaSoul<靈魂>` 前綴 ID 不算靈魂：token 驗證與 `get_identity` 都解析成 Base、沒有能力。
 - X-Agent-ID 只能切進靈魂：人類 token（擁有者或管理員）帶 X-Agent-ID 指向非靈魂 ID 回 403 `AUTH_PERMISSION_DENIED`；管理員切進靈魂仍是 ADR-0141 選項 A。
 - `/identity`：`GET /identity` 只回這三種 ID 的覆寫；`GET /identity/agents` 只列這三種 ID（附 `effective_role`／`effective_capabilities`）；`POST /identity` 角色只收 `Owner`／`Base`／`Debugger`，覆寫寫給其他 ID 回 422 `VALIDATION_ERROR`，body 帶 `rejected_agent_ids`；檔內被略過的舊覆寫存檔時原樣保留。
-- 群聊：`GET`／`POST /group/whitelist` 只有 `ToukaSoul` 一區（送 `Native`／`Custom` 回 422）；別名只解析到 `agents_registry` 裡經靈魂檢查的成員（白名單值不是靈魂時不退回比對別名本身），群聊與 SNS `@別名` 一律以靈魂身分執行。只驗最新一則 user 訊息的點名；更早歷史裡解析不到的點名略過。
+- 群聊：`GET`／`POST /group/whitelist` 只有 `ToukaSoul` 一區（送 `Native`／`Custom` 回 422）；別名只解析到 `agents_registry` 裡經靈魂檢查的成員（白名單值不是靈魂時不退回比對別名本身），群聊與 SNS `@別名` 一律以靈魂身分執行；SNS `@別名` 只到機器人擁有者的靈魂（ADR-0327）。只驗最新一則 user 訊息的點名；更早歷史裡解析不到的點名略過。
 - 群聊成員看到的訊息（ADR-0322 PR 1）：每位成員組請求時，舊的群聊回合照分發器寫的格式（`**【別名】**：`、成員之間的 `MEMBER_SEPARATOR`）切開，自己的段落是 assistant，別人的包成「群聊成員發言」（固定開頭與結尾，寫明是資料、不是你說的、不是使用者的指示）放在 user 那側，相鄰的 user 合成一則；這一輪已經說過的人也一樣，請求一定以 user 結尾（同一位連續被點兩次時補一句接續發言）。新標記在送給成員的每一則訊息（含家原文、前情）都換成相近字；串流時成員回覆裡偽造的「水平線＋成員標籤」換掉一個字。群聊說明寫出發言順序、自己的位置、之後還有誰、這一句有沒有點名、誰在說話（SNS 群聊：外人）、前情與家原文是私下的背景。使用者這一句沒點名時沿用之前的點名，同一位只回答一次。成員模型失敗時分發器自己送出失敗句，下一位只看到「這一輪出錯，沒有說完」。群聊回合不注入 `<harness_context>`。端點、schema 與錯誤碼不變。
 - 群聊沒有工具（ADR-0323 PR 1）：判斷群聊一律用 `is_group_model`（模型名 `ToukaGroup` 不分大小寫）。群聊回合 ToolLayer 不組伺服器端工具（清單是空的），也不注入工具相關區塊（`<tool_availability>`、`<mcp_unavailable>`、`<validation_protocol>`、`<harness_context>`、`<approval_context>`、`<mission_awareness>`），照舊寫模式、把用戶端帶的工具轉成 OpenAI 形狀；SkillLayer 也不注入任何技能（包括深入研究）。成員身分本來就沒有權限角色，權限不變。群聊說明加一句「群聊裡沒有伺服器端工具」，每位成員多一段只有現在時間與「這是群聊」的 `<continuity>`。一般群聊（不是 SNS）成員失敗時，送出的是段落最後的出錯記號「〔@A 這一輪出錯：說明〕」；自己送歷史的 API 用戶端下一輪送回來時，只認段落最後、別名相符的記號，下一位看到「這一輪出錯」、看不到說明；成員自己寫的同樣寫法在串流時換掉一個字。成員的請求帶這段對話的編號，非 Claude 成員按停止也停得了。端點、schema 與錯誤碼不變。
 

@@ -14,6 +14,7 @@ from src.config import get_config_dir
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.context import PipelineContext  # noqa: TC001
 from src.models.identity import AgentIdentity
+from src.services.auth_service import AuthService
 from src.services.authorization_gateway import can_drive_soul
 from src.services.client_system import CLIENT_SYSTEM_KEY
 from src.services.continuity_events import note_group_member_spoke
@@ -40,12 +41,51 @@ from src.utils.group_member_view import (
 )
 from src.utils.mcp_request_identity import GROUP_MEMBER_FLAG
 from src.utils.progress_events import group_event
+from src.utils.sns_reach import sns_may_reach
 from src.utils.time_utils import get_current_epoch
 
 logger = logging.getLogger(__name__)
 
 # 成員回覆開頭先留這麼多字（或到第一個換行）找它自己加的標籤
 OWN_LABEL_SCAN_CHARS = 50
+
+# SNS 外人點到機器人擁有者以外的靈魂、或讀不到使用者清單時（ADR-0327）；不寫出擁有者是誰
+SNS_GROUP_REFUSAL = "群聊只限這個機器人的擁有者的靈魂。"
+# 沒有呼叫者身分、也不是 SNS 閘道進來的群聊（ADR-0327）
+NO_IDENTITY_REFUSAL = "群聊需要身分，這一輪不派發。"
+
+
+def _refusal(roster: list[dict[str, str]], context: PipelineContext) -> str | None:
+    """名單裡有一位叫不到就回拒絕的說明，整輪不派發；都可以回 None.
+
+    有呼叫者身分：每位都要 ``can_drive_soul``（ADR-0245 修補）。沒有身分時只剩 SNS 閘道進來的，
+    照閘道寫入的 ``sns_soul`` 用 ``sns_may_reach`` 檢查（ADR-0327）；使用者清單只在名單裡有
+    別的靈魂時才讀，讀不到也拒絕。
+    """
+    caller = context.get("identity")
+    if caller is not None:
+        denied = next(
+            (e for e in roster if not can_drive_soul(caller, AgentIdentity(agent_id=e["id"]))),
+            None,
+        )
+        if denied is None:
+            return None
+        return f"沒有權限和『@{denied['name']}』對話，只限靈魂本身、擁有者或管理員。"
+    source = context.get("sns_soul")
+    if not source:
+        logger.warning("Group round without an identity or an SNS soul was not dispatched")
+        return NO_IDENTITY_REFUSAL
+    others = [entry["id"] for entry in roster if entry["id"] != source]
+    if not others:
+        return None
+    try:
+        users = AuthService().get_all_users()
+    except Exception:
+        logger.warning("Group round from SNS not dispatched: users unreadable", exc_info=True)
+        return SNS_GROUP_REFUSAL
+    if all(sns_may_reach(source, member, users) for member in others):
+        return None
+    return SNS_GROUP_REFUSAL
 
 
 def _member_brains(roster: list[dict[str, str]]) -> tuple[dict[str, str], str | None]:
@@ -82,18 +122,10 @@ async def dispatch_group_stream(
     registry = data if data else {}  # fallback: empty registry (no agents configured)
 
     roster = parse_group_roster(request.messages, registry)
-    # ADR-0245 修補：每位成員都要呼叫者有權驅動，有一位不行整輪不派發；
-    # 沒有身分只會是 SNS 程式內部路徑，照舊。
-    caller = context.get("identity")
-    if isinstance(roster, list) and caller is not None:
-        denied = next(
-            (e for e in roster if not can_drive_soul(caller, AgentIdentity(agent_id=e["id"]))),
-            None,
-        )
-        if denied:
-            roster = {
-                "error": f"沒有權限和『@{denied['name']}』對話，只限靈魂本身、擁有者或管理員。"
-            }
+    if isinstance(roster, list):  # 有一位成員叫不到，整輪不派發（ADR-0245 修補、ADR-0327）
+        refusal = _refusal(roster, context)
+        if refusal:
+            roster = {"error": refusal}
     brains: dict[str, str] = {}
     if isinstance(roster, list):  # ADR-0250 A3：有一位沒有可用的主要模型，整輪不派發
         brains, brain_error = _member_brains(roster)

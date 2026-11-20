@@ -27,6 +27,7 @@ if str(MEMORY_SRC_DIR) not in sys.path:
 
 from src.adapters.schemas import OpenAIChatRequest, OpenAIMessage  # noqa: E402
 from src.models.context import PipelineContext  # noqa: E402
+from src.models.identity import AgentIdentity  # noqa: E402
 from src.services.dispatchers.group import dispatch_group_stream  # noqa: E402
 from src.services.group_router import parse_group_roster  # noqa: E402
 from src.services.resource_manager import resource_manager  # noqa: E402
@@ -105,9 +106,10 @@ async def run_group_dispatcher_smoke_test():
         mock_soul.inject_home_messages = AsyncMock()
         
         chunks = []
-        async for chunk in dispatch_group_stream(
-            request, "test_id", 0.0, PipelineContext(is_native=False)
-        ):
+        # 群聊要有呼叫者身分（ADR-0327）
+        admin = AgentIdentity.for_role("group-admin", "admin", is_human=True)
+        ctx = PipelineContext(is_native=False, identity=admin)
+        async for chunk in dispatch_group_stream(request, "test_id", 0.0, ctx):
             chunks.append(chunk)
         
         full_text = ""

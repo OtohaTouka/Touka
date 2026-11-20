@@ -2,6 +2,8 @@
 
 > ADR-0276 修訂對話綁定與 SNS 邊界：家定位／注入必驗同列 agent_id；人類 UI 換綁需兩側授權、家先取消，非人類不得換綁。SNS 使用可信執行身分與每靈魂頻道，跨目標限 adapter 唯一人類擁有者同時擁有的靈魂，群聊不寫單靈魂 session。
 
+> 🔧 **[ADR-0327](0327-sns-reach-only-the-bot-owners-souls.md) 修訂（2026-11-21）**：「沒有身分的路徑照舊不檢查」不再適用於群聊：SNS 進來的群聊照機器人綁的靈魂（`sns_soul`）檢查每位成員，沒有身分也沒有 `sns_soul` 的群聊不派發。
+
 - 狀態：✅ 已接受（維護者 2026-10-12 核准模型層總計畫與 AGENTS 大綱）
 - 日期：2026-10-12
 - 決策者：維護者
@@ -83,7 +85,7 @@ R-2a ① 指出：已登入的非擁有者（含自助註冊後立即登入的�
 - **群聊**：成員名單解析完後，每位成員都檢查；有一位不行整輪不派發（連可以的成員也不先講），以群聊既有的串流內錯誤訊息回覆（名單在串流內解析，HTTP 狀態已是 200，和其他群聊錯誤一致）。成員必須是靈魂（`resolve_soul` 的 `is_toukasoul` 檢查）已在 R-2a 修正時加上，本次只補釘出貨範本 HeartbeatTester 的測試。
 - **子代理**：組裝時去掉從父請求繼承的 `x-touka-soul-id`、`x-touka-session-id`、`x-toukachat-session-id`（再審第 2 點：否則 ToukaChat 靈魂對話裡的子代理一律被認成父靈魂而 403，還會清掉父 session 的中斷旗標）。臨時身分 `__subagent_*__` 不是任何靈魂，拿靈魂當 `sub_model` 在組裝時就 403（子代理回 FAILED）；用一般模型照舊。沒指定 `sub_model`、執行器也沒注入模型時（3b-U4b-2 之前 Claude 路由不寫 ctx 的 model），改用父代理的大腦（`get_active_brain`），只取模型名、不帶父靈魂的人設與家對話（再審第 2 次）；ToukaChat 靈魂對話與心跳派生的子代理因此不再以 `__subagent_*__` 當模型名而 `MODEL_NOT_FOUND`。
 - **計分卡**（再審第 3 點）：`/v1/debug/scorecard/run` 在 pipeline 裡以 DebugAgent 跑，所以路由先用真正的呼叫者驗：`model` 解析成靈魂（和 MonitorLayer 共用 `agent_service.identify_model_target`，`@名稱`、`ToukaSoul-` 前綴都算）時要 `require_soul_access`。選這個而不是直接拒絕靈魂模型：ADR-0101 沒有禁止拿靈魂跑計分卡，前端的模型建議清單也可能列出靈魂，擁有者與 admin 原本能跑自己的靈魂，照舊。
-- **沒有身分的路徑**：只剩 SNS 這類程式內部直接呼叫 pipeline 的路徑（不經 HTTP 閘），照舊不檢查；HTTP 聊天端點由第 1 項的 `require_authenticated` 保證一定有身分。
+- **沒有身分的路徑**：只剩 SNS 這類程式內部直接呼叫 pipeline 的路徑（不經 HTTP 閘），照舊不檢查；HTTP 聊天端點由第 1 項的 `require_authenticated` 保證一定有身分。群聊這部分 2026-11-21 由 [ADR-0327](0327-sns-reach-only-the-bot-owners-souls.md) 修訂：SNS 進來的群聊照機器人綁的靈魂（`sns_soul`）檢查每位成員，沒有身分也沒有 `sns_soul` 的群聊不派發。
 - 錯誤碼沿用既有的 `AUTH_PERMISSION_DENIED`、`MODEL_ALREADY_EXISTS`、`VALIDATION_ERROR`，沒有新增錯誤碼，OpenAPI 不重新生成。
 
 剩餘風險：
@@ -91,7 +93,7 @@ R-2a ① 指出：已登入的非擁有者（含自助註冊後立即登入的�
 - **DebugAgent 例外＋首裝前的 LDH 卡**：首裝前本機無卡請求領到的 DebugAgent 卡效期 7 天（R-2a ① 問題 3，既有行為）。系統認領後這 7 天內，拿著這張卡的人仍可指定任何靈魂、對任何靈魂跑計分卡。
 - 靈魂判定（`is_toukasoul`）本身不擋 `../soul/<靈魂>` 這類變形 ID；這種 ID 對不上任何人的 `owned_agents`，一般使用者會被 403，只有 admin 與 DebugAgent 走得過去（他們本來就能指定任何靈魂）。
 - `/v1/models` 仍列出所有靈魂（不看擁有權），非擁有者在選單看得到別人的靈魂名稱，選了才會收到 403。
-- SNS 等內部路徑不檢查，安全性依賴「HTTP 聊天端點一定有身分」；之後若新增不經 `require_authenticated` 的入口呼叫 pipeline，要自己帶身分。
+- SNS 等內部路徑不檢查，安全性依賴「HTTP 聊天端點一定有身分」；之後若新增不經 `require_authenticated` 的入口呼叫 pipeline，要自己帶身分。群聊已補上（[ADR-0327](0327-sns-reach-only-the-bot-owners-souls.md)）：沒有身分的群聊一律不派發，SNS 的照 `sns_soul` 檢查。
 - 已存在、和靈魂同名的舊自訂模型不會被改名或刪除；它們不再能蓋過靈魂（MonitorLayer 先認靈魂、CustomModelLayer 跳過靈魂請求），要清掉須使用者手動處理。
 - 父代理沒有大腦設定時（例如人類身分直接跟一般 Claude 模型聊天），沒指定 `sub_model` 的子代理仍會路由失敗（既有問題，本次未擴大範圍）。
 - 子代理的預設模型：主要情況已修。3b-U4b-2（ADR-0248，附註 35）讓 factory 的 Anthropic 分支也寫入 `context["model"]`，執行器注入的就是父這一輪實際用的模型，心跳 `model_override`、計分卡、admin 或 DebugAgent 驅動別的靈魂都對。剩父這一輪的 context 完全沒有模型的情形，才退回「執行中身分設定的大腦」（`get_active_brain`），那時仍可能和父實際用的模型不同。

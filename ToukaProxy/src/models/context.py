@@ -60,6 +60,10 @@ class PipelineContext(BaseModel):
 
     # SNS 閘道建 context 時標記；模型回合失敗時對外只留固定文字
     sns_source: bool = Field(default=False, description="這一輪來自 SNS 頻道（系統寫入）")
+    # SNS 閘道寫入機器人綁的靈魂；群聊沒有呼叫者身分時照它檢查成員（ADR-0327）
+    sns_soul: str | None = Field(
+        default=None, description="SNS 機器人綁的靈魂，正式化過的編號（系統寫入）"
+    )
 
     # Hook（ADR-0292）：只有真的請求執行 UserPromptSubmit hook；上下文預覽不設
     run_hooks: bool = Field(default=False, description="這次請求要不要執行 UserPromptSubmit hook")

@@ -38,6 +38,9 @@ if TYPE_CHECKING:
 _AWAKEN_KEY = "test_heartbeat_token_for_ci"
 _BRAINS = {"SoulA": "claude-a", "SoulB": None}
 
+# 群聊要有呼叫者身分（ADR-0327）
+GROUP_ADMIN = AgentIdentity.for_role("group-admin", "admin", is_human=True)
+
 
 def _ambiguous_routes(monkeypatch: pytest.MonkeyPatch) -> None:
     route = CustomModelRoute(connection_id="c", endpoint="http://127.0.0.1:1", api_key="",
@@ -86,7 +89,9 @@ async def _group_text() -> str:
         model="ToukaGroup", messages=[OpenAIMessage(role="user", content="@A @B 早")]
     )
     out: list[str] = []
-    async for chunk in group.dispatch_group_stream(request, "req-g", 0.0, PipelineContext()):
+    async for chunk in group.dispatch_group_stream(
+        request, "req-g", 0.0, PipelineContext(identity=GROUP_ADMIN)
+    ):
         payload = chunk.removeprefix("data: ").strip()
         if payload.startswith("{"):
             delta = json.loads(payload).get("choices", [{}])[0].get("delta", {})

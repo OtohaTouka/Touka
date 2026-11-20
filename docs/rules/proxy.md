@@ -94,7 +94,7 @@
 *   **優雅降級意識**: 當記憶系統損壞或整合失敗時，Proxy 應能識別異常並降級至基礎模式，而非持續重試失敗的操作。
 
 ### 12. 群聊別名與身分解耦 (Group Alias & Identity Decoupling) ⭐
-*   **身分解耦與靈魂投影 (Identity Decoupling)** ⭐：系統支援透過 `@別名` 呼叫靈魂。映射由 `group_whitelist.json` 的 `ToukaSoul` 區統籌；群聊成員只限靈魂（別名必須解析到 `agents_registry` 的靈魂），原始模型 ID 與 regex 不再展開，SNS 的 `@別名` 同樣只到靈魂。live 設定裡的舊 `Native`／`Custom` 區讀取時略過並記警告、不改檔（ADR-0245）。
+*   **身分解耦與靈魂投影 (Identity Decoupling)** ⭐：系統支援透過 `@別名` 呼叫靈魂。映射由 `group_whitelist.json` 的 `ToukaSoul` 區統籌；群聊成員只限靈魂（別名必須解析到 `agents_registry` 的靈魂），原始模型 ID 與 regex 不再展開，SNS 的 `@別名` 同樣只到靈魂，而且只到機器人綁的靈魂或它唯一擁有者的靈魂（`sns_may_reach`，ADR-0327）。live 設定裡的舊 `Native`／`Custom` 區讀取時略過並記警告、不改檔（ADR-0245）。
 *   **SSOT 糾偏**：群聊成員 ID 必須是靈魂 ID（與 `agents_registry` 強一致），系統在儲存時自動修正舊格式 ID（如 `ToukaSoulAlice` → `Alice`）。
 
 ### 13. 自主預算大一統與優先級 (Unified Autonomy Budget) ⭐

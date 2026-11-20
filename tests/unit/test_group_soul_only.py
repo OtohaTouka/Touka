@@ -107,7 +107,9 @@ async def _group_text(text: str) -> str:
         model="ToukaGroup", messages=[OpenAIMessage(role="user", content=text)]
     )
     out = []
-    async for chunk in dispatch_group_stream(request, "req-g", 0.0, PipelineContext()):
+    async for chunk in dispatch_group_stream(
+        request, "req-g", 0.0, PipelineContext(identity=ADMIN)
+    ):
         payload = chunk.removeprefix("data: ").strip()
         if payload.startswith("{"):
             delta = json.loads(payload).get("choices", [{}])[0].get("delta", {})
@@ -251,7 +253,7 @@ async def test_group_dispatch_passes_the_recorded_client_system(cfg, streams):
     request = OpenAIChatRequest(
         model="ToukaGroup", messages=[OpenAIMessage(role="user", content="@小愛 哈囉")]
     )
-    ctx = PipelineContext()
+    ctx = PipelineContext(identity=ADMIN)
     ctx[CLIENT_SYSTEM_KEY] = ("外面送的說明",)
     async for _chunk in dispatch_group_stream(request, "req-g", 0.0, ctx):
         pass
@@ -293,7 +295,7 @@ async def _sns_reply(content: str) -> str:
 
         resp = MagicMock()
         resp.body_iterator = (
-            dispatch_group_stream(request, "req-sns", 0.0, PipelineContext())
+            dispatch_group_stream(request, "req-sns", 0.0, ctx)
             if request.model == "ToukaGroup"
             else _empty()
         )
@@ -315,6 +317,7 @@ async def _sns_reply(content: str) -> str:
             side_effect=lambda value: AgentIdentity.for_role(value, "Owner"),
         ),
         patch("src.services.sns_gateway.session_service", session),
+        patch("src.services.sns_gateway.record_sns_turn"),
         patch("src.services.sns_gateway.process_proxy_request", side_effect=_proxy),
     ):
         return await SNSGatewayService().on_event(adapter, event)

@@ -6,6 +6,7 @@
 - 影響範圍：ToukaProxy 的 `utils/session_scope.py`、`utils/async_db.py`、心跳／UI／聊天路由、dispatcher、SNS gateway、滑動視窗、技能與 MCP 啟用工具及啟動 context 注入；Chat 錯誤碼與兩語翻譯；沙盒安全測試。
 - 修訂：修訂 [ADR-0132](0132-session-owner-attribution.md) 的對話寫入授權與人類身分透傳、修訂 [ADR-0231](0231-session-persistence-outcomes-and-revisions.md) 的條件提交與 UI 串流准入、修訂 [ADR-0245](0245-model-layer-stage-2a.md) 的對話綁定與 SNS 目標邊界。人類歸屬欄、持久化結果型別及靈魂驅動權繼續沿用。
 - 相關：ADR-0035／0092（回合後剪裁）、ADR-0230（排程交易與憑證）、ADR-0260（家對話外送欄位）。
+- 後續修訂：[ADR-0327](0327-sns-reach-only-the-bot-owners-souls.md)（2026-11-21）修訂 §4：「`@別名` 群聊仍交給 `ToukaGroup`」之後，群聊成員也照 §4 的同一條規則（`utils/sns_reach.sns_may_reach`）；Telegram `/switch` 已拿掉。
 
 ## 背景
 
@@ -65,7 +66,7 @@ UI `SessionModel.to_changes` 忽略 `is_home`／`home_for_agent`，包括明確�
 
 SNS 單靈魂目標只可為 adapter 本身的正式靈魂，或 adapter 唯一人類擁有者同時擁有的靈魂。查不到唯一擁有者、目標不是靈魂或解析失敗時，跨目標拒絕；不借 Debugger／admin 全域權力放寬。拒絕早於建列、user append、typing、pipeline 與 send。home 模式只有確定沒有家才走該靈魂的 SNS 頻道。
 
-SNS 閘道以可信 `AgentIdentity` 寫入使用者與助理訊息；送入 pipeline 的只有固定的目標靈魂 ID 與 `request.session_id`，不帶身分，所以外人訊息可用的技能與特權維持修補前的零；啟動時注入服務 context，不在事件函式延遲匯入 main。assistant 保存失敗不外送。`@別名` 群聊仍交給 `ToukaGroup`，不選取或寫入任何單靈魂 session，也未新增群聊儲存；每個事件先清除診斷欄位。
+SNS 閘道以可信 `AgentIdentity` 寫入使用者與助理訊息；送入 pipeline 的只有固定的目標靈魂 ID 與 `request.session_id`，不帶身分，所以外人訊息可用的技能與特權維持修補前的零；啟動時注入服務 context，不在事件函式延遲匯入 main。assistant 保存失敗不外送。`@別名` 群聊仍交給 `ToukaGroup`，不選取或寫入任何單靈魂 session，也未新增群聊儲存；每個事件先清除診斷欄位。2026-11-21 修訂（[ADR-0327](0327-sns-reach-only-the-bot-owners-souls.md)）：群聊成員也只限機器人自己的靈魂，或它唯一擁有者也擁有的靈魂（`utils/sns_reach.sns_may_reach`，和單靈魂目標同一條規則）；Telegram `/switch` 已拿掉（它讓任何外人換掉機器人綁的靈魂，等於繞過這裡的來源規則）。
 
 ### 5. 建立標記與未來搜尋
 

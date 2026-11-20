@@ -18,6 +18,7 @@ from src.services.identity_service import identity_service
 from src.services.proxy_service import process_proxy_request
 from src.services.reply_in_flight import replying
 from src.utils.async_db import SessionPersistenceError, session_service
+from src.utils.sns_reach import sns_may_reach
 from src.utils.sns_sender import sns_message_content
 from src.utils.tool_step_collector import ToolStepCollector
 
@@ -168,20 +169,17 @@ class SNSGatewayService:
             if detected:
                 target_agent_id = detected
 
+        # 換到別的靈魂要同一位擁有者（sns_may_reach，ADR-0276 §4）；使用者清單只在換目標時讀
         try:
             source = agent_service.identify_agent(adapter.agent_id)
             target = agent_service.identify_agent(target_agent_id)
             retarget = source and target and source["agent_id"] != target["agent_id"]
-            owners = (
-                [user for user in AuthService().get_all_users()
-                 if source["agent_id"] in user.owned_agents]
-                if retarget else []
-            )
+            users = AuthService().get_all_users() if retarget else []
         except Exception:
             raise ToukaException(ErrorCode.SESSION_SCOPE_MISMATCH) from None
         if (
             not source or not target or not source["is_toukasoul"] or not target["is_toukasoul"]
-            or (retarget and (len(owners) != 1 or target["agent_id"] not in owners[0].owned_agents))
+            or not sns_may_reach(source["agent_id"], target["agent_id"], users)
         ):
             raise ToukaException(ErrorCode.SESSION_SCOPE_MISMATCH)
         target_agent_id = target["agent_id"]
@@ -213,6 +211,8 @@ class SNSGatewayService:
             "session_id": session_id,
             "agent_id": identity.agent_id,
             "sns_source": True,
+            # 機器人綁的靈魂（正式化過）：群聊沒有呼叫者身分時照它檢查成員（ADR-0327）
+            "sns_soul": source["agent_id"],
             # 失敗句由這裡接在外送文字後面，不當成回覆文字存進對話（ADR-0322 PR 2）
             "caller_sends_failure_text": True,
         })

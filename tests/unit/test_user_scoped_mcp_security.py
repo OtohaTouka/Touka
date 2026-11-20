@@ -619,7 +619,7 @@ async def test_group_members_are_marked_so_the_executor_refuses_user_scoped_mcp(
     request = OpenAIChatRequest(
         model=GROUP_MODEL, messages=[OpenAIMessage(role="user", content="@A 早")]
     )
-    ctx = PipelineContext()
+    ctx = PipelineContext(identity=AgentIdentity.for_role("group-admin", "admin", is_human=True))
     ctx["resumable_stream"] = True
 
     async for _chunk in group.dispatch_group_stream(request, "req-g", 0.0, ctx):
