@@ -8,6 +8,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
+| 2026-11-20 | **Docker 裡的心跳排程頁接得上了**：Docker 的預設設定把心跳位址寫成 `http://touka-heartbeat:8082/trigger`，Proxy 管排程的那段卻只收不帶路徑的位址，所以網頁的排程頁（列出、新增、修改、刪除）一直失敗。現在路徑是 `/trigger` 時用它的主機與埠；其他路徑照舊拒絕，免得心跳金鑰送到同一台主機上別的服務。`ToukaProxy/.env.example` 的註解範例原本指向 Proxy 自己，改成心跳服務的位址。測試直接讀 compose 與 `.env.example` 的值餵給程式。 | ADR-0230 補充；同名接手計畫 PR 0 |
 | 2026-11-20 | **任務看板搬到 AI 碰不到的系統資料夾**：任務看板以前存在 AI 自己的個人空間，終端指令（YOLO 加隔離時不用核准）能直接改它，把任務寫成「做完、互審通過」。現在看板在 data 底下的 `missions/`，AI 的工具、終端與外部 MCP 在有隔離時都碰不到，AI 照舊用看板工具讀寫。升級後第一次啟動會把舊看板搬過去並刪掉舊檔；刪除、改名、建立、重置、備份與個人資料匯出都跟著看板走。要更新 Docker 的 ToukaProxy 才生效。 | [ADR-0325](architecture/adr/0325-mission-board-system-folder.md) |
 | 2026-11-20 | **金鑰緊貼中文時也遮得到，紀錄多遮幾種**：送給 AI 的 MCP 資源與提示、備份錯誤輸出、稽核與「做過的事」紀錄，以前前後直接接中文的金鑰（例如「金鑰sk-…」）漏遮，現在照遮；全形空白後面的 Bearer 權杖照樣遮。多認 `Authorization: Basic`、Google、GitHub 新式、Slack、Stripe 的金鑰與 `apiKey` 這類名稱；紀錄裡 `Authorization` 與字串中 `"password": "…"` 的值也遮。帶圖片的訊息裡假的工具紀錄，心跳與摘要器送出前也會換掉。 | [ADR-0324](architecture/adr/0324-subagent-results-out-of-agent-reach.md) |
 | 2026-11-20 | **子代理交回的結果不能再被偽造**：背景子代理的結果以前另存在主代理自己的個人空間，主代理被工具結果裡的指令誘導時，可以先寫一份假結果冒充子代理查證過的結論；現在存到系統暫存，代理人碰不到，最多留 7 天，升級當下還沒讀的結果拿不到。主代理也不能再用檔案工具改任務看板，要改用任務工具。Discord、Telegram 收到的訊息標成來源已由平台驗證，不再每則記一條警告。 | [ADR-0324](architecture/adr/0324-subagent-results-out-of-agent-reach.md) |
