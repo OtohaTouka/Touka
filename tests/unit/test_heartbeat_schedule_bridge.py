@@ -317,6 +317,9 @@ def test_mutation_timeout_reports_unknown_and_is_never_resent(bridge_app) -> Non
         "http://heartbeat-fixture.invalid/trigger/",
         "http://heartbeat-fixture.invalid/Trigger",
         "http://heartbeat-fixture.invalid/trigger;x",
+        # Compared as written: a later decode or normalise step must not let these in.
+        "http://heartbeat-fixture.invalid/%74rigger",
+        "http://heartbeat-fixture.invalid//trigger",
     ],
 )
 def test_bridge_rejects_ambiguous_fixed_origin_before_outbound(
@@ -337,6 +340,31 @@ def test_bridge_uses_the_host_of_the_heartbeat_root_or_trigger_address(
     response = client.get("/v1/heartbeat/schedules", headers=auth())
     assert response.status_code == 200, response.text
     assert [str(request.url) for request in requests] == [ORIGIN + "/v1/schedules"]
+
+
+def test_bridge_keeps_an_ipv6_heartbeat_host(bridge_app, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, _storage, requests, _controls, _users_path = bridge_app
+    monkeypatch.setattr(router, "HEARTBEAT_EXTERNAL_URL", "http://[::1]:8082/trigger")
+    response = client.get("/v1/heartbeat/schedules", headers=auth())
+    assert response.status_code == 200, response.text
+    assert [str(request.url) for request in requests] == ["http://[::1]:8082/v1/schedules"]
+
+
+def test_every_file_that_ships_the_heartbeat_address_is_checked() -> None:
+    """A new deployment file that sets the address must join _SHIPPED_ADDRESSES."""
+    candidates = [
+        *REPO_ROOT.glob("docker-compose*.yml"),
+        *REPO_ROOT.glob("*/docker-compose*.yml"),
+        *REPO_ROOT.glob(".env.example"),
+        *REPO_ROOT.glob("*/.env.example"),
+    ]
+    setting = re.compile(r"HEARTBEAT_(?:EXTERNAL|INTERNAL)_URL=")
+    found = {
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in candidates
+        if setting.search(path.read_text(encoding="utf-8"))
+    }
+    assert found == {relative_path for relative_path, _pattern in _SHIPPED_ADDRESSES}
 
 
 @pytest.mark.parametrize(
