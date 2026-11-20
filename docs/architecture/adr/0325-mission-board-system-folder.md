@@ -56,7 +56,7 @@
 - **重置**：清新位置的看板，也清個人空間的舊 `missions/`；剩餘計數兩邊加總。
 - **備份與還原**：`SANCTUARY_FOLDERS` 加 `missions`（還原清單跟著它）。App 內還原跑完腳本後重啟，下次啟動才看記號。
 - **個人資料匯出**：每個自有代理人經 `MissionManager.get_current_mission`（有鎖、有驗證）讀，有看板就加 `agents/<編號>/mission_board.json`；manifest 的 `included` 加 `agent_mission_board`，匯出 README 的內容清單加一行。
-- **DebugAgent**：看板搬到 `data/missions/<DebugAgent 的雜湊>.json`，不在 `AgentIdentity("DebugAgent")` jail 解析出的路徑裡了（鎖檔從 ADR-0293 起本來就在外面）。人工 live probe 寫 DebugAgent 的看板算不算 ADR-0214 的寫入例外，是維護者的決定（DATA_PROTECTION）；決定之前當成不在例外內，要寫看板的人工 probe 先問。
+- **DebugAgent**：看板搬到 `data/missions/<DebugAgent 的雜湊>.json`，不在 `AgentIdentity("DebugAgent")` jail 解析出的路徑裡了（鎖檔從 ADR-0293 起本來就在外面）。人工 live probe 寫 DebugAgent 的看板不算 ADR-0214 的寫入例外（DATA_PROTECTION；維護者 2026-11-20 決定，總覽板第 95 項），要寫看板的人工 probe 先問。
 - **互審的驗證指令**：以前建看板會順便建出個人空間，現在不會；互審跑驗證指令前先建個人空間（和終端一樣用 `zone_make_dir`，路上有連結照樣拒絕、轉人），不然還沒有其他檔案的代理人會因為工作資料夾不存在而跑不了指令。
 
 ## 沒選的做法
