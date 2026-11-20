@@ -107,7 +107,8 @@ async def run_group_dispatcher_smoke_test():
         
         chunks = []
         # 群聊要有呼叫者身分（ADR-0327）
-        ctx = PipelineContext(is_native=False, identity=AgentIdentity.for_role("group-admin", "admin", is_human=True))
+        admin = AgentIdentity.for_role("group-admin", "admin", is_human=True)
+        ctx = PipelineContext(is_native=False, identity=admin)
         async for chunk in dispatch_group_stream(request, "test_id", 0.0, ctx):
             chunks.append(chunk)
         

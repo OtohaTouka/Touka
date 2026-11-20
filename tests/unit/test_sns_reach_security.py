@@ -363,7 +363,7 @@ async def test_gateway_reads_users_only_to_retarget(users) -> None:
 
 
 async def test_gateway_marks_the_canonical_bot_soul(users) -> None:
-    """閘道把機器人綁的靈魂（正式化過）寫進 ``sns_soul``；外人訊息改不到它."""
+    """閘道把機器人綁的靈魂（正式化過）寫進 ``sns_soul``；外人訊息與服務 context 都蓋不掉."""
     adapter = MagicMock(
         agent_id="ToukaSoulAlice", show_typing=AsyncMock(), send_message=AsyncMock()
     )
@@ -381,7 +381,9 @@ async def test_gateway_marks_the_canonical_bot_soul(users) -> None:
         patch("src.services.sns_gateway.record_sns_turn"),
         patch("src.services.sns_gateway.process_proxy_request", proxy),
     ):
-        await SNSGatewayService().on_event(adapter, event)
+        gateway = SNSGatewayService()
+        gateway.context = {"sns_soul": "Carol"}  # 服務 context 先展開，寫死的欄位在後
+        await gateway.on_event(adapter, event)
     ctx = proxy.await_args.args[1]
     assert ctx.get("sns_soul") == "Alice"
     assert ctx.get("identity") is None
