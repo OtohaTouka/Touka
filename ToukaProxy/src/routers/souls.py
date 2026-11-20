@@ -125,14 +125,15 @@ async def _edit_create_unclaimed(identity: AgentIdentity) -> bool:
     """用編輯建立新資料夾時，名字是否不屬於任何代理人（ADR-0326）.
 
     除了看板用的判斷，名字還在某人的擁有清單或模型清單（``models.json``）裡，就是在修復資料夾
-    不見的既有靈魂：舊東西是它的，不清。
+    不見的既有靈魂：舊東西是它的，不清。模型清單看全部，停用、離線的也算（``get_model_ids`` 只回
+    開啟且在線的，不能用）。
     """
     if not await mission_boards.new_board_unclaimed(identity, refuse_claimed=False):
         return False
     spellings = legacy_spellings(identity.agent_id)
     if any(identity.agent_id in u.owned_agents for u in AuthService().get_all_users()):
         return False
-    return not any(model_id in spellings for model_id in model_manager.get_model_ids())
+    return not any(model.get("id") in spellings for model in model_manager.get_models())
 
 
 @router.post("")
@@ -473,9 +474,11 @@ async def delete_soul(
     """刪除靈魂及其全部 SSOT 面（ADR-0142 D2/D4/D5）：admin 步升＋冪等清除。
 
     清除範圍：三實體目錄（soul／legacy／personal_drive）＋models.json／agents_registry／
-    brain_settings／各使用者 owned_agents／identity_map override。**冪等**——孤兒（空目錄、
-    零註冊）照清、清完 agent_id 可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與
-    記憶 vault 不在此範圍（既有 per-agent 破壞性重置涵蓋）。
+    brain_settings／各使用者 owned_agents／identity_map override（兩種寫法）＋任務看板
+    （ADR-0325）＋統計 ``data/stats/<id>``（刪不掉列進 skipped）＋心跳排程（放開鎖之後，
+    清不掉只記 log；ADR-0326）。**冪等**——孤兒（空目錄、零註冊）照清、清完 agent_id 可重用
+    （直解「建立失敗連清都清不掉」）。聊天 sessions 與記憶 vault 不在此範圍（既有 per-agent
+    破壞性重置涵蓋）。
 
     舊審查報告丙-4（ADR-0287）：從檢查到取消註冊整段持有破壞性操作鎖並標記目標（和重置、
     清除互斥，期間心跳不開跑）；還有心跳在跑就叫它停下、回 409，什麼都不清。

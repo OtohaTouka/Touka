@@ -29,6 +29,7 @@ import pytest
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi.testclient import TestClient
 from memory_server.services.mission_manager import MissionManager, mission_board_path
+from memory_server.utils.zone_paths import ZoneRootsUnavailableError
 from src.config import get_config_dir
 from src.core.exceptions import ErrorCode, ToukaException
 from src.main import app
@@ -342,6 +343,47 @@ async def test_deleting_a_soul_removes_its_stats(
     assert not _stats_dir("StatOld").exists()
 
 
+async def test_stats_failure_on_delete_is_listed_in_skipped(
+    sandbox: Path, admin: tuple[AgentIdentity, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """刪不掉統計（含意料外的例外）不擋刪除，回應的 skipped 列出 stats."""
+    _ = sandbox
+    assert _create("StatOld").status_code == 200
+    _put_stats("StatOld")
+    real_remove_dir = resource_manager.remove_dir
+    stats_dir = _stats_dir("StatOld")
+
+    def _remove_dir(path: Any, *args: Any, **kwargs: Any) -> Any:
+        if Path(path) == stats_dir:
+            raise ZoneRootsUnavailableError
+        return real_remove_dir(path, *args, **kwargs)
+
+    monkeypatch.setattr(resource_manager, "remove_dir", _remove_dir)
+    response = _delete("StatOld", admin)
+    assert response.status_code == 200, response.text
+    assert "stats" in response.json()["skipped"]
+    assert not (Path(resource_manager.get_base_path()) / "soul" / "StatOld").exists()
+
+
+async def test_unexpected_schedule_error_after_delete_is_only_logged(
+    sandbox: Path,
+    admin: tuple[AgentIdentity, str],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """刪除已經做完：鎖外清排程遇到意料外的例外也只記 log，刪除照樣回成功."""
+    _ = sandbox
+    assert _create("OfflineOld").status_code == 200
+
+    async def _broken(_identity: AgentIdentity) -> int:
+        raise RuntimeError
+
+    monkeypatch.setattr(agent_leftovers, "_remove_schedules", _broken)
+    response = _delete("OfflineOld", admin)
+    assert response.status_code == 200, response.text
+    assert "schedules of OfflineOld were not removed" in caplog.text
+
+
 async def test_identity_override_is_removed_on_delete(
     sandbox: Path, admin: tuple[AgentIdentity, str]
 ) -> None:
@@ -503,6 +545,22 @@ async def test_refused_create_touches_nothing(heartbeat: Heartbeat) -> None:
     assert "BadModel" in _disk_overrides()
 
 
+async def test_refused_edit_create_touches_nothing(
+    heartbeat: Heartbeat, sandbox: Path, admin: tuple[AgentIdentity, str]
+) -> None:
+    heartbeat.put(("a", "BadModel"))
+    _leftovers("BadModel")
+    await _put_board("BadModel", "leftover")
+    response = _edit_create("BadModel", admin, base_model="no-such-model")
+    assert response.status_code == 404, response.text
+    assert heartbeat.ids() == ["a"]
+    assert heartbeat.requests == []
+    assert _stats_dir("BadModel").exists()
+    assert "BadModel" in _disk_overrides()
+    assert _goal("BadModel") == "leftover"
+    assert not (sandbox / "soul" / "BadModel").exists()
+
+
 async def test_converting_a_folder_clears_nothing(
     heartbeat: Heartbeat, sandbox: Path, admin: tuple[AgentIdentity, str]
 ) -> None:
@@ -536,6 +594,23 @@ def _claim_in_models(_registry: Path, agent_id: str) -> None:
     model_manager.register_soul_model(agent_id)
 
 
+def _put_models(*models: dict[str, Any]) -> None:
+    (Path(get_config_dir()) / "models.json").write_text(
+        json.dumps({"models": list(models)}), encoding="utf-8"
+    )
+    model_manager.load_initial_config()
+
+
+def _claim_in_models_disabled(_registry: Path, agent_id: str) -> None:
+    """管理員把靈魂模型關掉了：還是它的名字."""
+    _put_models({"id": f"ToukaSoul{agent_id}", "owned_by": "touka", "enabled": False})
+
+
+def _claim_in_models_offline(_registry: Path, agent_id: str) -> None:
+    """不帶前綴的舊寫法，而且很久沒見到（離線）：還是它的名字."""
+    _put_models({"id": agent_id, "owned_by": "touka", "last_seen": 0})
+
+
 @pytest.mark.parametrize(
     ("path", "claim"),
     [
@@ -544,8 +619,17 @@ def _claim_in_models(_registry: Path, agent_id: str) -> None:
         # 擁有清單、模型清單只在用編輯建立時算：create_soul 會用認領清掉擁有清單的殘留
         ("edit", _claim_in_owned_list),
         ("edit", _claim_in_models),
+        ("edit", _claim_in_models_disabled),
+        ("edit", _claim_in_models_offline),
     ],
-    ids=["create-registry", "edit-registry", "edit-owned", "edit-models"],
+    ids=[
+        "create-registry",
+        "edit-registry",
+        "edit-owned",
+        "edit-models",
+        "edit-models-disabled",
+        "edit-models-offline",
+    ],
 )
 async def test_claimed_names_are_not_cleared(
     heartbeat: Heartbeat,
@@ -609,6 +693,23 @@ async def test_edit_create_refuses_a_human_id(
     assert response.status_code == 422, response.text
     assert _code(response) == ErrorCode.VALIDATION_ERROR.value
     assert not (sandbox / "soul" / human.id).exists()
+
+
+async def test_converting_a_folder_refuses_a_human_id(
+    sandbox: Path, admin: tuple[AgentIdentity, str]
+) -> None:
+    human = AuthService().create_user("same-folder@test.com", "SameFolderPass123!", role="normal")
+    folder = sandbox / "soul" / human.id
+    folder.mkdir(parents=True)
+    try:
+        (folder / "config.json").write_text(json.dumps({"is_toukasoul": False}), encoding="utf-8")
+        response = _edit_create(human.id, admin)
+        assert response.status_code == 422, response.text
+        assert _code(response) == ErrorCode.VALIDATION_ERROR.value
+        stored = json.loads((folder / "config.json").read_text("utf-8"))
+        assert stored["is_toukasoul"] is False
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 # --------------------------------------------------------------------------- #

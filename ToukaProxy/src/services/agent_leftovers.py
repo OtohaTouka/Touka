@@ -54,12 +54,16 @@ async def _remove_schedules(identity: AgentIdentity) -> int:
 
 
 def _remove_stats(identity: AgentIdentity) -> bool:
-    """刪 ``data/stats/<編號>``（根本身是連結時 ``remove_dir`` 拒絕）；刪不掉回 False."""
+    """刪 ``data/stats/<編號>``（根本身是連結時 ``remove_dir`` 拒絕）；刪不掉回 False.
+
+    什麼例外都接：刪除靈魂時這步在鎖內，看板已經刪了，不能讓意料外的例外（例如 data 根沒登記的
+    ``RuntimeError``）把刪除變成 500、留下一半；建立時呼叫端把 False 變成 ``SYSTEM_ERROR``。
+    """
     try:
         resource_manager.remove_dir(
             Path(resource_manager.get_stats_path(identity)), missing_ok=True
         )
-    except (OSError, ToukaException):
+    except Exception:
         logger.exception("❌ Stats of %s were not removed", identity.agent_id)
         return False
     return True
@@ -88,7 +92,8 @@ def remove_stats_on_soul_delete(identity: AgentIdentity) -> bool:
 async def remove_schedules_after_delete(identity: AgentIdentity) -> bool:
     """刪除靈魂放開鎖之後刪它的排程；清不掉、逾時都記警告、回 False，不往外丟.
 
-    先確認名字仍然沒人用：放開鎖之後同名的新靈魂可能已經建好，它的排程不能刪。
+    先確認名字仍然沒人用：放開鎖之後同名的新靈魂可能已經建好，它的排程不能刪。這時刪除已經做完，
+    所以什麼例外都接，不讓成功的刪除變成 500。
     """
     try:
         if not mission_boards.is_unclaimed(identity):
@@ -96,10 +101,11 @@ async def remove_schedules_after_delete(identity: AgentIdentity) -> bool:
             return True
         async with asyncio.timeout(SCHEDULE_CLEANUP_SECONDS):
             await _remove_schedules(identity)
-    except (TimeoutError, ToukaException, OSError):
+    except Exception:
         logger.warning(
             "The schedules of %s were not removed; deleting the soul again retries",
             identity.agent_id,
+            exc_info=True,
         )
         return False
     return True

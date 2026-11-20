@@ -704,7 +704,7 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | `ToukaProxy/src/utils/agent_spellings.py` 的 `legacy_spellings` | 一個名字的兩種寫法（`<id>`、`ToukaSoul<id>`；DebugAgent 兩格都是自己）。對話查詢、清排程、清身分對照都用它，SQL 照舊固定 `IN (?, ?)`。 |
 | `ToukaProxy/src/services/agent_leftovers.py` | 清掉以名字為鍵、靈魂刪了還留著的東西：建立時 `clear_for_new_soul`（排程→身分對照→統計，失敗就不建立）、刪除時 `remove_stats_on_soul_delete` 與鎖外的 `remove_schedules_after_delete`（15 秒，不往外丟）。系統用的排程橋只在這裡建。 |
 | `ToukaProxy/src/services/mission_boards.py` 的 `is_unclaimed`／`new_board_unclaimed` | 「這個名字沒人用」的唯一判斷，清看板與清殘留共用。 |
-| `ToukaProxy/src/services/permission_service.py` 的 `edit_identity_map`、`remove_agent_overrides` | 身分對照的唯一寫入口：行程鎖內重讀磁碟、改、原子寫入、立刻重載。讀不到或不是物件時不寫。 |
+| `ToukaProxy/src/services/permission_service.py` 的 `edit_identity_map`、`remove_agent_overrides` | 身分對照的唯一寫入口：行程鎖內重讀磁碟、改、原子寫入、立刻重載。檔案讀不到或不是物件時，`edit_identity_map` 把 None 交給呼叫端決定（`remove_agent_overrides` 不寫；`/identity` 存檔照寫管理員送來的內容）。 |
 
 ### 4. 工具調用大一統 (Unified Tooling SSOT)
 *   **調用模式**: 系統全面收攏為 **Command-Action Dispatcher** 模式。
