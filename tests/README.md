@@ -156,7 +156,7 @@ tests/
 | `unit/test_terminal_agent_stop.py` | 重置與刪除停掉代理人的全部終端指令：行程帶 agent_id 登記、cwd 經 `zone_handoff` 交出；進行中不啟動（`agent_busy`）；`stop_agent_commands` 取消背景與待審批工作並殺掉登記的行程，別的代理人不受影響。spawn 用替身。 |
 | `unit/test_agent_reset_links_security.py` | R15：重置時個人空間根是連結就整個失敗、什麼都不動；`outputs`／`missions` 是連結只刪連結本身；`.touka` 是連結時目錄檔那一項失敗；勾選清除時連結在準備清除之前就被擋、稽核記 `drive_linked`。 |
 | `unit/test_custom_model_links_security.py` | 刪除與改名自訂模型時 `custom/<id>/drive` 是連結就回 409 `AGENT_DRIVE_LINKED`、什麼都不動也不停指令；一般刪除先停這個模型的指令。 |
-| `unit/test_mission_board_links_security.py` | 任務看板不經過連結讀寫（Proxy 工具、ToukaDispatch、`/v1/ui/mission` 三條路），鎖檔放在代理人寫不到的 `<data>/temp/locks/missions/`。 |
+| `unit/test_mission_board_links_security.py` | 任務看板不經過連結讀寫（Proxy 工具、ToukaDispatch、`/v1/ui/mission` 三條路）：個人空間或其中的 `missions/` 換成連結時碰不到看板，`data/missions` 是連結時拒絕（ADR-0325）；鎖檔放在代理人寫不到的 `<data>/temp/locks/missions/`。 |
 | `unit/test_review_evidence_links_security.py` | R15：證據檔所在的資料夾換成連結時這一輪以固定原因轉人，證據摘要不列另一端的檔案。 |
 | `unit/test_grok_imagine_links_security.py` | 生圖工具的 `outputs` 換成連結時整個不存、回錯誤；連 xAI 的請求用假的 client，不連外（禁令 61）。 |
 | `unit/test_manage_backup_links_security.py` | 備份腳本：個人空間與自訂模型備份時不跟隨連結、一次開一個檔案寫進 zip；還原時不跟隨連結寫回；還原只收備份會寫的成員（`SANCTUARY_FOLDERS` 與 data 根的 `*.db`），`temp`、`mcp_servers` 與其他名稱略過並列出，資料夾名稱和代理人資料夾的分流用同一個鍵比對（ADR-0293 PR 2）。 |
@@ -303,6 +303,9 @@ tests/
 | `test_c4_c5_c6_c7_security.py` | C4/C5/C6/C7：路徑穿越、Shell metachar 注入（升級成 CONFIRM 的日誌不含指令的任何片段，禁令 23 同類）、演化工具名稱只經 MCP 協定傳遞、不進程式碼或 argv、Webhook 驗簽框架 |
 | `test_subagent_result_forgery_security.py` ⭐ | （ADR-0324）子代理結果不能被主代理偽造：個人空間舊位置的假結果不被採用（憑證發過照舊等真結果、沒發過回憑證不明、真結果照樣拿到）；結果存在不屬於任何代理人資料夾的系統暫存、檔名不含憑證、別的代理人讀不到、編號大小寫不影響；7 天清理在存、讀與啟動時跑、只清頂層，資料夾不存在時不建，啟動時清理失敗不影響啟動；重置保留清單與匯出的不含清單都列出它 |
 | `test_secret_mask_cjk_security.py` ⭐ | （ADR-0324 PR 2）金鑰遮蔽的缺口：緊貼中文的金鑰、全形與不換行空白後的 Bearer 權杖照遮；新樣式（`Authorization: Basic`、`github_pat_`、Slack、Stripe、`AIza`）各一個會遮、一般文字不遮；`apiKey` 類進共用鍵名；`Authorization` 鍵名與字串裡 `"鍵名": "值"` 只在紀錄裡遮，設定頁照常；怪字母（`ſ`、克耳文符號、`ı`）鍵名兩邊都不遮；`Authorization:` 標頭的值不吃後面的文字、`HTTP_AUTHORIZATION:` 也遮；空白字元集照 Python 與 ECMAScript 規格逐字核對。 |
+| `test_mission_board_out_of_agent_reach_security.py` ⭐ | （ADR-0325）任務看板在 `data/missions/<逐字編號的雜湊>.json`，不在任何代理人資料夾：檔名與鎖名、不是單一段的編號、舊位置的假看板不被讀、路上有連結時讀寫拒絕、督導照舊讀 DispatchAgent 看板、只差大小寫的兩個編號各有各的看板、刪除與搬移看板。 |
+| `test_mission_board_migration.py` | （ADR-0325）升級後舊看板只搬一次：搬過去並刪舊檔、記號、不覆蓋、壞看板與別人的看板與連結略過並記錯誤、`agent_id` 只差大小寫時改寫、讀回不一致、列不完整不寫記號、系統編號被設成 Owner、候選順序、啟動時在外部 MCP 之前且失敗不擋啟動。 |
+| `test_mission_board_lifecycle.py` | （ADR-0325）看板跟著代理人走：刪除靈魂與自訂模型、同名與只差大小寫的舊模型、改名搬看板與失敗回滾、建立時清殘留看板（所有拒絕檢查之後）、別的身分有看板時 409、判斷讀不到時不建立、重置、備份與還原、個人資料匯出。 |
 | `test_mission_board_write_deny_security.py` ⭐ | （ADR-0324）AI 的檔案工具不能改任務看板：寫入類動作與 write／edit／insert／delete 碰根目錄的 `missions/`（大小寫、子資料夾、`..`、絕對路徑）都被拒、檔不變、回結構化 permission_denied 並建議 mission_tools；相似名稱照常可寫、讀照常、系統經 MissionManager 照常存看板 |
 | `test_terminal_auth.py` | C8：終端機 `approve`/`reject` 端點 JWT + 角色驗證 |
 | `test_heartbeat_schedules_auth.py` | C9：Heartbeat `/v1/schedules` Bearer Token 驗證 |

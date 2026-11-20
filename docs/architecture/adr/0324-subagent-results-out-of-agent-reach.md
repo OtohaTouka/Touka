@@ -1,6 +1,6 @@
 # ADR-0324：子代理結果移出代理人寫得到的地方、看板擋檔案工具、SNS 驗證標記、遮罩缺口
 
-- 狀態：✅ 已實作（PR 1：子代理結果、看板擋檔案工具、SNS 驗證標記，2026-11-20；PR 2：遮罩缺口與多段內容的假標記，2026-11-20）
+- 狀態：✅ 已實作（PR 1：子代理結果、看板擋檔案工具、SNS 驗證標記，2026-11-20；PR 2：遮罩缺口與多段內容的假標記，2026-11-20）〔[ADR-0325](0325-mission-board-system-folder.md) 修訂：看板搬到 `data/missions`，決定 3 的「終端還改得到看板」已解決〕
 - 日期：2026-11-19
 - 決策者：維護者（一頁計畫第 2.1 版，總覽板第 92 項回「甲：照 2.1 版做」；保留 7 天、不掛刪除與改名、看板只先擋檔案工具、SNS 不改成拒收，是計畫裡寫明的「我自己定的」）
 - 相關：[ADR-0138](0138-parallel-fanout-and-resumable-delivery.md)（耐久結果）、[ADR-0051](0051-dispatch-callback-channel.md)（等結果的憑證）、[ADR-0293](0293-agent-folders-no-follow.md)（代理人資料夾）、[ADR-0255](0255-personal-drive-catalog.md)（個人空間目錄與 `.touka/` 拒寫）、[ADR-0137](0137-adversarial-review-subsystem.md)（互審關卡）、[ADR-0287](0287-hold-heartbeats-during-destructive-ops.md)（刪除時的子代理）、[ADR-0276](0276-heartbeat-session-scope.md)（SNS 外人）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（遮罩缺口）
@@ -39,7 +39,7 @@
 
 - 檔案動詞的寫入類動作（`write`、`append`、`str_replace`、`delete`；`edit`、`insert`、`undo` 都走這幾個）碰個人空間**根目錄**的 `missions/` 一律拒絕，不分大小寫，比照 `.touka/`。例外 `SystemFolderDeniedError`，Proxy 橋接層回結構化 `permission_denied`，建議改用 mission_tools。讀照常可讀；系統經 `MissionManager` 寫看板不經檔案動詞，不受影響。
 - 資料夾名稱共用 `MISSIONS_DIR_NAME`（`mission_manager`），`personal_catalog.SYSTEM_ROOT_DIRS` 與重置都用它；鎖檔資料夾的 `missions` 意思不同，不併。
-- 只擋這條是因為檔案工具不用核准、最安靜。終端（YOLO 加隔離時不用核准）與能寫個人空間的第三方 MCP 伺服器仍寫得到，要等看板搬到系統資料夾（另一個任務）。
+- 只擋這條是因為檔案工具不用核准、最安靜。終端（YOLO 加隔離時不用核准）與能寫個人空間的第三方 MCP 伺服器仍寫得到，要等看板搬到系統資料夾（另一個任務）。〔已解決：[ADR-0325](0325-mission-board-system-folder.md) 把看板搬到 `data/missions`；這裡的拒寫留著，把 AI 導回 mission_tools〕
 
 ### 4. SNS 驗證標記
 
@@ -94,7 +94,7 @@
 - 刪掉靈魂後，它的子代理結果最多在磁碟上多留 7 天。
 - 被注入的子代理仍能在自己的摘要裡寫一行「System note:」，顯示在 `Result:` 那段裡。
 - 外部派工的憑證會出現在 initialize 的回覆裡，可以用本機回呼送結果；隔離的終端封鎖 Touka 自己的埠擋得住，未隔離的 MCP 擋不住。外部派工目前凍結。
-- 看板仍能經終端與能寫個人空間的 MCP 伺服器直接改（見決定 3）。
+- ~~看板仍能經終端與能寫個人空間的 MCP 伺服器直接改（見決定 3）。~~ 已解決（[ADR-0325](0325-mission-board-system-folder.md)）。
 - 不受專案限制的身分（管理員、Debugger、只有管理員擁有的靈魂）若把專案登記在涵蓋 data 或個人空間的位置，能用專案範圍的檔案動詞寫結果資料夾與看板（檔名用的編號與憑證它都知道）；和 ADR-0292 決定 12 的界線相同，由管理員自己負責不這樣登記。
 - 沒有 `Authorization:` 標頭的短 Bearer（少於 12 字）不遮：「Bearer short」這種一般英文分不出來。`Authorization: token …`、`Digest` 與沒寫 scheme 的值也不遮；不合規格的權杖在第一個規格外的字之後會露出。
 - 鍵名夾看不見的字（`API` 加零寬字元加 `_KEY`）兩邊都不遮：鍵名判斷在換掉看不見的字之前；鍵名是模型自己寫的，值在那一輪已經完整給它看過。

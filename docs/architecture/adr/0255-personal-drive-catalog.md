@@ -1,6 +1,6 @@
 # ADR-0255：記憶系統第一批段 5：個人空間目錄（`.touka/catalog.json`，只當快取）
 
-- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第一批計畫；本 ADR 是段 5；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 補註：`.touka/` 在權限自癒白名單內，只補擁有者位元）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第一批計畫；本 ADR 是段 5；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 補註：`.touka/` 在權限自癒白名單內，只補擁有者位元；[ADR-0325](0325-mission-board-system-folder.md) 修訂：任務看板搬到 `data/missions`，個人空間根目錄的 `missions/` 只剩升級前的舊資料夾）
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaMemory（新 `services/personal_catalog.py`、`protocols.py` 的 `IResourceProxy`、`tools/__init__.py` 的 `vault_tools`、`tools/core_file_ops.py` 的 `core_list`／`core_find`／`core_grep`）；ToukaProxy（`services/resource_manager.py`、vault 橋接層 `tools/vault_tools.py`、重置原語 `services/agent_reset/primitives.py`）；Guard #45 基準（`scripts/native_tool_contract_baseline.json`）

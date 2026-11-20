@@ -270,7 +270,7 @@ proxy.write_file_text(path, content)
     - `test_log`: (update，實作層透傳) 測試執行後的日誌 stdOut。
     - `blocker_detail`: (update，實作層透傳) 任務更新為 `BLOCKED` 或 `FAILED` 時的阻礙細節異常。
 - **跨身分存取特權** ⭐:
-    - 預設下，任何 Agent 只能操作自身的任務看板（受 ResourceManager 物理監獄保護）。
+    - 預設下，任何 Agent 只能操作自身的任務看板。看板在 `<data>/missions/<sha256(逐字編號)>.json`，不在代理人資料夾裡（ADR-0325）：路徑只看編號，經 RM 不跟隨連結的檔案方法讀寫；個人空間根目錄的 `missions/` 只剩升級前的舊資料夾（檔案動詞照舊不能寫）。
     - 當目標 `target_agent_id="DispatchAgent"`，且呼叫方的 `AgentIdentity` 在 `capabilities` 中包含 `"can_supervise_dispatch"`（或者執行者身分本身即為 `DispatchAgent`）時，系統會放行並代理存取 `DispatchAgent` 的看板。
 - **外部 AI 存取路徑（ToukaDispatch）** ⭐:
     - 外部 AI coding 工具改用專用 ToukaDispatch MCP 伺服器（Port 8083）。原 standalone FastMCP 的自動自癒授權機制已於 ADR-0046 C1 修復中永久移除，`ToukaMemory/server.py` 不再提供任務派發工具。

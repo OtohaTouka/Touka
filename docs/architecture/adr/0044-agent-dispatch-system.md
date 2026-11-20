@@ -1,6 +1,6 @@
 # ADR-0044: AI Agent Dispatch Center and Cross-Identity Mission Board Access — AI Agent 工作分派中心系統與跨身分任務看板存取
 
-**狀態**: ✅ 已接受（型別修訂 by [ADR-0045](0045-mission-board-fsm-and-artifacts-decoupling.md)：artifact_ref `str|list|None`→翌日拆為 `str|None`＋`artifact_refs`（0045 §3 已註、此處 §2 補齊部分註記）；跨身分看板存取機制不變）
+**狀態**: ✅ 已接受（型別修訂 by [ADR-0045](0045-mission-board-fsm-and-artifacts-decoupling.md)：artifact_ref `str|list|None`→翌日拆為 `str|None`＋`artifact_refs`（0045 §3 已註、此處 §2 補齊部分註記）；跨身分看板存取機制不變；[ADR-0325](0325-mission-board-system-folder.md) 修訂：看板搬到 `data/missions/<雜湊>.json`，路徑只看編號，督導讀 DispatchAgent 看板不再需要查註冊身分）
 **日期**: 2026-05-25
 **關鍵字**: AI Agent Dispatch System, DispatchAgent, can_supervise_dispatch, MissionManager, FastMCP, Task Schema Extension, Identity Normalization, Security Enforcement
 
@@ -29,7 +29,7 @@
 - **中介代理人**：註冊一個特殊的系統代理人 `DispatchAgent`。它本身不主動活動（不參與排程心跳），僅作為內部 Agent 與外部工具溝通的「看板載體」。
 - **跨身分特權標籤**：在 `identity_map.json` 中，為具備 Supervisor 職責的已存 Agent（如 `DebugAgent`、`Alice`）配置 `"can_supervise_dispatch"` 能力（Capability）：
   - 當 `MissionManager` 接收到存取目標 `target_agent_id="DispatchAgent"` 的請求時，會檢查執行者 `identity.capabilities` 是否含有此標籤。
-  - 若核驗通過，系統會動態將 `resolved_identity` 對應升級為 `DispatchAgent` 的 AgentIdentity 物件，從而使其能夠越過物理監獄，讀寫 `personal/DispatchAgent/missions/current_mission.json`。
+  - 若核驗通過，系統會動態將 `resolved_identity` 對應升級為 `DispatchAgent` 的 AgentIdentity 物件，從而使其能夠越過物理監獄，讀寫 `personal/DispatchAgent/missions/current_mission.json`（[ADR-0325](0325-mission-board-system-folder.md) 起是 `data/missions/<DispatchAgent 的雜湊>.json`）。
   - 未授權的 Agent 存取將直接拋出 `PermissionError` (HTTP 401/403)。
 
 ### 2. 任務看板結構 (Task Schema) 的深度擴展

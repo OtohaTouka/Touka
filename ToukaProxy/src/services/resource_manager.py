@@ -1169,17 +1169,6 @@ class ResourceManager:
             return _agent_zone(Anchor.PERSONAL_DRIVE, identity.agent_id)
         return _agent_zone(Anchor.CUSTOM_DRIVE, identity.agent_id)
 
-    def agent_drive_for(self, agent_id: str) -> ZonePath | None:  # noqa: IDENTITY_SSOT
-        """依 agent_id 找出真實註冊身分後的個人空間（跨身分「決定論」定址，不臆測角色）.
-
-        督導讀 DispatchAgent 看板等跨身分存取：以呼叫端臆測的角色定址，靈魂的看板會被解析到
-        ``custom/`` 那一側。權限由呼叫端集中校驗，這裡只定址。
-        """
-        # 延遲匯入破循環：identity_service → permission_service → resource_manager。
-        from src.services.identity_service import identity_service  # noqa: LOCAL_IMPORT_BAN
-
-        return self.agent_drive(identity_service.get_identity(agent_id))
-
     def soul_drive(self, identity: AgentIdentity) -> ZonePath | None:
         """靈魂的個人空間 ``PERSONAL_DRIVE/<id>``（建立、刪除靈魂用，不看角色；R10）."""
         return _agent_zone(Anchor.PERSONAL_DRIVE, identity.agent_id)

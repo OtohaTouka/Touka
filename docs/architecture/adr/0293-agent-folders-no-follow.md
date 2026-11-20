@@ -1,6 +1,6 @@
 # ADR-0293：代理人資料夾的讀寫不跟隨連結（ZonePath；PR 1：個人空間；PR 2：其他三個錨點）
 
-- 狀態：✅ 已實作（PR 1：`PERSONAL_DRIVE`、`CUSTOM_DRIVE`；PR 2：`MCP_SERVERS`、`DOCGEN_OUTPUT`、`SANDBOX_STATE`，見「PR 2」一節；後續 PR：授與只用字面位置，見最後一節）。ADR-0292 合併後的後續；一頁計畫與技術設計由維護者核准，設計與交件各經 4 位對抗式複審（PR 2 的設計經三輪複審後改由測試與改壞工具判定，交件仍經 4 位複審）。
+- 狀態：✅ 已實作（PR 1：`PERSONAL_DRIVE`、`CUSTOM_DRIVE`；PR 2：`MCP_SERVERS`、`DOCGEN_OUTPUT`、`SANDBOX_STATE`，見「PR 2」一節；後續 PR：授與只用字面位置，見最後一節）。ADR-0292 合併後的後續；一頁計畫與技術設計由維護者核准，設計與交件各經 4 位對抗式複審（PR 2 的設計經三輪複審後改由測試與改壞工具判定，交件仍經 4 位複審）。〔[ADR-0325](0325-mission-board-system-folder.md) 修訂：任務看板搬到 `data/missions`，不再用區內方法；鎖檔改成 `<雜湊>.lock`〕
 - 日期：2026-10-30
 - 決策者：維護者
 - 相關：ADR-0004（路徑 SSOT）、ADR-0013（時間）、ADR-0115（vault-jailed MCP；本 ADR 起這類伺服器的工具呼叫一律拒絕，D1 的注入不再使用）、ADR-0214（測試沙盒）、ADR-0255（個人空間目錄）、ADR-0270（重置）、ADR-0272、0275（隔離層）、ADR-0292（hook；決定 12 的不跟隨連結）。
@@ -41,7 +41,7 @@
    - 刪樹不跟隨連結、不因深度失敗；同一項被來回換的重試有上限，到上限以固定原因失敗（「可能有這個代理人留下的背景程式還在改檔案；請稍後再試，仍失敗請重啟 Touka」）。
    - 新的自訂模型 ID 要能當成區裡的一段（`is_zone_segment`），不然回 422。
    - 自訂模型改名只用 `rename_agent_container`：只做 `renameat`、不複製（跨磁碟失敗），舊名是連結、新名已存在都拒絕。刪除用 `remove_custom_model_dir`。
-8. **改用區內方法的功能**：檔案動詞、個人空間目錄（`.touka`）、任務板（鎖檔搬到 `data/temp/locks/missions/<id>.lock`，代理人寫不到）、派工結果、互審蒐證、重置、刪除靈魂與自訂模型、改名、上傳（含配額走訪）、`/v1/outputs`、生圖、GDPR 匯出、診斷統計、終端的個人空間根、隔離狀態顯示、建立靈魂、儲存狀態檢查、ToukaMemory `manager`、ToukaDispatch 的看板、備份與還原（`manage_backup.py`：走訪不跟隨、寫回用 `write_stream_no_follow` 從根檢查整條路徑、成員名稱逐段檢查；其他成員與 `config/proxy/` 底下的名稱有空段、`.`、`..` 或從根、磁碟代號開始的略過並列出）。舊的字串產生函式（`get_vault_path("personal")` 一類）與 `text_editor`、`get_physical_path` 刪除。
+8. **改用區內方法的功能**：檔案動詞、個人空間目錄（`.touka`）、任務板（鎖檔搬到 `data/temp/locks/missions/<id>.lock`，代理人寫不到；[ADR-0325](0325-mission-board-system-folder.md) 起看板本身搬到 `data/missions/<雜湊>.json`、鎖檔改成 `<雜湊>.lock`，不再用區內方法）、派工結果、互審蒐證、重置、刪除靈魂與自訂模型、改名、上傳（含配額走訪）、`/v1/outputs`、生圖、GDPR 匯出、診斷統計、終端的個人空間根、隔離狀態顯示、建立靈魂、儲存狀態檢查、ToukaMemory `manager`、ToukaDispatch 的看板、備份與還原（`manage_backup.py`：走訪不跟隨、寫回用 `write_stream_no_follow` 從根檢查整條路徑、成員名稱逐段檢查；其他成員與 `config/proxy/` 底下的名稱有空段、`.`、`..` 或從根、磁碟代號開始的略過並列出）。舊的字串產生函式（`get_vault_path("personal")` 一類）與 `text_editor`、`get_physical_path` 刪除。
 9. **vault-jailed MCP**（docgen 一類，ADR-0115）：這類伺服器的 I/O 不經 RM，而且所有代理人共用同一個程序，交出任何根都無法保證不跟隨連結；`base_dir` 同時是讀與寫的根，交別的資料夾會讓產出落錯地方。所以設了 `vault_jail_arg` 的伺服器，工具呼叫在執行器前段（這一輪清單核對之後、政策與審批卡之前）一律以 `VaultJailedToolUnavailableError` 拒絕、不送出，給模型的是結構化 `permission_denied`（`reason: "vault_jailed_tool_unavailable"`）。上傳 PDF、Office 檔時給模型的提示不再叫它用這類工具讀檔。安全的讀寫做法另開任務。
 10. **隔離層的形狀判斷**改呼叫 `zone_of`／`contains_zone`／`anchor_at`：`profiles._own_drive`（只收自己的 `PERSONAL_DRIVE/<id>` 或 `CUSTOM_DRIVE/<id>/drive`，路上有連結拒絕）、`_in_own_drive`（取代 `grantable_roots`）、`mcp_profiles` 的個人空間引用、`mcp_origin.agent_influenced`、`repair.match_whitelist`。結果和以前相同，只有一處變嚴：Windows 上 `custom/<id>/DRIVE` 以前因大小寫被判成代理人影響不到。隔離狀態顯示先看錨點有沒有掛進執行器，再看 `zone_kind`。
 11. **靜態檢查**（`tests/lint/test_zone_path_guard.py`）：

@@ -1,10 +1,12 @@
 """Cross-platform async mission lock (ADR-0049).
 
 Combines asyncio.Lock (in-process) with AsyncFileLock (cross-process) for safe
-read-modify-write access to current_mission.json from multiple processes.
+read-modify-write access to a mission board from multiple processes.
 
 Both ToukaProxy (DispatchAgent) and ToukaDispatch (external AI via MCP) may
-write to current_mission.json concurrently; asyncio.Lock alone is insufficient.
+write to the same board concurrently; asyncio.Lock alone is insufficient.
+The board is ``<data>/missions/<hash>.json`` and its lock file is
+``<data>/temp/locks/missions/<hash>.lock`` (hash of the exact agent id, ADR-0325).
 """
 from __future__ import annotations
 

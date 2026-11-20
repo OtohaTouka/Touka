@@ -17,7 +17,7 @@ from src.models.custom_models import (  # noqa: TC001
 )
 from src.models.identity import SYSTEM_AGENT_IDS, AgentIdentity  # noqa: TC001
 from src.routers.system import restore_in_progress
-from src.services import destructive_ops, memory_collection_guard
+from src.services import destructive_ops, memory_collection_guard, mission_boards
 from src.services.agent_reset.orchestrator import destructive_op, refuse_linked_drive
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import require_privileged
@@ -114,10 +114,37 @@ async def _remove_model_dir(model: AgentIdentity, *, rollback: bool = False) -> 
 
     建立失敗的回滾（``rollback``）只標記：別的代理人正在重置時也要清掉寫了一半的新資料夾，
     不然介面刪不到它、同一個 ID 也不能再建。剛建的 ID 沒有別的操作會碰。
+
+    看板跟著刪（ADR-0325），刪不掉回 False、資料夾不動。回滾不碰看板（編號可能屬於別的身分）；
+    和靈魂逐字同名的舊資料夾也不碰（看板是靈魂的；只差大小寫的舊模型雜湊不同，刪的是它自己的）。
     """
     async with _mark_only(model) if rollback else destructive_op(model):
         await _stop_before_moving(model)
+        if (
+            not rollback
+            and model.agent_id not in soul_io.list_soul_ids()
+            and not await mission_boards.remove_board(model)
+        ):
+            return False
         return custom_model_service.delete_model(model)
+
+
+async def _carry_board(
+    old: AgentIdentity, new: AgentIdentity, *, clear_target: bool, by: AgentIdentity
+) -> None:
+    """改名後看板跟著搬（ADR-0325）；搬不了就把資料夾與 config 改回、回 SYSTEM_ERROR."""
+    try:
+        await mission_boards.carry_board(old, new, clear_target=clear_target)
+    except Exception as exc:
+        logger.exception("Mission board of %s did not follow the rename", old.agent_id)
+        if not custom_model_service.undo_rename(old.agent_id, new.agent_id):
+            logger.critical(
+                "AUDIT: custom model rename rollback FAILED old=%s new=%s by=%s",
+                old.agent_id,
+                new.agent_id,
+                by.agent_id,
+            )
+        raise ToukaException(ErrorCode.SYSTEM_ERROR) from exc
 
 
 def _names_a_soul(name: str, soul_ids: list[str]) -> bool:
@@ -237,6 +264,8 @@ async def update_custom_model(
         else:
             _validate_new_model_id(temp_id)
             await _assert_collection_free(temp_id)
+            # 第一個寫入之前：殘留看板清掉，別的身分有看板就 409（ADR-0325）
+            await mission_boards.prepare_new_board(temp_id, refuse_claimed=True)
 
         name = data.name or model_id
         try:
@@ -304,7 +333,12 @@ async def rename_custom_model(
                 # 那時開始；拿到鎖之後還原端點就會拒絕，所以只要這裡沒看到就不會同時進行
                 _refuse_during_restore()
                 await _stop_before_moving(old_identity)
+                # 任何寫入之前：新編號屬於別的身分而且它有看板就 409（ADR-0325）
+                unclaimed = await mission_boards.new_board_unclaimed(
+                    new_identity, refuse_claimed=True
+                )
                 custom_model_service.rename_model(old_identity, new_id)
+                await _carry_board(old_identity, new_identity, clear_target=unclaimed, by=_identity)
         except ToukaException:
             raise
         except FileNotFoundError as e:
@@ -321,7 +355,8 @@ async def rename_custom_model(
             user_service.rename_owned_agent(model_id, new_id)
         except Exception as e:
             logger.exception("Error moving ownership of custom model %s to %s", model_id, new_id)
-            if not custom_model_service.undo_rename(model_id, new_id):
+            restored = custom_model_service.undo_rename(model_id, new_id)
+            if not (restored and await mission_boards.return_board(new_identity, old_identity)):
                 logger.critical(
                     "AUDIT: custom model rename rollback FAILED old=%s new=%s by=%s",
                     model_id,

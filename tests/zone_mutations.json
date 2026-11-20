@@ -832,14 +832,14 @@
       "Z6"
     ],
     "file": "ToukaMemory/src/memory_server/services/mission_manager.py",
-    "old": "            content = get_resource_proxy().zone_read_text(path)",
-    "new": "            content = get_resource_proxy()._zone_target(path, \"zone_read_text\").read_text(encoding=\"utf-8\")",
+    "old": "            content = get_resource_proxy().read_file_text_no_follow(path)",
+    "new": "            content = Path(path).read_text(encoding=\"utf-8\")",
     "tests": [
-      "tests/unit/test_mission_board_links_security.py::test_a_board_folder_swapped_to_a_link_is_refused",
+      "tests/unit/test_mission_board_links_security.py::test_a_linked_board_folder_is_refused",
       "tests/unit/test_mission_board_links_security.py::test_the_board_endpoint_treats_a_linked_board_as_no_mission"
     ],
     "posix_only": false,
-    "note": "Z6 任務看板；先紅在 expect_zone_refusal（got 0）"
+    "note": "Z6 任務看板（ADR-0325 起在 data/missions）；先紅在 LINK_FOLLOWED"
   },
   {
     "id": "z6_review_evidence_follows",

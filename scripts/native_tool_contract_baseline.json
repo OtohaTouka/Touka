@@ -1006,6 +1006,107 @@
         "kwargs": null,
         "reads": [],
         "dynamic": []
+      },
+      "MissionBoardExistsError.__init__": {
+        "parameters": [
+          "self"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_board_key": {
+        "parameters": [
+          "owner_id"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "missions_dir": {
+        "parameters": [],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "mission_board_path": {
+        "parameters": [
+          "owner_id"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_check_board_rules": {
+        "parameters": [
+          "state"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_skip_legacy": {
+        "parameters": [
+          "owner_id",
+          "reason",
+          "exc"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MissionManager.delete_board": {
+        "parameters": [
+          "self",
+          "owner"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MissionManager.has_board": {
+        "parameters": [
+          "self",
+          "owner"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MissionManager.move_board": {
+        "parameters": [
+          "self",
+          "source",
+          "target"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MissionManager.legacy_import_done": {
+        "parameters": [
+          "self"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MissionManager.mark_legacy_import_done": {
+        "parameters": [
+          "self"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MissionManager.import_legacy_board": {
+        "parameters": [
+          "self",
+          "identity"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
       }
     },
     "ToukaMemory/src/memory_server/services/personal_catalog.py": {

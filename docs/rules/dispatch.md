@@ -12,7 +12,7 @@
 
 ### 13.5 工作分派中介身分與安全邊界 (AI Agent Dispatch & Safety Boundaries) ⭐
 *   **DispatchAgent 中介設計**：註冊特殊中介代理人 `DispatchAgent` (Role: `base`)。其本身不執行排程心跳，僅作為內部已存 Agent 與外部 AI 工具協作的任務載體。
-*   **跨身分代理**：系統在 `identity_map.json` 中提供 `"can_supervise_dispatch"` 能力配置。持有該特權能力的 AgentIdentity 獲准繞過物理路徑隔離限制，由 `MissionManager` 代理讀寫並操作 `DispatchAgent` 的個人任務看板。
+*   **跨身分代理**：系統在 `identity_map.json` 中提供 `"can_supervise_dispatch"` 能力配置。持有該特權能力的 AgentIdentity 獲准繞過物理路徑隔離限制，由 `MissionManager` 代理讀寫並操作 `DispatchAgent` 的任務看板（`<data>/missions/<雜湊>.json`，路徑只看編號，ADR-0325）。
 *   **自主任務狀態 FSM 約束**：狀態更新強制執行有限狀態機 (FSM) 轉換矩陣（例如必須由 `TODO -> DOING -> DONE/FAILED`，禁止跳過 `DOING` 的非法轉換，`DONE` 狀態為終端不可再次變更）。
 *   **FAILED 狀態特權重置**：見禁令 31。
 *   **產出物欄位解耦**：見禁令 32。

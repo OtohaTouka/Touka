@@ -123,6 +123,7 @@ from .services.hooks.notifications import IsolationLevelNotifier
 from .services.identity_router import get_verified_identity
 from .services.identity_service import identity_service
 from .services.isolation.status import isolation_monitor
+from .services.mission_boards import import_legacy_boards
 from .services.model_manager import model_manager
 from .services.models.model_lifecycle import model_lifecycle_service
 from .services.permission_service import permission_service
@@ -388,6 +389,12 @@ async def _lifespan_runtime(
     app.state.context["memory_notices"] = collect_memory_notices()
     # 事實庫：建立共用實例，結構升級在這裡同步跑完（在任何 spawn_logged 之前）
     _prepare_memory_store(app)
+    # ADR-0325：升級前的任務看板從個人空間搬到 data/missions（只搬一次）；要在外部 MCP 伺服器
+    # 開起來之前，它們才改不到還沒搬的舊看板。失敗只記錄、不擋啟動
+    try:
+        await import_legacy_boards()
+    except Exception:
+        logger.exception("❌ Old mission boards were not moved")
 
     # ADR-0102：啟動遷移舊 MCP server key（curated id 殘留 → install 衍生 key）並重載 registry，
     # 讓技能宣告的 server 名對得上（修「舊裝 curated-mcp-docgen vs 技能要 mcp-docgen」無聲失敗）。

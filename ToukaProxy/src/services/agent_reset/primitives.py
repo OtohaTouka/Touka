@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from memory_server.factual import FACTS_BACKUP_DIR_NAME
-from memory_server.services.mission_manager import MISSIONS_DIR_NAME
+from memory_server.services.mission_manager import MISSIONS_DIR_NAME, MissionManager
 from memory_server.services.personal_catalog import CATALOG_DIR_NAME, CATALOG_FILE_NAME
 from memory_server.utils.collection_names import fact_point_id
 from memory_server.utils.memory_worker import (
@@ -266,20 +266,24 @@ async def remaining_memory(candidate: str, guard: GuardFn = assert_resettable) -
     return await run_memory_job(_count_remaining_now, _identity(candidate, guard))
 
 
-# ── mission（personal vault /missions/current_mission.json）──────────
+# ── mission（看板 data/missions/<雜湊>.json，ADR-0325；加個人空間升級前的舊 missions/）──
 def _mission_dir(identity: AgentIdentity) -> ZonePath | None:
     drive = resource_manager.agent_drive(identity)
     return None if drive is None else drive.child(MISSIONS_DIR_NAME)
 
 
 async def purge_mission(candidate: str, guard: GuardFn = assert_resettable) -> int:
-    missions = _mission_dir(_identity(candidate, guard))
-    return 0 if missions is None else _purge_folder(missions)
+    identity = _identity(candidate, guard)
+    missions = _mission_dir(identity)
+    legacy = 0 if missions is None else _purge_folder(missions)
+    return legacy + int(await MissionManager().delete_board(identity))
 
 
 async def remaining_mission(candidate: str, guard: GuardFn = assert_resettable) -> int:
-    missions = _mission_dir(_identity(candidate, guard))
-    return 0 if missions is None else _scan(missions).count
+    identity = _identity(candidate, guard)
+    missions = _mission_dir(identity)
+    legacy = 0 if missions is None else _scan(missions).count
+    return legacy + int(await MissionManager().has_board(identity))
 
 
 # ── catalog（personal vault /.touka/catalog.json：個人空間目錄）──────────

@@ -1,6 +1,6 @@
 # ADR-0257：記憶系統第一批段 6：現在時間區塊（continuity v0）與歷史資料界線
 
-- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第一批計畫；本 ADR 是段 6 的 PR，S2 現在時間區塊與 S1 歷史資料界線都照一般驗收）〔ADR-0267 修訂 S2 決策 3（上一輪的來源順序）與決策 4（心跳也注入）〕〔ADR-0285 修訂 S1「內文先中和」：前情摘要與家對話也中和其他 prompt 區塊 tag〕
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第一批計畫；本 ADR 是段 6 的 PR，S2 現在時間區塊與 S1 歷史資料界線都照一般驗收）〔ADR-0267 修訂 S2 決策 3（上一輪的來源順序）與決策 4（心跳也注入）〕〔ADR-0285 修訂 S1「內文先中和」：前情摘要與家對話也中和其他 prompt 區塊 tag〕〔[ADR-0325](0325-mission-board-system-folder.md) 修訂：看板在 `data/missions`，取路徑不再建 `missions/`〕
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaProxy（新 `services/continuity_service.py`、`services/prompt_blocks.py`、`services/context_snapshot_service.py`、`middleware/layers/soul.py`、`adapters/openai_to_claude.py` 的斷點 2、`services/soul_service.py`）；ToukaMemory（新 `utils/historical_data.py`、`services/manager.py`、`tools/recall.py`）；SECURITY.md 一列
@@ -128,7 +128,7 @@ S2：
 - **心跳活動不算**：記憶體有紀錄時只看上一次前景請求，期間的心跳不計入。第二批 continuity v1（可信事件時間軸）可以取代對話樹備援，並把心跳活動算進來。〔ADR-0267：心跳另成一行「上次自主執行」；「這段對話上一輪」仍只算前景。〕
 - **同一 session 開多個前端分頁**：取最近一次請求。
 - **`log_payload`**：非無痕時，`proxy_service.log_payload` 會把完整請求（含這段）寫進 `logs/proxy_payload.log`。和其他 prompt 區塊一樣，是除錯日誌，不是對話紀錄。
-- **任務看板多讀一次**：每次請求多讀一次看板檔（ToolLayer 也會讀）。`MissionManager` 取路徑時會順手建立 `missions/` 目錄（既有行為，ToolLayer 每次請求本來就會觸發）；看板內容不改。
+- **任務看板多讀一次**：每次請求多讀一次看板檔（ToolLayer 也會讀）。`MissionManager` 取路徑時會順手建立 `missions/` 目錄（既有行為，ToolLayer 每次請求本來就會觸發；[ADR-0325](0325-mission-board-system-folder.md) 起看板在 `data/missions`，取路徑不建資料夾）；看板內容不改。
 - **IDE 資訊區塊**：`ContextLayer._append_context` 把 `<ide_context>` 直接接在字串後面；IDE 請求若帶圖片（多模態 JSON 字串），圖片會壞掉。目前 IDE 多半只送文字；本 PR 不改（當時列在 HANDOVER §3；後來在 ADR-0264 修好）。
 
 S1：
