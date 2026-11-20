@@ -2,6 +2,12 @@
 
 > **TL;DR** — `POST /heartbeat/awaken` 需 `X-Heartbeat-Token` 或 service JWT（`sub=heartbeat, type=service`）；token 驗證唯一入口 `verify_heartbeat_token()` Depends（SOLID-SRP）；滑動視窗在 PostHeartbeat finally 區塊觸發，僅家對話，子對話跳過（ADR-0035）。
 
+## 刪除與建立靈魂時的排程（ADR-0326）
+
+- 刪除靈魂：放開破壞性操作鎖之後，Proxy 經排程橋刪這個名字兩種寫法（`<id>`、`ToukaSoul<id>`）的全部排程（讀、帶版本號刪一筆、再讀；版本衝突與找不到就重讀，次數有上限），整段最多 15 秒。名字又屬於某個代理人時不刪。連不上只記警告，刪除照樣成功；這時排程沒有擁有者，喚醒時被拒絕。
+- 建立靈魂（含用編輯建立新資料夾）：名字不屬於任何代理人時先刪這個名字的舊排程；心跳位址設定了卻連不上就不建立。沒設心跳位址時不檢查。
+- 心跳服務端的 API 不變；Proxy 用的是既有的 `GET /v1/schedules` 與帶 `If-Match` 的 `DELETE /v1/schedules/{id}`。
+
 ## Hook（ADR-0292 決定 17）
 
 - 心跳確定要跑之後發 HeartbeatStart，結束時發 HeartbeatStop（`end` 是結束原因；心跳迴圈本身出例外是 `error`；模型失敗（StopFailure 已發，含 dispatcher 補發的 `unknown`：這一輪裡 Touka 自己出的例外）時 `end` 是 `model_error`，失敗那一脈衝照算跑完、剩下的不跑）；都在背景，不影響心跳。沒有走到開始（權限、歸屬被拒）就都不發。重新觸發也算。

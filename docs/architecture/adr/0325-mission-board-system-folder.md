@@ -7,6 +7,8 @@
 - 修訂 ADR-0324（決定 3 的已知限制「終端還改得到看板」已解決）、修訂 ADR-0255（`missions/` 只剩升級前的舊資料夾）、修訂 ADR-0293（決定 8 的任務板不再用區內方法、鎖檔改名）、修訂 ADR-0049（看板與鎖檔的位置）、修訂 ADR-0113（重置涵蓋的看板位置）、修訂 ADR-0044（DispatchAgent 看板的位置）、修訂 ADR-0257（取路徑不再建 `missions/`）、備註 ADR-0214（DebugAgent 的看板不在 jail 路徑裡，寫入例外範圍不變、由維護者決定）
 - 影響範圍：ToukaMemory `services/mission_manager.py`（看板位置、鎖檔名、`delete_board`／`has_board`／`move_board`／`import_legacy_board`、搬過了的記號）、`protocols.py`（刪 `agent_drive_for`）；ToukaProxy 新 `services/mission_boards.py`（搬舊看板、「不屬於任何代理人」的判斷）、`main.py`（啟動時搬一次）、`routers/souls.py`、`routers/custom_models.py`、`services/agent_reset/primitives.py`、`services/gdpr_export_service.py`、`services/review/evidence.py`（跑驗證指令前先建個人空間）、`services/resource_manager.py`（刪 `agent_drive_for`）、`utils/soul_io.py`（`personal_drive_names` 改公開）、`scripts/manage_backup.py`
 
+> 🔧 **[ADR-0326](0326-deleted-soul-leftovers-not-inherited.md) 修訂（2026-11-20）**：建立靈魂時「名字屬不屬於任何代理人」只判斷一次，同時決定清看板與清排程、身分設定、統計（`prepare_new_board` 多一個可選參數 `unclaimed`，自訂模型照舊自己判斷）。用編輯建立新資料夾時，名字還在某人的擁有清單或模型清單裡算修復既有靈魂，看板也不清（以前會清）。
+
 ## 背景
 
 任務看板（AI 的目標、任務清單、哪些做完、哪些審過）以前存在代理人自己的個人空間 `missions/current_mission.json`。ADR-0324 只擋了檔案動詞；終端指令（YOLO 加隔離時不用核准）與能寫個人空間的第三方 MCP 伺服器還能直接改它：把任務寫成「做完、互審通過」、改掉鎖住的驗證指令，跳過看板規則（禁令 30、31）與互審（ADR-0137）。維護者在網頁看板看到的會是假的「已完成、審過」。
@@ -54,7 +56,7 @@
 - **重置**：清新位置的看板，也清個人空間的舊 `missions/`；剩餘計數兩邊加總。
 - **備份與還原**：`SANCTUARY_FOLDERS` 加 `missions`（還原清單跟著它）。App 內還原跑完腳本後重啟，下次啟動才看記號。
 - **個人資料匯出**：每個自有代理人經 `MissionManager.get_current_mission`（有鎖、有驗證）讀，有看板就加 `agents/<編號>/mission_board.json`；manifest 的 `included` 加 `agent_mission_board`，匯出 README 的內容清單加一行。
-- **DebugAgent**：看板搬到 `data/missions/<DebugAgent 的雜湊>.json`，不在 `AgentIdentity("DebugAgent")` jail 解析出的路徑裡了（鎖檔從 ADR-0293 起本來就在外面）。人工 live probe 寫 DebugAgent 的看板算不算 ADR-0214 的寫入例外，是維護者的決定（DATA_PROTECTION）；決定之前當成不在例外內，要寫看板的人工 probe 先問。
+- **DebugAgent**：看板搬到 `data/missions/<DebugAgent 的雜湊>.json`，不在 `AgentIdentity("DebugAgent")` jail 解析出的路徑裡了（鎖檔從 ADR-0293 起本來就在外面）。人工 live probe 寫 DebugAgent 的看板不算 ADR-0214 的寫入例外（DATA_PROTECTION；維護者 2026-11-20 決定，總覽板第 95 項），要寫看板的人工 probe 先問。
 - **互審的驗證指令**：以前建看板會順便建出個人空間，現在不會；互審跑驗證指令前先建個人空間（和終端一樣用 `zone_make_dir`，路上有連結照樣拒絕、轉人），不然還沒有其他檔案的代理人會因為工作資料夾不存在而跑不了指令。
 
 ## 沒選的做法

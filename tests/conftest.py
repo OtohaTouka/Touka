@@ -573,7 +573,7 @@ def setup_test_environment(global_test_sandbox):
     with suppress(OSError):
         (_sandbox_root / "vault" / "brain_settings.json").unlink(missing_ok=True)
     # identity_map.json 同理：test_mcp_dispatch_tools 的 autouse fixture 透過
-    # permission_service.update_identity() 將映射「持久化到檔案」，其中含白名單外的
+    # permission_service.edit_identity_map() 將映射「持久化到檔案」，其中含白名單外的
     # 小寫 "base" role；permission_service 的 2 秒熱重載（_auto_reload_check）會讓
     # 後續測試的 GET /v1/identity 間歇性讀到它，POST round-trip 經 ASSIGNABLE_AGENT_ROLES 驗證
     # 即 422。刪檔 + 重載單例 → 記憶體與磁碟同步回到 DEFAULT_IDENTITY_MAP。

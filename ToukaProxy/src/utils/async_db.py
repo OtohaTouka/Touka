@@ -34,6 +34,7 @@ from src.services.resource_manager import resource_manager
 from src.services.ui_conversation_reader import conversation_page, project_conversation
 
 from . import home_transitions
+from .agent_spellings import legacy_spellings
 from .auth_mode import normalize_auth_mode
 from .history_manager import (
     TreeMessageManager,
@@ -295,8 +296,7 @@ def canonical_agent_id(identity: AgentIdentity) -> str:
 
 
 def _session_agent_candidates(identity: AgentIdentity) -> tuple[str, str]:
-    target = _canonical_session_agent(identity.agent_id) or identity.agent_id
-    return target, f"ToukaSoul{target}" if target != "DebugAgent" else target
+    return legacy_spellings(_canonical_session_agent(identity.agent_id) or identity.agent_id)
 
 
 def soul_session_agents(identity: AgentIdentity) -> tuple[str, str]:

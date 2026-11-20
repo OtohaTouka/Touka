@@ -19,6 +19,12 @@ _OUTBOUND_TIMEOUT_SECONDS = 10.0
 # the service secret must not reach another service under a path on that host.
 _HEARTBEAT_TRIGGER_PATH = "/trigger"
 _ACCEPTED_ADDRESS_PATHS = frozenset({"", "/", _HEARTBEAT_TRIGGER_PATH})
+# delete_for_agent: extra attempts beyond the matches first seen, for revision
+# conflicts with concurrent edits (ADR-0326). Used up with matches left → unknown.
+DELETE_RETRY_ALLOWANCE = 5
+_DELETE_RETRY_CODES = frozenset(
+    {ErrorCode.HEARTBEAT_REVISION_CONFLICT, ErrorCode.HEARTBEAT_SCHEDULE_NOT_FOUND}
+)
 _SAFE_PHASES = frozenset(
     {
         "read",
@@ -191,5 +197,38 @@ class HeartbeatScheduleBridge:
             raise ToukaException(ErrorCode.HEARTBEAT_SCHEDULE_NOT_FOUND)
         if expected != current:
             raise ToukaException(ErrorCode.HEARTBEAT_REVISION_CONFLICT)
-        escaped = quote(identifier, safe="").replace(".", "%2E")
-        await self._request("DELETE", f"/v1/schedules/{escaped}", revision=expected)
+        await self._request("DELETE", _schedule_path(identifier), revision=expected)
+
+    async def delete_for_agent(self, spellings: tuple[str, ...]) -> int:
+        """Delete every schedule whose agent is one of ``spellings``; return how many.
+
+        Read, delete the first match with that revision, read again. A revision
+        conflict or a schedule already gone just means reading again. After the
+        matches first seen plus ``DELETE_RETRY_ALLOWANCE`` attempts with matches
+        left, the outcome is unknown. Only agents ``can_manage`` allows are touched.
+        """
+
+        def matches(items: list[HeartbeatSchedule]) -> list[HeartbeatSchedule]:
+            return [i for i in items if i.agent_id in spellings and self.can_manage(i.agent_id)]
+
+        schedules, revision = await self._read()
+        removed = 0
+        for _attempt in range(len(matches(schedules)) + DELETE_RETRY_ALLOWANCE):
+            found = matches(schedules)
+            if not found:
+                return removed
+            try:
+                await self._request("DELETE", _schedule_path(found[0].id), revision=revision)
+                removed += 1
+            except ToukaException as exc:
+                if exc.code not in _DELETE_RETRY_CODES:
+                    raise
+            schedules, revision = await self._read()
+        if matches(schedules):
+            raise ToukaException(ErrorCode.HEARTBEAT_OUTCOME_UNKNOWN)
+        return removed
+
+
+def _schedule_path(identifier: str) -> str:
+    escaped = quote(identifier, safe="").replace(".", "%2E")
+    return f"/v1/schedules/{escaped}"

@@ -458,7 +458,7 @@
 | 設定原bytes／原子提交 | `ToukaHeartbeat/storage_service.py` | owned fault injection／舊原件保留 |
 | revision／jobs協調 | `ToukaHeartbeat/schedule_service.py` | 同一transaction lock、precise job snapshot／補償 |
 | token解析 | `ToukaHeartbeat/token_provider.py` | 管理／trigger／client共用；不宣稱遠端ready |
-| 真人排程權限與上游 | `ToukaProxy/src/services/heartbeat_schedule_bridge.py` | human route／old-new owner／If-Match CAS |
+| 真人排程權限與上游 | `ToukaProxy/src/services/heartbeat_schedule_bridge.py` | human route／old-new owner／If-Match CAS；系統清理 `delete_for_agent`（刪、建靈魂時用，ADR-0326） |
 | 出貨錯誤定義 | `ToukaProxy/config/errors.json.example` | sync_errors生成HB／Chat；Proxy既有registry缺項in-memory補齊 |
 | 安全設定來源驗證 | Guard32的required examples＋fallback | 不讀取私有現場設定 |
 | 出貨技能MCP宣告 | Guard37的SHIPPED_MCP_DECLARATIONS | required hub example；不glob未列宣告 |
@@ -588,7 +588,7 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | **瀏覽器連線清單的金鑰遮罩** | `ToukaProxy/src/utils/secrets.py` 的 `MASK`（正本）＋`ToukaChat/src/lib/secretMask.ts` 的 `SECRET_MASK`（鏡像） | 字面常數；`tests/lint/test_connection_key_mask_security.py` 釘兩邊逐字相同，也逐行攔下新增的未遮罩寫入點 | 瀏覽器的 `touka_connections` 只存遮罩：`lib/connections.ts` 的 `maskConnectionKeys` 經 `useStoredConnections` 與 `publishConnections` 套在每次讀寫；`StoredConnectionKeyCleanup` 換掉舊版存的真值。後端收到遮罩就保留它存的真值，沒有就存成沒有金鑰。 |
 | **自癒範本** | `ToukaProxy/config/*.json.example` → `${TOUKA_CONFIG_DIR}/*.json` | `Git Tracked → Runtime` | **SSOT 恢復基準（ADR-0209）**：來源範本唯讀且受 Git 追蹤；只在目標缺少時建立 runtime JSON，不覆寫既有設定。Production 來源／目標可同目錄；pytest 目標只能是 session temp sandbox。 |
 | **認證密鑰 (Secret)**| `.env: TOUKA_AUTH_SECRET` | `Sensitive Environment` | **認證 SSOT**: 簽署與驗證 JWT Token 的唯一事實來源。公開值拒用見 ADR-0251（`config.PUBLIC_SECRET_VALUES`）。 |
-| **身分與能力 (Ident)** | `${TOUKA_CONFIG_DIR}/identity_map.json` | `JSON` | 身分標籤規則、個體角色 Override (role)、**心跳喚醒權限 (capabilities: heartbeat_awakening)** 與 **工作分派特權代理 (capabilities: can_supervise_dispatch)** 的權威來源。 |
+| **身分與能力 (Ident)** | `${TOUKA_CONFIG_DIR}/identity_map.json` | `JSON` | 身分標籤規則、個體角色 Override (role)、**心跳喚醒權限 (capabilities: heartbeat_awakening)** 與 **工作分派特權代理 (capabilities: can_supervise_dispatch)** 的權威來源。寫入只經 `permission_service.edit_identity_map`（行程鎖、鎖內重讀磁碟、原子寫入後立刻重載，ADR-0326）。 |
 | **角色權限 (Permissions)** | `${TOUKA_CONFIG_DIR}/permissions.json` | `JSON → PermissionsConfig` | **權限 wire SSOT（ADR-0196）**：角色工具／技能／MCP allow 與 self-only deny、全域 deny 地板。執行期有效答案唯一由 `PermissionService.resolve_grants()` 解析為不可變 `RoleGrants`；bootstrap fallback 原始資料在 `src/utils/permission_defaults.py`，只保留 Owner 修復通道。生產／`.example`／fallback 同受 Guard #32 管制；啟動壞檔 fail-fast，熱重載壞檔保留 last-known-good＋degraded health。 |
 | **群聊白名單 (Alias)**| `${TOUKA_CONFIG_DIR}/group_whitelist.json` | `JSON` | **群聊 SSOT**: 定義 `@別名` (Key) 與 **靈魂 ID** (Value) 的映射關係；只認 `ToukaSoul` 區，舊 `Native`／`Custom` 區讀到就略過並記警告、不改檔（群聊只限靈魂，ADR-0245）。 |
 | **安全策略 (Safety)** | `/app/config/auth_policies.json` | `JSON` | 核心 Regex 黑名單與工具風險分類（`tool_risk`）；三種模式的決策表在 `models/safety.py`，底線是程式常數（`utils/hard_floor.py`），都不在此檔、設定檔關不掉（ADR-0246）。 |
@@ -696,6 +696,15 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | `ToukaChat/src/lib/connections.ts` 的 `publishConnections`、`keepActiveProxy` | 前者是寫入清單並通知的唯一入口（先寫再發）；後者讓後端的清單不能改掉這個瀏覽器的網址。兩者經手的清單金鑰都只有遮罩（`maskConnectionKeys`，見上方「瀏覽器連線清單的金鑰遮罩」）。 |
 | `ToukaChat/src/hooks/settings/useConnectionSettings.ts` 的 `switchProxy` | 設定頁換後端的唯一入口：確認、探測、向舊後端登出、切換；清單不送給任何後端。沒有入口的 `/connections` 舊頁打網址仍到得了，它只走 `publishConnections`，由 `AuthContext` 登出。 |
 | `ToukaChat/src/lib/healthResponse.ts` 的 `validHealth` | `/v1/health` 回應形狀的唯一判斷，系統狀態與換網址前的探測共用。 |
+
+### 3-K. 資訊安全守衛層：刪掉的靈魂留下的東西（ADR-0326）
+
+| 來源 | 責任與使用邊界 |
+|---|---|
+| `ToukaProxy/src/utils/agent_spellings.py` 的 `legacy_spellings` | 一個名字的兩種寫法（`<id>`、`ToukaSoul<id>`；DebugAgent 兩格都是自己）。對話查詢、清排程、清身分對照都用它，SQL 照舊固定 `IN (?, ?)`。 |
+| `ToukaProxy/src/services/agent_leftovers.py` | 清掉以名字為鍵、靈魂刪了還留著的東西：建立時 `clear_for_new_soul`（排程→身分對照→統計，失敗就不建立）、刪除時 `remove_stats_on_soul_delete` 與鎖外的 `remove_schedules_after_delete`（15 秒，不往外丟）。系統用的排程橋只在這裡建。 |
+| `ToukaProxy/src/services/mission_boards.py` 的 `is_unclaimed`／`new_board_unclaimed` | 「這個名字沒人用」的唯一判斷，清看板與清殘留共用。 |
+| `ToukaProxy/src/services/permission_service.py` 的 `edit_identity_map`、`remove_agent_overrides` | 身分對照的唯一寫入口：行程鎖內重讀磁碟、改、原子寫入、立刻重載。檔案讀不到或不是物件時，`edit_identity_map` 把 None 交給呼叫端決定（`remove_agent_overrides` 不寫；`/identity` 存檔照寫管理員送來的內容）。 |
 
 ### 4. 工具調用大一統 (Unified Tooling SSOT)
 *   **調用模式**: 系統全面收攏為 **Command-Action Dispatcher** 模式。

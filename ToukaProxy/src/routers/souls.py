@@ -19,7 +19,7 @@ from src.models.souls import (  # noqa: TC001
     SoulUpdateRequest,
 )
 from src.routers.system import restore_in_progress
-from src.services import destructive_ops, memory_collection_guard, mission_boards
+from src.services import agent_leftovers, destructive_ops, memory_collection_guard, mission_boards
 from src.services.agent_reset.delete_guard import (
     assert_memory_cleared,
     assert_prelude_cleared,
@@ -37,6 +37,7 @@ from src.services.resource_manager import resource_manager
 from src.services.user_service import UserService
 from src.tools import terminal
 from src.utils import custom_io, soul_io
+from src.utils.agent_spellings import legacy_spellings
 from src.utils.async_db import session_service
 from src.utils.brain_persistence import (
     clear_agent,
@@ -91,6 +92,50 @@ def _verify_admin_stepup(
     )
 
 
+def _refuse_human_id(identity: AgentIdentity) -> None:
+    """靈魂編號不能和人類帳號同名（ADR-0147 Decision 1a）.
+
+    verify_token 先查 user_by_id，命中就當人類（is_human=True、agent_role=None）；撞名會讓帶這個
+    編號的 token 永遠解析成人類、拿不到靈魂的角色。建立與用編輯建立都擋（ADR-0326）。
+    """
+    agent_id = identity.agent_id
+    if any(u.id == agent_id for u in AuthService().get_all_users()):
+        raise ToukaException(
+            ErrorCode.VALIDATION_ERROR,
+            detail_override=(
+                f"agent_id '{agent_id}' collides with an existing user id; "
+                "choose a different soul id."
+            ),
+        )
+
+
+def _refuse_custom_model_id(identity: AgentIdentity) -> None:
+    """靈魂編號不能和既有的自訂模型完全同名（舊審查報告丙-2；用編輯建立也擋，ADR-0326）.
+
+    collection 撞名檢查不算完全相同的編號；同名時兩者共用擁有清單、看板、統計與記憶，自訂模型的
+    主人會一起變成這個靈魂的擁有者。只看有 config.json 的模型；沒有的是個人空間之類的殘留。
+    """
+    if identity.agent_id in custom_io.list_custom_ids() and custom_io.custom_file_exists(
+        identity, "config.json"
+    ):
+        raise ToukaException(ErrorCode.MODEL_ALREADY_EXISTS, model_id=identity.agent_id)
+
+
+async def _edit_create_unclaimed(identity: AgentIdentity) -> bool:
+    """用編輯建立新資料夾時，名字是否不屬於任何代理人（ADR-0326）.
+
+    除了看板用的判斷，名字還在某人的擁有清單或模型清單（``models.json``）裡，就是在修復資料夾
+    不見的既有靈魂：舊東西是它的，不清。模型清單看全部，停用、離線的也算（``get_model_ids`` 只回
+    開啟且在線的，不能用）。
+    """
+    if not await mission_boards.new_board_unclaimed(identity, refuse_claimed=False):
+        return False
+    spellings = legacy_spellings(identity.agent_id)
+    if any(identity.agent_id in u.owned_agents for u in AuthService().get_all_users()):
+        return False
+    return not any(model.get("id") in spellings for model in model_manager.get_models())
+
+
 @router.post("")
 async def create_soul(
     req: SoulCreateRequest,
@@ -112,18 +157,7 @@ async def create_soul(
     base_model = normalize_model_choice(req.config.base_model)
     config_data["base_model"] = base_model
 
-    # ADR-0147（Decision 1a）：禁止 soul.agent_id 撞任何人類 user.id。verify_token
-    # 先查 user_by_id 命中即當人類短路（is_human=True、agent_role=None），撞名會讓
-    # 帶該 id 的 token 永遠解析成人類、拿不到靈魂的 agent 角色（二義性身分）。建立時
-    # fail-loud 杜絕，比事後解析靠優先序更乾淨。
-    if any(u.id == agent_id for u in AuthService().get_all_users()):
-        raise ToukaException(
-            ErrorCode.VALIDATION_ERROR,
-            detail_override=(
-                f"agent_id '{agent_id}' collides with an existing user id; "
-                "choose a different soul id."
-            ),
-        )
+    _refuse_human_id(AgentIdentity(agent_id=agent_id))
 
     # 新 ID 會和既有 ID 共用向量 collection（a-b 與 a_b、只差大小寫）就拒絕；放在任何檔案系統
     # 檢查之前，Windows 與 Linux 的結果才一致。讀不到事實庫就拒絕（不能確認就不建立）。
@@ -147,13 +181,7 @@ async def create_soul(
         raise ToukaException(ErrorCode.SOUL_VAULT_ERROR)
     if soul_path.exists():
         raise ToukaException(ErrorCode.SOUL_ALREADY_EXISTS)
-    # 和既有的自訂模型完全同名（collection 撞名檢查不算完全相同的 ID）：擁有清單共用同一筆，
-    # 自訂模型的主人會一起變成這個靈魂的擁有者（舊審查報告丙-2）。只看有 config.json 的模型；
-    # 沒有的是個人空間之類的殘留，清單裡的同一個 ID 由下面的認領清掉。
-    if agent_id in custom_io.list_custom_ids() and custom_io.custom_file_exists(
-        new_identity, "config.json"
-    ):
-        raise ToukaException(ErrorCode.MODEL_ALREADY_EXISTS, model_id=agent_id)
+    _refuse_custom_model_id(new_identity)
     # 主要模型比照存檔先驗（先於任何建立動作）：不能用就 404；只差大小寫分不出時
     # resolve_custom_route 直接拋 409 MODEL_NAME_AMBIGUOUS。
     if base_model and not is_selectable_brain(base_model, manager=model_manager):
@@ -163,8 +191,14 @@ async def create_soul(
     drive = resource_manager.soul_drive(new_identity)  # 個人空間走區內方法（ADR-0293）
     if drive is None:
         raise ToukaException(ErrorCode.SOUL_VAULT_ERROR)
-    # 拒絕檢查都過了、第一個寫入之前：不屬於任何代理人的殘留看板清掉（ADR-0325）
-    await mission_boards.prepare_new_board(new_identity, refuse_claimed=False)
+    # 拒絕檢查都過了、第一個寫入之前：名字不屬於任何代理人時，清掉殘留的排程、身分設定、
+    # 統計（ADR-0326）與看板（ADR-0325）。同一次判斷給兩邊用。
+    unclaimed = await mission_boards.new_board_unclaimed(new_identity, refuse_claimed=False)
+    if unclaimed:
+        await agent_leftovers.clear_for_new_soul(new_identity)
+    await mission_boards.prepare_new_board(
+        new_identity, refuse_claimed=False, unclaimed=unclaimed
+    )
     await session_service.invalidate_agent_sessions(new_identity)
     app_data_dir = Path(resource_manager.get_base_path())
     dir_specs = {"soul": soul_path, "legacy": app_data_dir / "legacy" / agent_id}
@@ -369,9 +403,11 @@ async def update_soul(
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     if new_dir or creating_soul:
         # 和 create_soul 一樣：新 ID 不能是任何代理人資料夾的別名，也不能和既有 ID 共用向量
-        # collection（不能確認就不建立）
+        # collection（不能確認就不建立）；也不能和人類帳號、自訂模型同名（ADR-0326）
         soul_io.check_new_agent_name(identity)
         await asyncio.to_thread(memory_collection_guard.assert_id_free, identity)
+        _refuse_human_id(identity)
+        _refuse_custom_model_id(identity)
 
     new_model = normalize_model_choice(config_data["base_model"] if config_data else None)
     switch = should_set_active_brain(
@@ -388,8 +424,13 @@ async def update_soul(
     if creating_soul and soul_id.casefold().startswith("toukasoul"):
         raise ToukaException(ErrorCode.VALIDATION_ERROR)
     if new_dir:
-        # 拒絕檢查都過了、第一個寫入之前清殘留看板（ADR-0325）；轉換既有資料夾不清（是它自己的）
-        await mission_boards.prepare_new_board(identity, refuse_claimed=False)
+        # 拒絕檢查都過了、第一個寫入之前：名字不屬於任何代理人時清殘留的排程、身分設定、統計
+        # （ADR-0326）與看板（ADR-0325）。轉換既有資料夾、修復擁有清單或模型清單裡還有的靈魂
+        # 不清（是它自己的）。
+        unclaimed = await _edit_create_unclaimed(identity)
+        if unclaimed:
+            await agent_leftovers.clear_for_new_soul(identity)
+        await mission_boards.prepare_new_board(identity, refuse_claimed=False, unclaimed=unclaimed)
     if creating_soul:
         await session_service.invalidate_agent_sessions(identity)
     had_config = resource_manager.exists(agent_dir / "config.json")
@@ -433,9 +474,11 @@ async def delete_soul(
     """刪除靈魂及其全部 SSOT 面（ADR-0142 D2/D4/D5）：admin 步升＋冪等清除。
 
     清除範圍：三實體目錄（soul／legacy／personal_drive）＋models.json／agents_registry／
-    brain_settings／各使用者 owned_agents／identity_map override。**冪等**——孤兒（空目錄、
-    零註冊）照清、清完 agent_id 可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與
-    記憶 vault 不在此範圍（既有 per-agent 破壞性重置涵蓋）。
+    brain_settings／各使用者 owned_agents／identity_map override（兩種寫法）＋任務看板
+    （ADR-0325）＋統計 ``data/stats/<id>``（刪不掉列進 skipped）＋心跳排程（放開鎖之後，
+    清不掉只記 log；ADR-0326）。**冪等**——孤兒（空目錄、零註冊）照清、清完 agent_id 可重用
+    （直解「建立失敗連清都清不掉」）。聊天 sessions 與記憶 vault 不在此範圍（既有 per-agent
+    破壞性重置涵蓋）。
 
     舊審查報告丙-4（ADR-0287）：從檢查到取消註冊整段持有破壞性操作鎖並標記目標（和重置、
     清除互斥，期間心跳不開跑）；還有心跳在跑就叫它停下、回 409，什麼都不清。
@@ -490,16 +533,24 @@ async def delete_soul(
         # 看板不在個人空間裡（ADR-0325），要明著刪；刪不掉就什麼都不刪
         if not await mission_boards.remove_board(identity):
             raise ToukaException(ErrorCode.SOUL_VAULT_ERROR)
+        # 統計（ADR-0326）：刪不掉不擋，列進 skipped；建立同名靈魂時會再清一次
+        stats_removed = agent_leftovers.remove_stats_on_soul_delete(identity)
         storage = soul_io.purge_soul_storage(soul_id)
         failed = _unregister_soul(identity)
-    if failed:
-        # 資料已刪；登記各步都冪等，再刪一次會補清。
-        logger.error("Soul %s deleted but unregister steps failed: %s", soul_id, failed)
-        raise ToukaException(ErrorCode.SOUL_UNREGISTER_INCOMPLETE, failed_steps=failed)
+    # 排程在鎖外刪（會連網路）：放開鎖之後、回應之前；取消註冊沒做完也照刪。不往外丟。
+    await agent_leftovers.remove_schedules_after_delete(identity)
 
     removed = [f"{base}" for base, status in storage.items() if status == "removed"]
     skipped = [f"{base}:{status}" for base, status in storage.items() if status != "removed"]
-    logger.info("🗑️ Deleted soul %s (removed=%s)", soul_id, removed)
+    if not stats_removed:
+        skipped.append("stats")
+    if failed:
+        # 資料已刪；登記各步都冪等，再刪一次會補清。
+        logger.error(
+            "Soul %s deleted but unregister steps failed: %s (skipped=%s)", soul_id, failed, skipped
+        )
+        raise ToukaException(ErrorCode.SOUL_UNREGISTER_INCOMPLETE, failed_steps=failed)
+    logger.info("🗑️ Deleted soul %s (removed=%s, skipped=%s)", soul_id, removed, skipped)
     return {"status": "success", "soul_id": soul_id, "removed": removed, "skipped": skipped}
 
 
@@ -529,12 +580,13 @@ def _remove_from_all_owned_agents(soul_id: str) -> None:  # noqa: IDENTITY_SSOT
 
 
 def _remove_identity_override(soul_id: str) -> None:  # noqa: IDENTITY_SSOT
-    """移除 identity_map 的 agent_overrides[soul_id]（冪等；正常建立的靈魂本就無此條目）。"""
-    current = permission_service.identity_map.model_dump()
-    overrides = current.get("agent_overrides", {})
-    if soul_id in overrides:
-        del overrides[soul_id]
-        permission_service.update_identity(current)
+    """移除 identity_map 的 agent_overrides（兩種寫法；冪等，正常建立的靈魂本就無此條目）.
+
+    鎖內從磁碟重讀、寫完立刻生效（ADR-0326）；讀不出來或寫不進去就丟例外，取消註冊會把
+    ``identity_override`` 列為失敗的步驟。
+    """
+    if not permission_service.remove_agent_overrides(legacy_spellings(soul_id)):
+        raise ToukaException(ErrorCode.SYSTEM_ERROR)
 
 
 def _persist_soul_files(
