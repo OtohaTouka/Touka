@@ -303,9 +303,9 @@ tests/
 | `test_c4_c5_c6_c7_security.py` | C4/C5/C6/C7：路徑穿越、Shell metachar 注入（升級成 CONFIRM 的日誌不含指令的任何片段，禁令 23 同類）、演化工具名稱只經 MCP 協定傳遞、不進程式碼或 argv、Webhook 驗簽框架 |
 | `test_subagent_result_forgery_security.py` ⭐ | （ADR-0324）子代理結果不能被主代理偽造：個人空間舊位置的假結果不被採用（憑證發過照舊等真結果、沒發過回憑證不明、真結果照樣拿到）；結果存在不屬於任何代理人資料夾的系統暫存、檔名不含憑證、別的代理人讀不到、編號大小寫不影響；7 天清理在存、讀與啟動時跑、只清頂層，資料夾不存在時不建，啟動時清理失敗不影響啟動；重置保留清單與匯出的不含清單都列出它 |
 | `test_secret_mask_cjk_security.py` ⭐ | （ADR-0324 PR 2）金鑰遮蔽的缺口：緊貼中文的金鑰、全形與不換行空白後的 Bearer 權杖照遮；新樣式（`Authorization: Basic`、`github_pat_`、Slack、Stripe、`AIza`）各一個會遮、一般文字不遮；`apiKey` 類進共用鍵名；`Authorization` 鍵名與字串裡 `"鍵名": "值"` 只在紀錄裡遮，設定頁照常；怪字母（`ſ`、克耳文符號、`ı`）鍵名兩邊都不遮；`Authorization:` 標頭的值不吃後面的文字、`HTTP_AUTHORIZATION:` 也遮；空白字元集照 Python 與 ECMAScript 規格逐字核對。 |
-| `test_mission_board_out_of_agent_reach_security.py` ⭐ | （ADR-0325）任務看板在 `data/missions/<逐字編號的雜湊>.json`，不在任何代理人資料夾：檔名與鎖名、不是單一段的編號、舊位置的假看板不被讀、路上有連結時讀寫拒絕、督導照舊讀 DispatchAgent 看板、只差大小寫的兩個編號各有各的看板、刪除與搬移看板。 |
-| `test_mission_board_migration.py` | （ADR-0325）升級後舊看板只搬一次：搬過去並刪舊檔、記號、不覆蓋、壞看板與別人的看板與連結略過並記錯誤、`agent_id` 只差大小寫時改寫、讀回不一致、列不完整不寫記號、系統編號被設成 Owner、候選順序、啟動時在外部 MCP 之前且失敗不擋啟動。 |
-| `test_mission_board_lifecycle.py` | （ADR-0325）看板跟著代理人走：刪除靈魂與自訂模型、同名與只差大小寫的舊模型、改名搬看板與失敗回滾、建立時清殘留看板（所有拒絕檢查之後）、別的身分有看板時 409、判斷讀不到時不建立、重置、備份與還原、個人資料匯出。 |
+| `test_mission_board_out_of_agent_reach_security.py` ⭐ | （ADR-0325）任務看板在 `data/missions/<逐字編號的雜湊>.json`，不在任何代理人資料夾：檔名與鎖名、不是單一段的編號、舊位置的假看板不被讀、路上有連結時讀寫拒絕、督導照舊讀 DispatchAgent 看板、只差大小寫的兩個編號各有各的看板、刪除與搬移看板（搬移時改寫 `agent_id`、同編號不動、讀不懂的原樣搬）。 |
+| `test_mission_board_migration.py` | （ADR-0325）升級後舊看板只搬一次：搬過去並刪舊檔、記號、不覆蓋、壞看板與連結略過並記錯誤、`agent_id` 只差大小寫或是改名前的舊編號時改寫、讀回不一致、列不完整不寫記號、系統編號被設成 Owner、候選順序（含 Linux 上模擬不分大小寫的磁碟）、啟動時在外部 MCP 之前且失敗不擋啟動。 |
+| `test_mission_board_lifecycle.py` | （ADR-0325）看板跟著代理人走：刪除靈魂與自訂模型、同名與只差大小寫的舊模型（刪除與改名）、改名搬看板與失敗回滾、建立時清殘留看板（所有拒絕檢查之後）、別的身分有看板時 409、判斷讀不到時不建立（含 users.json 壞掉）、重置、備份與還原、個人資料匯出。 |
 | `test_mission_board_write_deny_security.py` ⭐ | （ADR-0324）AI 的檔案工具不能改任務看板：寫入類動作與 write／edit／insert／delete 碰根目錄的 `missions/`（大小寫、子資料夾、`..`、絕對路徑）都被拒、檔不變、回結構化 permission_denied 並建議 mission_tools；相似名稱照常可寫、讀照常、系統經 MissionManager 照常存看板 |
 | `test_terminal_auth.py` | C8：終端機 `approve`/`reject` 端點 JWT + 角色驗證 |
 | `test_heartbeat_schedules_auth.py` | C9：Heartbeat `/v1/schedules` Bearer Token 驗證 |

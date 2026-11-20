@@ -23,7 +23,11 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from fastapi.testclient import TestClient
 from memory_server.models.mission import MissionState
-from memory_server.services.mission_manager import MissionManager, mission_board_path
+from memory_server.services.mission_manager import (
+    LegacyImport,
+    MissionManager,
+    mission_board_path,
+)
 from src import main as main_module
 from src.models.identity import AgentIdentity
 from src.services import mission_boards
@@ -146,7 +150,6 @@ BAD_BOARDS = {
     "locked_command_stripped": _board(
         "SoulBad", verification_cmd_locked=True, verification_cmd=None
     ),
-    "another_agents_board": _board("Mallory"),
 }
 
 
@@ -198,6 +201,23 @@ async def test_an_agent_id_that_differs_only_in_case_is_rewritten(zone_data_root
     moved = json.loads(_new("SoulCase"))
     assert moved["agent_id"] == "SoulCase"
     assert not legacy.exists()
+
+
+async def test_a_board_saved_before_a_rename_moves_under_the_new_id(
+    zone_data_root: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """舊版改名只搬資料夾，看板裡還是舊編號：照樣搬、改成現在的編號，不當成別人的看板丟掉."""
+    legacy = _put_legacy(_model(zone_data_root, "RenamedNew"), _board("RenamedOld"))
+    caplog.set_level(logging.INFO)
+
+    await mission_boards.import_legacy_boards()
+
+    moved = json.loads(_new("RenamedNew"))
+    assert (moved["agent_id"], moved["goal"]) == ("RenamedNew", CANARY)
+    assert _new("RenamedOld") is None
+    assert not legacy.exists()
+    assert not any(CANARY in r.getMessage() for r in caplog.records)
+    assert not any(r.levelno >= logging.ERROR for r in caplog.records)
 
 
 async def test_a_read_back_mismatch_keeps_the_old_board(
@@ -318,6 +338,36 @@ async def test_a_personal_space_made_with_another_case_goes_to_the_canonical_id(
 
     assert _new("SoulWin") == _board("SoulWin")
     assert _new("soulwin") is None
+
+
+async def test_on_a_case_insensitive_disk_the_souls_id_asks_first(
+    zone_data_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Linux 也驗得到上一個測試的關鍵：不分大小寫的磁碟上兩種寫法找到同一份舊檔、先問的搬走，
+    所以搬的時候要先用靈魂的正式 ID 問，再問個人空間裡的小寫名稱."""
+    _ = zone_data_root
+    asked: list[str] = []
+
+    class _RecordingManager:
+        def legacy_import_done(self) -> bool:
+            return False
+
+        def mark_legacy_import_done(self) -> None:
+            return None
+
+        async def import_legacy_board(self, identity: AgentIdentity) -> LegacyImport:
+            asked.append(identity.agent_id)
+            return LegacyImport.ABSENT
+
+    monkeypatch.setattr(mission_boards, "MissionManager", _RecordingManager)
+    monkeypatch.setattr(mission_boards, "_soul_ids", lambda: ["SoulWin"])
+    monkeypatch.setattr(mission_boards, "_registry_ids", list)
+    monkeypatch.setattr(mission_boards, "_custom_names", list)
+    monkeypatch.setattr(mission_boards, "_personal_names", lambda: ["soulwin"])
+
+    await mission_boards.import_legacy_boards()
+
+    assert [a for a in asked if a.casefold() == "soulwin"] == ["SoulWin", "soulwin"]
 
 
 # --------------------------------------------------------------------------- #

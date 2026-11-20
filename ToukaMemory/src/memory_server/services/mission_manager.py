@@ -315,9 +315,12 @@ class MissionManager:
     async def move_board(self, source: AgentIdentity, target: AgentIdentity) -> bool:
         """看板從舊編號搬到新編號；回有沒有搬（舊的沒有看板就什麼都不做）.
 
-        新編號已有看板丟 ``MissionBoardExistsError``、不覆蓋。刪舊檔失敗時把新檔刪掉再往外丟：
-        不然呼叫端把名字改回去之後，新編號會多一份看板。兩把鎖依檔名順序拿（反向改名不互卡）。
+        新編號已有看板丟 ``MissionBoardExistsError``、不覆蓋。看板裡的 ``agent_id`` 改成新編號
+        （讀不懂的看板原樣搬，讀的時候照舊報壞）。刪舊檔失敗時把新檔刪掉再往外丟：不然呼叫端把
+        名字改回去之後，新編號會多一份看板。兩把鎖依檔名順序拿（反向改名不互卡）。
         """
+        if source.agent_id == target.agent_id:
+            return False  # 同一把鎖不能拿兩次
         first, second = sorted((source.agent_id, target.agent_id), key=_board_key)
         async with self._get_lock(first), self._get_lock(second):
             proxy = get_resource_proxy()
@@ -329,6 +332,10 @@ class MissionManager:
                 return False
             if proxy.exists(new_path):
                 raise MissionBoardExistsError
+            with contextlib.suppress(ValueError):
+                state = MissionState.model_validate_json(content)
+                state.agent_id = target.agent_id
+                content = state.model_dump_json(indent=4)
             proxy.write_file_text_no_follow(new_path, content)
             try:
                 proxy.remove_file_no_follow(old_path)
@@ -351,8 +358,8 @@ class MissionManager:
         """把升級前個人空間裡的看板搬到新位置（啟動時一次，ADR-0325）.
 
         舊檔用現在讀看板的同一個解析找（``agent_drive``），區內方法讀（不跟隨連結）。內容要是
-        合規則的看板、``agent_id`` 是這個代理人（只差大小寫時改成這個編號）；用和平常存看板相同的
-        序列化寫到新位置、讀回比對一致後才刪舊檔。略過的只記編號與原因，不記內容。
+        合規則的看板，``agent_id`` 改成這個編號；用和平常存看板相同的序列化寫到新位置、讀回比對
+        一致後才刪舊檔。略過的只記編號與原因，不記內容。
         """
         agent_id = identity.agent_id
         async with self._get_lock(agent_id):
@@ -377,8 +384,9 @@ class MissionManager:
             except Exception as exc:
                 return _skip_legacy(agent_id, "not a valid board", exc)
             if state.agent_id != agent_id:
-                if state.agent_id.casefold() != agent_id.casefold():
-                    return _skip_legacy(agent_id, "board of another agent", None)
+                # 舊版改名只搬資料夾、只差大小寫時用另一種寫法存過：舊檔在這個代理人的個人空間，
+                # 一律改成這個編號（擋不了偽造；互審的自簽檢查要的是現在的編號）
+                logger.info("Mission board of %s carried another agent id; rewritten", agent_id)
                 state.agent_id = agent_id
             text = state.model_dump_json(indent=4)
             proxy.write_file_text_no_follow(target, text)

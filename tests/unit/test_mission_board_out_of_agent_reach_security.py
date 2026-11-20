@@ -225,6 +225,25 @@ async def test_move_board_moves_the_board(zone_data_root: Path) -> None:
     assert await MissionManager().move_board(_who("MoveOld"), _who("MoveNew")) is True
     assert not mission_board_path("MoveOld").exists()
     assert _goal("MoveNew") == "moving"
+    moved = json.loads(mission_board_path("MoveNew").read_text(encoding="utf-8"))
+    assert moved["agent_id"] == "MoveNew"
+
+
+async def test_move_board_to_the_same_id_does_nothing(zone_data_root: Path) -> None:
+    """同一個編號：不拿兩次同一把鎖（會卡住），看板不動."""
+    _ = zone_data_root
+    await _board("SameId", "stay")
+    assert await MissionManager().move_board(_who("SameId"), _who("SameId")) is False
+    assert _goal("SameId") == "stay"
+
+
+async def test_move_board_carries_an_unreadable_board_as_is(zone_data_root: Path) -> None:
+    """讀不懂的看板原樣搬（讀的時候照舊報壞），不卡住改名."""
+    _ = zone_data_root
+    mission_board_path("BrokenOld").parent.mkdir(parents=True, exist_ok=True)
+    mission_board_path("BrokenOld").write_text("{broken", encoding="utf-8")
+    assert await MissionManager().move_board(_who("BrokenOld"), _who("BrokenNew")) is True
+    assert mission_board_path("BrokenNew").read_text(encoding="utf-8") == "{broken"
 
 
 async def test_move_board_without_a_board_does_nothing(zone_data_root: Path) -> None:

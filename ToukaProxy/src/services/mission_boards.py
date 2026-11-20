@@ -30,8 +30,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 列不出名稱、讀不到登記表或使用者清單時丟的例外（RegistryUnreadableError 是 ValueError）
-_LISTING_ERRORS = (OSError, ValueError, ZoneRootsUnavailableError)
+# 列不出名稱、讀不到登記表或使用者清單時丟的例外（RegistryUnreadableError 是 ValueError；
+# users.json 壞掉時 AuthService 丟 ToukaException）
+_LISTING_ERRORS = (OSError, ValueError, ZoneRootsUnavailableError, ToukaException)
 
 
 # --------------------------------------------------------------------------- #

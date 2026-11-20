@@ -191,7 +191,7 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 | 弱點 | 修正與驗證 |
 |---|---|
-| 任務看板 `missions/current_mission.json` 在代理人的個人空間，ADR-0324 只擋了檔案動詞：終端指令（YOLO 加隔離時不用核准）與能寫個人空間的第三方 MCP 伺服器還能直接改它，把任務寫成「做完、互審通過」、改掉鎖住的驗證指令，跳過看板規則（禁令 30、31）與互審 | 看板搬到 `<data>/missions/<sha256(逐字編號)>.json`，不在任何代理人資料夾裡，經 RM 不跟隨連結的方法讀寫；升級後第一次啟動、外部 MCP 開起來之前把舊看板搬一次（不合看板規則或不是這個代理人的不搬），寫下記號後舊位置不再被搬、也不會被讀；刪除、改名、建立、重置、備份、匯出都接上。`tests/unit/test_mission_board_out_of_agent_reach_security.py`、`test_mission_board_migration.py`、`test_mission_board_lifecycle.py`。隔離層級 none 時經人核准的未隔離指令、未隔離啟動的第三方 MCP、ToukaDispatch 自動叫起的外部 AI，以及不受專案限制的身分把專案登記在涵蓋 data 的位置時，仍寫得到（ADR-0325 已知限制） |
+| 任務看板 `missions/current_mission.json` 在代理人的個人空間，ADR-0324 只擋了檔案動詞：終端指令（YOLO 加隔離時不用核准）與能寫個人空間的第三方 MCP 伺服器還能直接改它，把任務寫成「做完、互審通過」、改掉鎖住的驗證指令，跳過看板規則（禁令 30、31）與互審 | 看板搬到 `<data>/missions/<sha256(逐字編號)>.json`，不在任何代理人資料夾裡，經 RM 不跟隨連結的方法讀寫；升級後第一次啟動、外部 MCP 開起來之前把舊看板搬一次（不合看板規則的不搬；看板裡的編號一律改成現在的編號），寫下記號後舊位置不再被搬、也不會被讀；刪除、改名、建立、重置、備份、匯出都接上。`tests/unit/test_mission_board_out_of_agent_reach_security.py`、`test_mission_board_migration.py`、`test_mission_board_lifecycle.py`。隔離層級 none 時經人核准的未隔離指令、未隔離啟動的第三方 MCP、ToukaDispatch 自動叫起的外部 AI，以及不受專案限制的身分把專案登記在涵蓋 data 的位置時，仍寫得到（ADR-0325 已知限制） |
 
 ### 金鑰緊貼中文時遮蔽漏掉、多段內容裡的假工具紀錄沒被換掉（2026-11-20，ADR-0324 PR 2）
 

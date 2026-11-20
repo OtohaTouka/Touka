@@ -288,6 +288,23 @@ async def test_renaming_a_model_moves_its_board(owners: MagicMock) -> None:
     assert response.status_code == 200, response.text
     assert _goal("RenOld") is None
     assert _goal("RenNew") == "moving"
+    board = json.loads(mission_board_path("RenNew").read_text(encoding="utf-8"))
+    assert board["agent_id"] == "RenNew"  # 互審的自簽檢查看的是現在的編號
+
+
+async def test_renaming_an_old_model_differing_in_case_moves_only_its_own_board(
+    zone_data_root: Path, owners: MagicMock
+) -> None:
+    _ = owners
+    _soul_folder(zone_data_root, "CaseKeep")
+    _model_folder(zone_data_root, "casekeep")
+    await _put_board("CaseKeep", "soul")
+    await _put_board("casekeep", "model")
+    response = _rename("casekeep", "CaseMoved")
+    assert response.status_code == 200, response.text
+    assert _goal("CaseMoved") == "model"
+    assert _goal("casekeep") is None
+    assert _goal("CaseKeep") == "soul"
 
 
 async def test_renaming_only_the_case_moves_the_board(owners: MagicMock) -> None:
@@ -516,6 +533,24 @@ def test_an_unreadable_user_list_is_not_treated_as_unclaimed(
     monkeypatch.setattr(mission_boards, "_human_ids", _fail)
     with pytest.raises(ToukaException) as raised:
         mission_boards.is_unclaimed(AgentIdentity(agent_id="Nobody"))
+    assert raised.value.code is ErrorCode.AGENT_ID_CHECK_FAILED
+
+
+def test_a_broken_users_file_is_not_treated_as_unclaimed(zone_data_root: Path) -> None:
+    """users.json 壞掉時 AuthService 丟 ToukaException（PERSISTENCE_ERROR），一樣回判斷失敗."""
+    _ = zone_data_root
+    users = AuthService().users_file_path
+    before = users.read_bytes() if users.exists() else None
+    users.parent.mkdir(parents=True, exist_ok=True)
+    users.write_text("{broken", encoding="utf-8")
+    try:
+        with pytest.raises(ToukaException) as raised:
+            mission_boards.is_unclaimed(AgentIdentity(agent_id="Nobody"))
+    finally:
+        if before is None:
+            users.unlink(missing_ok=True)
+        else:
+            users.write_bytes(before)
     assert raised.value.code is ErrorCode.AGENT_ID_CHECK_FAILED
 
 
