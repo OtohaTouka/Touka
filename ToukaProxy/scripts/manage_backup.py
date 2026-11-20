@@ -52,7 +52,10 @@ _AGENT_FOLDERS = {
 }
 # 備份涵蓋的 Sanctuary 資料子目錄（SSOT）。legacy 為舊版 agent 資料，亦需備份。
 # avatars（ADR-0106）：使用者頭像上傳檔，須納入備份否則還原時遺失。
-SANCTUARY_FOLDERS = ["soul", CUSTOM_DIR, "vault", PERSONAL_DIR, "stats", "legacy", "avatars"]
+# missions（ADR-0325）：任務看板與「舊看板搬過了」的記號（mission_manager.MISSIONS_DIR_NAME）。
+SANCTUARY_FOLDERS = [
+    "soul", CUSTOM_DIR, "vault", PERSONAL_DIR, "stats", "legacy", "avatars", "missions"
+]
 # 還原時 data 成員的第一段只收這些（和 _AGENT_FOLDERS 同一個鍵：normcase 後完全相等）
 _RESTORABLE_FOLDERS = frozenset(os.path.normcase(folder) for folder in SANCTUARY_FOLDERS)
 # data 根底下備份會寫的檔案（第 5 步的 glob）

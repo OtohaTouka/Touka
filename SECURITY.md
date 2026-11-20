@@ -187,6 +187,12 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### 任務看板經終端指令改寫（2026-11-20，ADR-0325）
+
+| 弱點 | 修正與驗證 |
+|---|---|
+| 任務看板 `missions/current_mission.json` 在代理人的個人空間，ADR-0324 只擋了檔案動詞：終端指令（YOLO 加隔離時不用核准）與能寫個人空間的第三方 MCP 伺服器還能直接改它，把任務寫成「做完、互審通過」、改掉鎖住的驗證指令，跳過看板規則（禁令 30、31）與互審 | 看板搬到 `<data>/missions/<sha256(逐字編號)>.json`，不在任何代理人資料夾裡，經 RM 不跟隨連結的方法讀寫；升級後第一次啟動、外部 MCP 開起來之前把舊看板搬一次（不合看板規則的不搬；看板裡的編號一律改成現在的編號），寫下記號後舊位置不再被搬、也不會被讀；刪除、改名、建立、重置、備份、匯出都接上。`tests/unit/test_mission_board_out_of_agent_reach_security.py`、`test_mission_board_migration.py`、`test_mission_board_lifecycle.py`。隔離層級 none 時經人核准的未隔離指令、未隔離啟動的第三方 MCP、ToukaDispatch 自動叫起的外部 AI，以及不受專案限制的身分把專案登記在涵蓋 data 的位置時，仍寫得到（ADR-0325 已知限制） |
+
 ### 金鑰緊貼中文時遮蔽漏掉、多段內容裡的假工具紀錄沒被換掉（2026-11-20，ADR-0324 PR 2）
 
 | 弱點 | 修正與驗證 |
@@ -199,7 +205,7 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 | 弱點 | 修正與驗證 |
 |---|---|
 | 背景子代理的耐久結果放在主代理自己的個人空間 `dispatch_results/<憑證>.json`，`await_dispatch_result` 先讀這份檔就當成子代理交回的結果。憑證本來就交給主代理、檔名就是憑證，檔案動詞的 `personal` 範圍（範例權限 `safe`，一般模式不用核准）就能先寫一份假結果，還能帶 `system_notes` 顯示成「System note」；被工具結果裡的注入誘導時，主代理會把假內容當成子代理查證過的結論回報，真結果沒人讀 | 改存 data 底下的系統暫存 `temp/dispatch_results`（不在任何代理人資料夾，終端沙盒與一般身分的檔案動詞都碰不到），檔名是「代理人編號（casefold）＋憑證」的 SHA-256，舊位置不再讀；保留 7 天，啟動、存、讀時清。`tests/unit/test_subagent_result_forgery_security.py`。隔離層級 none 時經人核准的未隔離指令、未隔離啟動的第三方 MCP 仍寫得到；不受專案限制的身分把專案登記在涵蓋 data 的位置時，專案範圍的檔案動詞也寫得到（ADR-0292 決定 12 的界線，ADR-0324 已知限制） |
-| 任務看板 `missions/current_mission.json` 也在個人空間，檔案動詞直接改它就能繞過看板規則（禁令 30、31）、把 `review_status` 寫成 APPROVED 跳過互審 | 檔案動詞的寫入類動作碰根目錄的 `missions/` 一律拒絕（`SystemFolderDeniedError`，回 `permission_denied` 並建議 mission_tools）。`tests/unit/test_mission_board_write_deny_security.py`。只擋個人空間範圍的檔案工具：終端、能寫個人空間的 MCP 伺服器，以及不受專案限制的身分把專案登記在涵蓋個人空間的位置時，要等看板搬到系統資料夾（另一個任務） |
+| 任務看板 `missions/current_mission.json` 也在個人空間，檔案動詞直接改它就能繞過看板規則（禁令 30、31）、把 `review_status` 寫成 APPROVED 跳過互審 | 檔案動詞的寫入類動作碰根目錄的 `missions/` 一律拒絕（`SystemFolderDeniedError`，回 `permission_denied` 並建議 mission_tools）。`tests/unit/test_mission_board_write_deny_security.py`。只擋個人空間範圍的檔案工具：終端、能寫個人空間的 MCP 伺服器，以及不受專案限制的身分把專案登記在涵蓋個人空間的位置時，要等看板搬到系統資料夾（另一個任務）。已徹底修：ADR-0325 把看板搬到 `data/missions` |
 
 ### SNS 回覆帶出工具名稱、執行時間與工具例外原文（2026-11-18，ADR-0322 PR 2b）
 

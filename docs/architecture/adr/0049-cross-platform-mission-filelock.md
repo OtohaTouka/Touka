@@ -2,7 +2,7 @@
 
 ## 狀態（Status）
 
-✅ 已接受（Accepted）—— 2026-05-26（依賴宣告載體修訂 by [ADR-0117](0117-uv-workspace-single-lock-migration.md)：filelock 依賴自 requirements.txt 遷 pyproject/單一 uv.lock；FileLock 機制本身不變）
+✅ 已接受（Accepted）—— 2026-05-26（依賴宣告載體修訂 by [ADR-0117](0117-uv-workspace-single-lock-migration.md)：filelock 依賴自 requirements.txt 遷 pyproject/單一 uv.lock；FileLock 機制本身不變；[ADR-0325](0325-mission-board-system-folder.md) 修訂：看板搬到 `data/missions/<雜湊>.json`，鎖檔是 `data/temp/locks/missions/<雜湊>.lock`，雜湊是逐字編號 UTF-8 的 sha256）
 
 ---
 

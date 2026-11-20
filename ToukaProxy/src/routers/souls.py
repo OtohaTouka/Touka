@@ -19,7 +19,7 @@ from src.models.souls import (  # noqa: TC001
     SoulUpdateRequest,
 )
 from src.routers.system import restore_in_progress
-from src.services import destructive_ops, memory_collection_guard
+from src.services import destructive_ops, memory_collection_guard, mission_boards
 from src.services.agent_reset.delete_guard import (
     assert_memory_cleared,
     assert_prelude_cleared,
@@ -163,6 +163,8 @@ async def create_soul(
     drive = resource_manager.soul_drive(new_identity)  # 個人空間走區內方法（ADR-0293）
     if drive is None:
         raise ToukaException(ErrorCode.SOUL_VAULT_ERROR)
+    # 拒絕檢查都過了、第一個寫入之前：不屬於任何代理人的殘留看板清掉（ADR-0325）
+    await mission_boards.prepare_new_board(new_identity, refuse_claimed=False)
     await session_service.invalidate_agent_sessions(new_identity)
     app_data_dir = Path(resource_manager.get_base_path())
     dir_specs = {"soul": soul_path, "legacy": app_data_dir / "legacy" / agent_id}
@@ -383,9 +385,12 @@ async def update_soul(
         logger.warning("Soul %s save rejected: model %r is not selectable", soul_id, switch_to)
         raise ToukaException(ErrorCode.MODEL_NOT_FOUND)
 
+    if creating_soul and soul_id.casefold().startswith("toukasoul"):
+        raise ToukaException(ErrorCode.VALIDATION_ERROR)
+    if new_dir:
+        # 拒絕檢查都過了、第一個寫入之前清殘留看板（ADR-0325）；轉換既有資料夾不清（是它自己的）
+        await mission_boards.prepare_new_board(identity, refuse_claimed=False)
     if creating_soul:
-        if soul_id.casefold().startswith("toukasoul"):
-            raise ToukaException(ErrorCode.VALIDATION_ERROR)
         await session_service.invalidate_agent_sessions(identity)
     had_config = resource_manager.exists(agent_dir / "config.json")
     resource_manager.make_dir(agent_dir)
@@ -482,6 +487,9 @@ async def delete_soul(
         await assert_timeline_cleared(identity)
         await assert_prelude_cleared(identity)
 
+        # 看板不在個人空間裡（ADR-0325），要明著刪；刪不掉就什麼都不刪
+        if not await mission_boards.remove_board(identity):
+            raise ToukaException(ErrorCode.SOUL_VAULT_ERROR)
         storage = soul_io.purge_soul_storage(soul_id)
         failed = _unregister_soul(identity)
     if failed:

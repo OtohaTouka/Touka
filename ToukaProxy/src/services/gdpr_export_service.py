@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from memory_server.services.mission_manager import MissionManager
 from memory_server.utils.no_follow import LinkRefusedError, WalkReport, zip_open_file
 from starlette.concurrency import run_in_threadpool
 
@@ -152,6 +153,21 @@ class _Export:
     state: dict[str, Any]  # 大小上限的累計與略過清單（manifest 的 skipped 是同一個 list）
 
 
+async def _add_agent_board(
+    identity: AgentIdentity, text_entries: dict[str, str], state: dict[str, Any]
+) -> None:
+    """該 agent 的任務看板（ADR-0325；經 MissionManager，有鎖、有驗證）；沒有看板不加."""
+    seg = _safe_seg(identity.agent_id)
+    try:
+        board = await MissionManager().get_current_mission(identity)
+    except (OSError, ValueError):
+        logger.warning("GDPR export: mission board unavailable for %s", identity.agent_id)
+        state["skipped"].append({"agent": seg, "reason": "mission_board_unavailable"})
+        return
+    if board is not None:
+        text_entries[f"agents/{seg}/mission_board.json"] = board.model_dump_json(indent=2)
+
+
 def _skip_drive(seg: str, reason: str, state: dict[str, Any]) -> None:
     logger.warning("GDPR export: personal drive skipped (%s)", reason)
     state["skipped"].append({"agent": seg, "vault": _DRIVE_LABEL, "reason": reason})
@@ -229,6 +245,7 @@ def _readme(user: User, taipei_time: str) -> str:
         "  - agents/<id>/activity_timeline.json  該 agent 的活動時間軸（只有時間與識別碼）\n"
         "  - agents/<id>/soul_prelude.json  該 agent 的前情（對話的摘要與來源註記）\n"
         "  - agents/<id>/home_handover.json  該 agent 的換家紀錄（只有對話編號與狀態）\n"
+        "  - agents/<id>/mission_board.json  該 agent 的任務看板（有看板才有）\n"
         "  - agents/<id>/files/...    該 agent 的個人硬碟檔案\n"
         "  - avatar.*            你的頭像（若有）\n"
         "  - manifest.json       本次匯出的清單與統計\n\n"
@@ -328,6 +345,7 @@ async def _collect(
                 {"agent_id": agent_id, **home_records}, ensure_ascii=False, indent=2, default=str
             )
             home_count += sum(len(rows) for rows in home_records.values())
+        await _add_agent_board(identity, text_entries, state)
         drive = _drive_to_export(identity, state)
         if drive is not None:
             drives.append((_safe_seg(agent_id), drive))
@@ -361,6 +379,7 @@ async def _collect(
             "agent_activity_timeline",
             "agent_soul_prelude",
             "agent_home_handover",
+            "agent_mission_board",
             "agent_personal_drive",
         ],
         "excluded": list(EXPORT_EXCLUDED),

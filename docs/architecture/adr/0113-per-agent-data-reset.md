@@ -1,6 +1,6 @@
 # ADR-0113：Per-Agent 資料重置 — 清執行期資料、保留身分（ADR-0104 的安全泛化）
 
-- **狀態**：✅ 已接受（2026-06-24；後端＋前端經 TDD 完成並全綠驗證，經對抗式安全複審）
+- **狀態**：✅ 已接受（2026-06-24；後端＋前端經 TDD 完成並全綠驗證，經對抗式安全複審；[ADR-0325](0325-mission-board-system-folder.md) 修訂：任務板在 `data/missions/<雜湊>.json`，重置清它也清個人空間升級前的舊 `missions/`）
 - **日期**：2026-06-24
 - **影響範圍**：ToukaProxy（`agent_reset/{guard,primitives,orchestrator}.py` 泛化、`routers/admin.py` 端點）＋ ToukaChat（`AgentDataResetCard` 置於 UsersTab／i18n）
 - **關鍵字**：per-agent reset, data reset, identity preservation, is_protected_path, ownership guard, fail-closed, backup-first, password re-entry, type-to-confirm, ADR-0104 generalization, 設定頁路線圖

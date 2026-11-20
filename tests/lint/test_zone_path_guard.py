@@ -590,7 +590,6 @@ def test_removed_getters_do_not_come_back():
 ZONE_SEEDS = frozenset(
     {
         "agent_drive",
-        "agent_drive_for",
         "soul_drive",
         "custom_drive",
         "outputs_dir",
@@ -872,9 +871,10 @@ G1_SITES: dict[str, tuple[dict[str, int], str]] = {
         {"anchor_root:PERSONAL_DRIVE": 1},
         "整個錨點：健康檢查只看個人空間的根存不存在",
     ),
-    "src.utils.soul_io:_personal_drive_names": (
+    "src.utils.soul_io:personal_drive_names": (
         {"anchor_root:PERSONAL_DRIVE": 1},
-        "整個錨點：靈魂名稱檢查只列個人空間第一層的名稱（區內走訪，不進入、不跟隨連結）",
+        "整個錨點：靈魂名稱檢查與搬舊看板的候選只列個人空間第一層的名稱（區內走訪，不進入、"
+        "不跟隨連結；ADR-0325）",
     ),
     "src.protocols.mcp.isolated_stdio:isolated_stdio_client": (
         {"handoff_cwd": 1},
@@ -3820,7 +3820,7 @@ def test_the_lint_ssot_whitelist_names_match_only_the_listed_files():
 
 # RM 的 Z5 方法：本體呼叫過它們的函式也不能替換
 Z5_METHODS = frozenset(
-    {"agent_drive", "agent_drive_for", "soul_drive", "custom_drive", "outputs_dir", "uploads_dir"}
+    {"agent_drive", "soul_drive", "custom_drive", "outputs_dir", "uploads_dir"}
     | {"tool_root", "sandbox_state_proxy", "sandbox_state_dir"}  # ADR-0293 PR 2 P3
 )
 # data 根的所有覆寫方式：設定與環境變數、Proxy 與 Memory 的取得函式、RM 的根來源、模組層的
@@ -3842,6 +3842,11 @@ DATA_ROOT_NAMES = frozenset(
 )
 # 交出區字串與 ST 的函式（ADR-0293 PR 2 P4、P6、P7）；TF 的兩份名單另外加進保護
 T3_TEXT_NAMES = frozenset({"zone_text", "handoff_cwd", "proxy_state_zone", "proxy_state_owner"})
+# 由 data 根推導、不在代理人資料夾裡的位置：任務看板與它的鎖（ADR-0325）。換掉它們，測試裡的看板
+# 就能被導回個人空間，所以一樣不能替換
+DATA_DERIVED_PATHS = frozenset(
+    {"mission_board_path", "missions_dir", "_board_key", "_get_mission_path"}
+)
 # zone_paths 的模組層名稱裡和別的模組撞名、替換也不影響區判斷的
 ZONE_PATHS_GENERIC_NAMES = frozenset({"logger"})
 # zone_paths 類別的成員裡只用在錯誤訊息與事件紀錄的（替換不影響區判斷）
@@ -4300,7 +4305,7 @@ def t3_protected() -> frozenset[str]:
     """區內產生函式（T2 的集合）、回傳標註有 ``ZonePath`` 的、呼叫過 Z5 方法的、data 根，加上
     ``zone_paths`` 的模組層名稱、交出區字串與 ST 的函式和 TF 的兩份名單."""
     names = set(product_flow().names) | DATA_ROOT_NAMES | zone_paths_module_names()
-    names |= T3_TEXT_NAMES
+    names |= T3_TEXT_NAMES | DATA_DERIVED_PATHS
     names |= _short_names(ZONE_TEXT_PRODUCERS)
     names |= _short_names(ZONE_TEXT_RECEIVERS)
     for source in product_sources():
@@ -4361,7 +4366,8 @@ def test_tests_do_not_replace_zone_producers_or_the_data_root():
 def test_t3_covers_the_producers_and_the_data_root():
     protected = t3_protected()
     assert protected >= Z5_METHODS | DATA_ROOT_NAMES | T3_DIRECT_CALLS
-    assert {"_agent_artifact_root", "_get_mission_path", "_own_drive"} <= protected
+    assert {"_agent_artifact_root", "_own_drive"} <= protected
+    assert protected >= DATA_DERIVED_PATHS  # 任務看板的位置（ADR-0325）
     state = {"_roots_provider", "_identity", "_handoffs", "_observers", "zone_of", "contains_zone"}
     assert state | {"current_roots", "is_handed_off"} <= protected
     assert "logger" not in protected

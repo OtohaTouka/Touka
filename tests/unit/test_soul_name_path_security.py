@@ -442,7 +442,7 @@ def test_simulated_aliases_are_refused(zone_data_root, monkeypatch, check, base)
 def test_simulated_alias_of_a_personal_space_is_refused(zone_data_root, monkeypatch, check):
     # 資料夾真的在（檔案系統說它存在），列表卻只有另一種大小寫：不分大小寫的檔案系統就是這樣
     _make_soul(zone_data_root, "ZZVICTIMDRIVE", base="personal_drive")
-    monkeypatch.setattr(soul_io, "_personal_drive_names", lambda: {"zzVictimDrive"})
+    monkeypatch.setattr(soul_io, "personal_drive_names", lambda: {"zzVictimDrive"})
     with pytest.raises(ToukaException) as exc:
         getattr(soul_io, check)(AgentIdentity(agent_id="ZZVICTIMDRIVE"))
     assert _code(exc) is ErrorCode.VALIDATION_ERROR
@@ -454,7 +454,7 @@ def test_personal_space_that_cannot_be_resolved_is_a_vault_error(zone_data_root,
     def unavailable():
         raise ZoneRootsUnavailableError
 
-    monkeypatch.setattr(soul_io, "_personal_drive_names", unavailable)
+    monkeypatch.setattr(soul_io, "personal_drive_names", unavailable)
     with pytest.raises(ToukaException) as exc:
         soul_io.check_new_agent_name(AgentIdentity(agent_id="zzAnyName"))
     assert _code(exc) is ErrorCode.SOUL_VAULT_ERROR

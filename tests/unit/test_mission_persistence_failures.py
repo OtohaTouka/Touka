@@ -21,8 +21,9 @@ from src.tools.mission_tools import mission_tools
 from ToukaDispatch import server as dispatch_server
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from memory_server.models.mission import MissionState
-    from memory_server.utils.zone_paths import ZonePath
 
 SENSITIVE_CAUSE = "synthetic-private-board-content-and-path"
 
@@ -41,7 +42,7 @@ async def _board(*, done: bool = False) -> tuple[MissionManager, AgentIdentity, 
 
 def _fail_write(monkeypatch: pytest.MonkeyPatch) -> Mock:
     failed = Mock(side_effect=OSError(SENSITIVE_CAUSE))
-    monkeypatch.setattr(get_resource_proxy(), "zone_write_text", failed)
+    monkeypatch.setattr(get_resource_proxy(), "write_file_text_no_follow", failed)
     return failed
 
 
@@ -104,15 +105,15 @@ async def test_successful_save_updates_timestamp_only_after_managed_commit(
     manager, identity, state = await _board()
     before = state.updated_at
     expected = before + 10
-    original_write = get_resource_proxy().zone_write_text
+    original_write = get_resource_proxy().write_file_text_no_follow
 
-    def observed_write(path: ZonePath, content: str) -> None:
+    def observed_write(path: Path, content: str) -> None:
         assert state.updated_at == before
         assert json.loads(content)["updated_at"] == expected
         original_write(path, content)
 
     monkeypatch.setattr(mission_module, "get_current_epoch", lambda: expected)
-    monkeypatch.setattr(get_resource_proxy(), "zone_write_text", observed_write)
+    monkeypatch.setattr(get_resource_proxy(), "write_file_text_no_follow", observed_write)
     await manager.save_mission(identity, state)
     assert state.updated_at == expected
     reloaded = await manager.get_current_mission(identity)
@@ -183,9 +184,9 @@ async def test_unreadable_board_does_not_trigger_implicit_mutation(
         read = Mock(side_effect=OSError(SENSITIVE_CAUSE))
     else:
         read = Mock(return_value="" if read_failure == "empty" else "{invalid json")
-    monkeypatch.setattr(get_resource_proxy(), "zone_read_text", read)
+    monkeypatch.setattr(get_resource_proxy(), "read_file_text_no_follow", read)
     write = Mock()
-    monkeypatch.setattr(get_resource_proxy(), "zone_write_text", write)
+    monkeypatch.setattr(get_resource_proxy(), "write_file_text_no_follow", write)
     with pytest.raises(ValueError, match="No active mission"):
         await _mutation(operation, manager, identity, state)
     write.assert_not_called()

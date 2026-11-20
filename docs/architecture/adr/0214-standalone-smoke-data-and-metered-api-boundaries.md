@@ -12,6 +12,7 @@
   [ADR-0136](0136-review-eval-rails.md)、
   [ADR-0209](0209-hermetic-test-config-hydration.md)
 - 2026-10-15 修訂（[ADR-0261](0261-memory-long-horizon-eval.md)）：ADR-0248 後重試在主迴圈，計分卡與 tool_eval episode CLI 原本的 `provider_retry=0` 不成立；兩支現在都把主迴圈設成只送 1 次並揭露 `main_loop_send_attempts=1`。第 5 點的人工入口新增 `tests/smoke/manual/memory_eval_probe.py`（請求 1..40、輸出 1..1,024、USD 軟上限 ≤2、零重試／備援、摘要員與審查員不呼叫）。
+- 2026-11-20 備註（[ADR-0325](0325-mission-board-system-folder.md)）：DebugAgent 的任務看板搬到 `data/missions/<雜湊>.json`，不在 `AgentIdentity("DebugAgent")` jail 解析出的路徑裡。寫入例外的範圍沒有改；人工 live probe 寫這份看板算不算例外，由維護者決定，決定之前當成不在例外內。
 
 ## 背景
 

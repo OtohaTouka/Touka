@@ -207,7 +207,9 @@ async def _run_cmd(
     if denied:
         return CmdResult(cmd=cmd, rejected_reason=denied)
 
+    # 個人空間還沒有就先建（和終端一樣；看板搬走後不會順便建出來，ADR-0325）。
     # 個人空間是連結就丟 LinkRefusedError（review_loop 轉人）；交出的字串到 spawn 回來才取消
+    resource_manager.zone_make_dir(artifact_root)
     kind = HandoffKind.SUBPROCESS_CWD
     with resource_manager.zone_handoff(artifact_root, kind) as cwd:
         try:

@@ -2,15 +2,19 @@
 """任務看板管理器 (Mission Manager).
 
 本模組負責管理代理人的自主任務看板 (Mission Board)。
-提供任務樹的拆解、狀態追蹤、以及物理持久化至個人硬碟 (Personal Drive) 的功能。
+提供任務樹的拆解、狀態追蹤、以及持久化到 ``<data>/missions/<sha256(逐字編號)>.json``
+（代理人碰不到的系統資料夾，ADR-0325）。``data/missions`` 整個資料夾只歸這裡管。
 支援任務狀態更新、產出物 (Artifacts) 關聯以及總體進度判定。
 """
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import json
 import logging
 import uuid
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -29,13 +33,17 @@ from memory_server.utils.no_follow import LinkRefusedError
 from memory_server.utils.zone_paths import ZoneSegmentError, is_zone_segment
 
 if TYPE_CHECKING:
-    from memory_server.utils.zone_paths import ZonePath
     from src.models.identity import AgentIdentity
 
 logger = logging.getLogger(__name__)
 
-# 個人空間根目錄裡放看板的資料夾；檔案動詞不能寫（personal_catalog.SYSTEM_ROOT_DIRS，ADR-0324）
+# data 根底下放看板的資料夾（ADR-0325）。升級前看板在個人空間根目錄的同名資料夾
+# （``missions/current_mission.json``）；檔案動詞照舊不能寫那裡（personal_catalog.SYSTEM_ROOT_DIRS，
+# ADR-0324），升級後第一次啟動搬走（``import_legacy_board``）。
 MISSIONS_DIR_NAME = "missions"
+LEGACY_BOARD_FILE = "current_mission.json"
+# 「舊看板搬過了」的記號；看板檔名都是 64 位十六進位，不會撞名
+LEGACY_IMPORT_MARKER = ".migrated"
 
 
 class MissionPersistenceError(RuntimeError):
@@ -43,6 +51,65 @@ class MissionPersistenceError(RuntimeError):
 
     def __init__(self) -> None:
         super().__init__("Mission persistence failed")
+
+
+class MissionBoardExistsError(FileExistsError):
+    """搬看板的目的地已經有看板：不覆蓋。"""
+
+    def __init__(self) -> None:
+        super().__init__("The target agent already has a mission board")
+
+
+class LegacyImport(StrEnum):
+    """搬一份舊看板的結果（``import_legacy_board``）."""
+
+    ABSENT = "absent"  # 舊位置沒有看板
+    KEPT = "kept"  # 新位置已有看板：不覆蓋、舊檔不動
+    SKIPPED = "skipped"  # 讀不到、是連結、不合規則、別人的、讀回不一致：舊檔不動
+    IMPORTED = "imported"
+
+
+def _board_key(owner_id: str) -> str:
+    """看板與鎖檔的檔名：逐字編號（不 casefold）UTF-8 的 sha256；不是單一段丟 ``ZoneSegmentError``.
+
+    只差大小寫的兩個代理人各有各的檔；雜湊沒有大小寫、8.3 短檔名、Unicode 正規化的別名。
+    """
+    if not is_zone_segment(owner_id):
+        raise ZoneSegmentError
+    return hashlib.sha256(owner_id.encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def missions_dir() -> Path:
+    """``<data>/missions``：看板與搬過了的記號（和鎖檔資料夾用同一個 data 根）."""
+    return Path(_get_app_data_dir()) / MISSIONS_DIR_NAME
+
+
+def mission_board_path(owner_id: str) -> Path:
+    """某個代理人看板的位置（SSOT，ADR-0325）：只看編號，和存取者是誰無關."""
+    return missions_dir() / f"{_board_key(owner_id)}.json"
+
+
+def _check_board_rules(state: MissionState) -> None:
+    """互審的落盤不變式（ADR-0137 §4.4）：做完的任務要審過、鎖住的驗證指令不能拿掉."""
+    for task in state.tasks:
+        if task.status == TaskStatus.DONE and not review_passing(task):
+            raise ValueError(  # noqa: RAISE_STRING_BAN
+                f"Review gate not passed for task '{task.id}' "
+                f"(review_status={task.review_status!r}, risk={task.review_risk})"
+            )
+        if task.verification_cmd_locked and not task.verification_cmd:
+            raise ValueError(  # noqa: RAISE_STRING_BAN
+                f"locked verification_cmd cannot be stripped (task '{task.id}')"
+            )
+
+
+def _skip_legacy(owner_id: str, reason: str, exc: Exception | None) -> LegacyImport:
+    """略過一份舊看板：記 ERROR（編號、原因、例外類別；不記內容），舊檔不動."""
+    detail = f": {type(exc).__name__}" if exc is not None else ""
+    logger.error(
+        "❌ Old mission board of %s not moved (%s%s); the old file stays", owner_id, reason, detail
+    )
+    return LegacyImport.SKIPPED
 
 
 class MissionManager:
@@ -54,13 +121,13 @@ class MissionManager:
     def _get_lock(self, agent_id: str) -> MissionLock:  # noqa: IDENTITY_SSOT
         """獲取指定代理人任務看板的排他鎖（asyncio.Lock + FileLock，ADR-0049）.
 
-        鎖檔是 ``<data>/temp/locks/missions/<id>.lock``，不在代理人寫得到的資料夾（ADR-0293）。
+        鎖檔是 ``<data>/temp/locks/missions/<雜湊>.lock``（和看板同一個雜湊，ADR-0325），
+        不在代理人寫得到的資料夾（ADR-0293）。
         """
-        if not is_zone_segment(agent_id):
-            raise ZoneSegmentError
+        key = _board_key(agent_id)
         lock_dir = Path(_get_app_data_dir()) / "temp" / "locks" / "missions"
         get_resource_proxy().make_dir(str(lock_dir))
-        return MissionLock(agent_id, lock_dir / agent_id)
+        return MissionLock(agent_id, lock_dir / key)
 
     def _resolve_target_agent_id(
         self, identity: AgentIdentity, target_agent_id: str | None = None
@@ -78,40 +145,24 @@ class MissionManager:
 
     def _get_mission_path(
         self, identity: AgentIdentity, target_agent_id: str | None = None
-    ) -> ZonePath:
-        """獲取該代理人任務看板的區內路徑 (SSOT；ADR-0293 起不建資料夾、不跟隨連結).
+    ) -> Path:
+        """獲取該代理人任務看板的位置（``mission_board_path``，ADR-0325）.
 
         C2 修復：不再獨立校驗權限，由呼叫方的 _resolve_target_agent_id 集中負責。
-        本方法僅依據 target_agent_id 解析正確的存儲路徑。
-
-        跨身分定址修復：看板路徑必須是「目標 agent_id 的決定論函數」，與存取者身分
-        無關。舊版跨身分分支以硬編 role="Base" 的最小身分呼叫 ``get_vault_path``，
-        而 personal vault 依 ``is_toukasoul`` 分流（Owner/靈魂 → personal_drive/、
-        Base/自定義 → custom/<id>/drive/）——於是 Owner/靈魂代理的看板會被跨讀誤解析
-        到 custom/ 側，與擁有者自讀的 personal_drive/ 分裂（跨讀回 None 或寫到分裂位置）。
-        改由 proxy 依 agent_id 查**真實註冊身分**定址，消弭角色臆測。
+        路徑只看目標編號，和存取者的角色無關（跨身分讀不再需要查註冊身分）。
         """
-        proxy = get_resource_proxy()
-
-        if target_agent_id and target_agent_id != identity.agent_id:
-            # 跨身分：依真實註冊身分（role/capabilities）決定論定址，不臆測角色。
-            drive = proxy.agent_drive_for(target_agent_id)
-        else:
-            drive = proxy.agent_drive(identity)
-        if drive is None:  # agent_id 不能當成資料夾名稱
-            raise ZoneSegmentError
-        return drive.child(MISSIONS_DIR_NAME, "current_mission.json")
+        return mission_board_path(target_agent_id or identity.agent_id)
 
     async def _get_current_mission_unlocked(
         self, identity: AgentIdentity, target_agent_id: str | None = None
     ) -> MissionState | None:
         """載入目前代理人進行中的任務看板（無鎖內部方法）.
 
-        經過連結時往外丟 ``LinkRefusedError``（ADR-0293），其他讀取失敗當作沒有看板。
+        路上有連結時往外丟 ``LinkRefusedError``（ADR-0293），其他讀取失敗當作沒有看板。
         """
         path = self._get_mission_path(identity, target_agent_id)
         try:
-            content = get_resource_proxy().zone_read_text(path)
+            content = get_resource_proxy().read_file_text_no_follow(path)
             if not content:
                 return None
             data = json.loads(content)
@@ -134,32 +185,21 @@ class MissionManager:
         ``save_mission`` 直呼路徑零 FSM 檢查（後門），只有在這裡擋才堵得住。
         """
         # --- 互審落盤不變式（先驗證再落盤；raise 不得被下方 try 吞掉）---
-        for task in state.tasks:
-            if task.status == TaskStatus.DONE and not review_passing(task):
-                raise ValueError(  # noqa: RAISE_STRING_BAN
-                    f"Review gate not passed for task '{task.id}' "
-                    f"(review_status={task.review_status!r}, risk={task.review_risk})"
-                )
-            if task.verification_cmd_locked and not task.verification_cmd:
-                raise ValueError(  # noqa: RAISE_STRING_BAN
-                    f"locked verification_cmd cannot be stripped (task '{task.id}')"
-                )
+        _check_board_rules(state)
 
         pending = state.model_copy(deep=True)
         pending.updated_at = get_current_epoch()
 
         path = self._get_mission_path(identity, target_agent_id)
         try:
-            get_resource_proxy().zone_write_text(path, pending.model_dump_json(indent=4))
+            get_resource_proxy().write_file_text_no_follow(path, pending.model_dump_json(indent=4))
         except LinkRefusedError:  # 訊息固定、沒有寫入，不包成「結果未知」（ADR-0293）
             raise
         except Exception as exc:
             logger.exception("❌ [MissionManager] Failed to save mission for %s", state.agent_id)
             raise MissionPersistenceError from exc
         state.updated_at = pending.updated_at
-        logger.info(
-            "✅ [MissionManager] Mission saved for %s at %s", state.agent_id, path.display()
-        )
+        logger.info("✅ [MissionManager] Mission saved for %s", state.agent_id)
 
     async def initialize_mission(
         self,
@@ -254,6 +294,108 @@ class MissionManager:
         agent_id = self._resolve_target_agent_id(identity, target_agent_id)
         async with self._get_lock(agent_id):
             await self._save_mission_unlocked(identity, state, target_agent_id)
+
+    # --- 看板跟著代理人走（刪除、改名、建立、重置；ADR-0325）：Proxy 一律經這些方法動看板 ---
+    # 權限由呼叫端（管理員路由、重置原語）決定；這裡只拿鎖、不跟隨連結地讀寫。
+
+    async def delete_board(self, owner: AgentIdentity) -> bool:
+        """刪掉這個編號的看板；回有沒有刪到（不存在不算錯）."""
+        async with self._get_lock(owner.agent_id):
+            try:
+                get_resource_proxy().remove_file_no_follow(mission_board_path(owner.agent_id))
+            except FileNotFoundError:
+                return False
+            return True
+
+    async def has_board(self, owner: AgentIdentity) -> bool:
+        """這個編號有沒有看板."""
+        async with self._get_lock(owner.agent_id):
+            return bool(get_resource_proxy().exists(mission_board_path(owner.agent_id)))
+
+    async def move_board(self, source: AgentIdentity, target: AgentIdentity) -> bool:
+        """看板從舊編號搬到新編號；回有沒有搬（舊的沒有看板就什麼都不做）.
+
+        新編號已有看板丟 ``MissionBoardExistsError``、不覆蓋。看板裡的 ``agent_id`` 改成新編號
+        （讀不懂的看板原樣搬，讀的時候照舊報壞）。刪舊檔失敗時把新檔刪掉再往外丟：不然呼叫端把
+        名字改回去之後，新編號會多一份看板。兩把鎖依檔名順序拿（反向改名不互卡）。
+        """
+        if source.agent_id == target.agent_id:
+            return False  # 同一把鎖不能拿兩次
+        first, second = sorted((source.agent_id, target.agent_id), key=_board_key)
+        async with self._get_lock(first), self._get_lock(second):
+            proxy = get_resource_proxy()
+            old_path = mission_board_path(source.agent_id)
+            new_path = mission_board_path(target.agent_id)
+            try:
+                content = proxy.read_file_text_no_follow(old_path)
+            except FileNotFoundError:
+                return False
+            if proxy.exists(new_path):
+                raise MissionBoardExistsError
+            with contextlib.suppress(ValueError):
+                state = MissionState.model_validate_json(content)
+                state.agent_id = target.agent_id
+                content = state.model_dump_json(indent=4)
+            proxy.write_file_text_no_follow(new_path, content)
+            try:
+                proxy.remove_file_no_follow(old_path)
+            except Exception:
+                with contextlib.suppress(OSError):
+                    proxy.remove_file_no_follow(new_path)
+                raise
+            return True
+
+    def legacy_import_done(self) -> bool:
+        """升級後的舊看板搬過了沒（記號在 ``data/missions`` 裡，跟著備份走）."""
+        return bool(get_resource_proxy().exists(missions_dir() / LEGACY_IMPORT_MARKER))
+
+    def mark_legacy_import_done(self) -> None:
+        """寫下搬過了的記號；之後舊位置的看板不再被搬、也不會被讀."""
+        marker = missions_dir() / LEGACY_IMPORT_MARKER
+        get_resource_proxy().write_file_text_no_follow(marker, str(get_current_epoch()))
+
+    async def import_legacy_board(self, identity: AgentIdentity) -> LegacyImport:
+        """把升級前個人空間裡的看板搬到新位置（啟動時一次，ADR-0325）.
+
+        舊檔用現在讀看板的同一個解析找（``agent_drive``），區內方法讀（不跟隨連結）。內容要是
+        合規則的看板，``agent_id`` 改成這個編號；用和平常存看板相同的序列化寫到新位置、讀回比對
+        一致後才刪舊檔。略過的只記編號與原因，不記內容。
+        """
+        agent_id = identity.agent_id
+        async with self._get_lock(agent_id):
+            proxy = get_resource_proxy()
+            drive = proxy.agent_drive(identity)
+            if drive is None:
+                raise ZoneSegmentError
+            legacy = drive.child(MISSIONS_DIR_NAME, LEGACY_BOARD_FILE)
+            try:
+                content = proxy.zone_read_text(legacy)
+            except FileNotFoundError:
+                return LegacyImport.ABSENT
+            except Exception as exc:
+                return _skip_legacy(agent_id, "unreadable", exc)
+            target = mission_board_path(agent_id)
+            if proxy.exists(target):
+                logger.info("Mission board of %s already moved; the old file stays", agent_id)
+                return LegacyImport.KEPT
+            try:
+                state = MissionState.model_validate(json.loads(content))
+                _check_board_rules(state)
+            except Exception as exc:
+                return _skip_legacy(agent_id, "not a valid board", exc)
+            if state.agent_id != agent_id:
+                # 舊版改名只搬資料夾、只差大小寫時用另一種寫法存過：舊檔在這個代理人的個人空間，
+                # 一律改成這個編號（擋不了偽造；互審的自簽檢查要的是現在的編號）
+                logger.info("Mission board of %s carried another agent id; rewritten", agent_id)
+                state.agent_id = agent_id
+            text = state.model_dump_json(indent=4)
+            proxy.write_file_text_no_follow(target, text)
+            if proxy.read_file_text_no_follow(target) != text:
+                proxy.remove_file_no_follow(target)
+                return _skip_legacy(agent_id, "read-back mismatch", None)
+            proxy.zone_remove_file(legacy)
+            logger.info("Mission board of %s moved to the system folder", agent_id)
+            return LegacyImport.IMPORTED
 
     async def finalize_mission(
         self,

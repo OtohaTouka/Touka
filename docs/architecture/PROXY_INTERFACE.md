@@ -918,7 +918,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
 - **`DispatchAgent` 中介角色**：系統註冊了虛擬中介 `DispatchAgent`（Role: `Base`），用以作為內部/外部任務看板的數據中樞。
 - **能力特權驗證 (`can_supervise_dispatch`)**：
   - 當 AgentIdentity 具有 `"can_supervise_dispatch"` 能力（於 `identity_map.json` 中靜態配置）時，呼叫 `mission_tools` (或調用 `MissionManager`) 存取目標 `target_agent_id="DispatchAgent"`，後端會將當前的身分上下文合法代理為 `DispatchAgent` 的 AgentIdentity。
-  - 這允許 Supervisor 角色（如 `DebugAgent`、`Alice`）安全地繞過「物理路徑監獄」限制，初始化並讀寫 `personal/DispatchAgent/missions/current_mission.json`。
+  - 這允許 Supervisor 角色（如 `DebugAgent`、`Alice`）安全地繞過「物理路徑監獄」限制，初始化並讀寫 `DispatchAgent` 的看板（`<data>/missions/<雜湊>.json`，ADR-0325；以前在 `personal/DispatchAgent/missions/current_mission.json`）。
   - 未經該授權能力的身分嘗試讀寫 `DispatchAgent` 看板將直接被拒絕。
 - **任務看板狀態轉換 FSM 規則**：子任務狀態更新強制遵循有限狀態機 (FSM) 轉換矩陣（如必須經過 `DOING` 才能到 `DONE`；`DONE` 狀態為終端狀態無法再次修改）。
 - **FAILED 特權重置限制**：一旦子任務狀態進入 `FAILED`，只有具有 `can_supervise_dispatch` 特權標籤或角色為 `Owner`/`Debugger`/`admin` 的 Touka Agent 才可將其重置為 `TODO`，外部 AI coding agent 無法自行重置。

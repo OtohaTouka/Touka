@@ -25,7 +25,6 @@ from memory_server.utils.zone_paths import (
 )
 from src.models.identity import AgentIdentity
 from src.services import resource_manager as rm_module
-from src.services.identity_service import identity_service
 from src.services.resource_manager import resource_manager as rm
 from src.utils import permission_repair as pr
 from src.utils.permission_repair import set_permission_repair
@@ -512,19 +511,6 @@ def test_generators_give_none_for_a_bad_id(data, events, bad):
     for make in (rm.agent_drive, rm.soul_drive, rm.custom_drive, rm.outputs_dir, rm.uploads_dir):
         assert make(shaky) is None
     assert events == []
-
-
-def test_agent_drive_for_looks_up_the_registered_identity(data, monkeypatch):
-    looked: list[str] = []
-
-    def get_identity(agent_id):
-        looked.append(agent_id)
-        return ALICE if agent_id == "Alice" else M1
-
-    monkeypatch.setattr(identity_service, "get_identity", get_identity)
-    assert rm.agent_drive_for("Alice") == ZonePath(PD, ("Alice",))
-    assert rm.agent_drive_for("M1") == ZonePath(CD, ("M1", "drive"))
-    assert looked == ["Alice", "M1"]
 
 
 def test_get_vault_path_no_longer_gives_the_personal_drive(data, events):

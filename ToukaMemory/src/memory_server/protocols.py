@@ -172,10 +172,6 @@ class IResourceProxy(IConversationReader, Protocol):
         """代理人的個人空間；``agent_id`` 不能當一段時回 None."""
         ...
 
-    def agent_drive_for(self, agent_id: str) -> ZonePath | None:  # noqa: IDENTITY_SSOT
-        """依 agent_id 找出真實註冊身分後的個人空間（跨身分決定論定址，不臆測角色）."""
-        ...
-
     def outputs_dir(self, identity: Any) -> ZonePath | None:
         """代理人的輸出資料夾."""
         ...

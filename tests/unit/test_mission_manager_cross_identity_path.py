@@ -1,49 +1,15 @@
-"""跨身分任務看板路徑一致性回歸測試（MissionManager._get_mission_path）。
+"""跨身分讀看板：路徑只看目標編號（ADR-0325）。
 
-既有潛在 bug：`_get_mission_path` 解析「跨身分」看板路徑時，以硬編 role="Base"
-的最小身分（舊 `_PathIdentity`）呼叫 `proxy.get_vault_path("personal", ...)`。
-而 personal vault 依 `is_toukasoul` 分流：
-
-  - Owner / 靈魂  → data/personal_drive/<id>/
-  - Base / 自定義 → data/custom/<id>/drive/
-
-於是同一 agent 的看板，擁有者「自讀」（真實 Owner 身分）與「跨身分讀」（督導）會
-解析到**不同目錄**——跨讀讀不到（回 None）或寫到分裂位置。
-
-本測試以 pytest 沙盒（conftest 全域 `MEMORY_APP_DATA_DIR` 隔離）直接驗證
-`_get_mission_path` 的路徑決定論不變式：看板的區內路徑（ADR-0293）必須是 agent_id 的函數，
-與存取者身分無關。
+以前看板在代理人的個人空間，跨身分讀（督導讀 DispatchAgent 看板）要先查真實註冊身分，決定落在
+``personal_drive/`` 還是 ``custom/<id>/drive/``——以呼叫端臆測的角色定址時，同一個代理人的看板會
+分裂在兩個地方。現在看板在 ``<data>/missions/<雜湊>.json``，路徑只是目標編號的函數，和存取者是誰、
+角色是什麼無關。
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
-from memory_server import config_utils
-from memory_server.services.mission_manager import MissionManager
-from memory_server.utils.zone_paths import Anchor
-from src.models.identity import AgentIdentity, AgentOverride, IdentityMapConfig
-from src.services.identity_service import identity_service
-from src.services.permission_service import permission_service
-
-
-def _register_owner(agent_id: str) -> None:
-    """在權限註冊表把 agent_id 標記為真實 Owner（靈魂）身分。
-
-    ADR-0245：覆寫只對靈魂生效，所以先在沙箱建立最小靈魂目錄。停用熱重載，避免註冊表
-    被磁碟上的 identity_map.json 於測試期間蓋回。
-    """
-    soul_dir = Path(config_utils.get_app_data_dir()) / "soul" / agent_id
-    soul_dir.mkdir(parents=True, exist_ok=True)
-    (soul_dir / "config.json").write_text(json.dumps({"is_toukasoul": True}), encoding="utf-8")
-    permission_service.disable_auto_reload()
-    permission_service.identity_map = IdentityMapConfig(
-        tag_rules={},
-        agent_overrides={agent_id: AgentOverride(role="Owner", capabilities=[])},
-        default_role="Base",
-    )
-
+from memory_server.services.mission_manager import MissionManager, mission_board_path
+from src.models.identity import AgentIdentity
 
 _SUPERVISOR = AgentIdentity.for_role(
     agent_id="SupervisorAgent",
@@ -53,51 +19,24 @@ _SUPERVISOR = AgentIdentity.for_role(
 
 
 class TestCrossIdentityMissionPathDeterminism:
-    """看板物理路徑必須是 agent_id 的決定論函數，與存取者身分無關。"""
+    """看板路徑必須是 agent_id 的決定論函數，與存取者身分無關。"""
 
     def test_owner_self_read_and_cross_read_resolve_same_path(self):
-        """真實 Owner 代理的看板：自讀（Owner 身分）與跨身分督導讀必須解析到同一檔案。
-
-        紅燈（修復前）：跨讀以硬編 role="Base" 解析 → data/custom/<id>/drive/missions，
-        而擁有者自讀（Owner）→ data/personal_drive/<id>/missions，兩者分裂。
-        """
-        agent_id = "SoulAgentX"
-        _register_owner(agent_id)
         manager = MissionManager()
-
-        # 真實註冊身分（Owner）——擁有者自讀走此身分。
-        authoritative = identity_service.get_identity(agent_id)
-        assert authoritative.display_role == "Owner"  # 前置條件：註冊表確為 Owner
-        self_path = manager._get_mission_path(authoritative)
-
-        # 前置條件：Owner/靈魂看板落在 personal_drive/（分流的「靈魂」側）。
-        assert self_path.anchor is Anchor.PERSONAL_DRIVE, self_path.display()
-
-        # 督導（can_supervise_dispatch）以 target_agent_id 跨身分讀同一看板。
-        cross_path = manager._get_mission_path(_SUPERVISOR, target_agent_id=agent_id)
-
-        # 不變式：同一 agent 的看板路徑與存取者無關。
-        assert cross_path == self_path, (
-            f"跨身分看板路徑分裂：自讀={self_path.display()} 跨讀={cross_path.display()}"
-        )
+        owner = AgentIdentity.for_role(agent_id="SoulAgentX", role="Owner")
+        self_path = manager._get_mission_path(owner)
+        cross_path = manager._get_mission_path(_SUPERVISOR, target_agent_id="SoulAgentX")
+        assert self_path == cross_path == mission_board_path("SoulAgentX")
 
     def test_dispatch_agent_cross_read_matches_dispatch_self_write(self):
-        """回歸護欄：DispatchAgent（註冊為 Base）看板不得被 fix 誤搬到 personal_drive。
-
-        Dispatch 伺服器以 role="Base" 的固定身分自寫看板 → data/custom/DispatchAgent/
-        drive/missions。督導跨讀必須解析到同一 custom/ 位置（否則督導讀不到、且與
-        dispatch 自寫分裂）。此測試修復前後皆應綠燈——確保 fix 不動 DispatchAgent。
-        """
         manager = MissionManager()
-
-        # Dispatch 伺服器自寫用的固定身分（role="Base"，見 ToukaDispatch/server.py）。
         dispatch_self = AgentIdentity.for_role(agent_id="DispatchAgent", role="Base")
         self_path = manager._get_mission_path(dispatch_self)
-        assert self_path.anchor is Anchor.CUSTOM_DRIVE, self_path.display()
+        cross_path = manager._get_mission_path(_SUPERVISOR, target_agent_id="DispatchAgent")
+        assert self_path == cross_path == mission_board_path("DispatchAgent")
 
-        cross_path = manager._get_mission_path(
-            _SUPERVISOR, target_agent_id="DispatchAgent"
-        )
-        assert cross_path == self_path, (
-            f"DispatchAgent 看板路徑分裂：自寫={self_path.display()} 跨讀={cross_path.display()}"
-        )
+    def test_the_role_does_not_change_the_path(self):
+        manager = MissionManager()
+        as_owner = AgentIdentity.for_role(agent_id="RoleAgent", role="Owner")
+        as_base = AgentIdentity.for_role(agent_id="RoleAgent", role="Base")
+        assert manager._get_mission_path(as_owner) == manager._get_mission_path(as_base)

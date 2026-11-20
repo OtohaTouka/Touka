@@ -112,7 +112,7 @@ def _check_folder_names(
         return
     try:
         drive = resource_manager.soul_drive(identity)
-        names = _personal_drive_names()
+        names = personal_drive_names()
         present = drive is not None and resource_manager.zone_kind(drive) != "missing"
     except (OSError, ZoneRootsUnavailableError) as exc:
         logger.warning("🚫 Cannot list the personal space to check the agent name %r", agent_id)
@@ -128,7 +128,7 @@ def _refuse_alias(base_name: str, name: str) -> None:
     raise ToukaException(ErrorCode.VALIDATION_ERROR)
 
 
-def _personal_drive_names() -> set[str]:
+def personal_drive_names() -> set[str]:
     """個人空間錨點第一層的實際名稱（區內方法，不跟隨連結；列不完整丟 OSError）."""
     report = WalkReport()
     root = resource_manager.anchor_root(Anchor.PERSONAL_DRIVE)
