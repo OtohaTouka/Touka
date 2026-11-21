@@ -489,6 +489,8 @@ async def test_create_refuses_when_schedules_cannot_be_checked(
     heartbeat.put(("a", "OldSoul"))
     _leftovers("OldSoul")
     await _put_board("OldSoul", "leftover")
+    (sandbox / "legacy" / "OldSoul").mkdir(parents=True, exist_ok=True)
+    (sandbox / "legacy" / "OldSoul" / "archive.db").write_text("old", encoding="utf-8")
     await async_db.init_db_async()
     async with async_db.get_async_db() as db:
         await db.execute(
@@ -514,6 +516,8 @@ async def test_create_refuses_when_schedules_cannot_be_checked(
                 "SELECT agent_id FROM user_sessions WHERE id = 'takeover-old-chat'"
             )
         assert [row[0] for row in rows] == ["OldSoul"]
+        # 檔案是最後一步（ADR-0328）：殘留的封存還在原地
+        assert (sandbox / "legacy" / "OldSoul" / "archive.db").is_file()
     finally:
         async with async_db.get_async_db() as db:
             await db.execute("DELETE FROM user_sessions WHERE id = 'takeover-old-chat'")
