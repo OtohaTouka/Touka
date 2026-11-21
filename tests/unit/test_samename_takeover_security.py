@@ -489,17 +489,35 @@ async def test_create_refuses_when_schedules_cannot_be_checked(
     heartbeat.put(("a", "OldSoul"))
     _leftovers("OldSoul")
     await _put_board("OldSoul", "leftover")
-    heartbeat.controls["status"] = 503
-    response = _create("OldSoul")
-    assert response.status_code == 502, response.text
-    assert _code(response) == ErrorCode.HEARTBEAT_UPSTREAM_FAILED.value
-    assert not (sandbox / "soul" / "OldSoul").exists()
-    assert "OldSoul" not in json.loads(registry.read_text(encoding="utf-8"))
-    assert not any("OldSoul" in u.owned_agents for u in AuthService().get_all_users())
-    # 排程是第一步：拒絕時看板、身分設定、統計都還沒動
-    assert _goal("OldSoul") == "leftover"
-    assert _stats_dir("OldSoul").exists()
-    assert "OldSoul" in _disk_overrides()
+    await async_db.init_db_async()
+    async with async_db.get_async_db() as db:
+        await db.execute(
+            "INSERT INTO user_sessions (id, title, messages, updatedAt, agent_id, auth_level, "
+            "active_mcp_servers, active_skills, last_activity_at) "
+            "VALUES ('takeover-old-chat', 't', '{}', 1, 'OldSoul', 'Manual', '[]', '[]', 1)"
+        )
+        await db.commit()
+    try:
+        heartbeat.controls["status"] = 503
+        response = _create("OldSoul")
+        assert response.status_code == 502, response.text
+        assert _code(response) == ErrorCode.HEARTBEAT_UPSTREAM_FAILED.value
+        assert not (sandbox / "soul" / "OldSoul").exists()
+        assert "OldSoul" not in json.loads(registry.read_text(encoding="utf-8"))
+        assert not any("OldSoul" in u.owned_agents for u in AuthService().get_all_users())
+        # 排程是第一步：拒絕時看板、身分設定、統計、對話（ADR-0326 PR 3a）都還沒動
+        assert _goal("OldSoul") == "leftover"
+        assert _stats_dir("OldSoul").exists()
+        assert "OldSoul" in _disk_overrides()
+        async with async_db.get_async_db() as db:
+            rows = await db.execute_fetchall(
+                "SELECT agent_id FROM user_sessions WHERE id = 'takeover-old-chat'"
+            )
+        assert [row[0] for row in rows] == ["OldSoul"]
+    finally:
+        async with async_db.get_async_db() as db:
+            await db.execute("DELETE FROM user_sessions WHERE id = 'takeover-old-chat'")
+            await db.commit()
 
 
 async def test_no_heartbeat_address_skips_the_schedule_check(

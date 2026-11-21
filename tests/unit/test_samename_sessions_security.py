@@ -836,6 +836,26 @@ async def test_custom_model_named_like_a_human_releases(
         NAMES.remove(name)
 
 
+async def test_custom_model_created_with_a_human_name_releases(
+    sandbox: Path, people: SimpleNamespace
+) -> None:
+    """建立和人類帳號同名的自訂模型：殘留的對話照樣解除（人類帳號不算有人用）."""
+    _ = sandbox
+    name = people.second.agent_id
+    NAMES.append(name)
+    try:
+        await _insert("rel-chat", name, owner=people.first.agent_id)
+        response = _create_model(name, people)
+        assert response.status_code == 200, response.text
+        row = await _row("rel-chat")
+        assert row is not None
+        assert (row["agent_id"], row["former_agent_id"]) == (None, name)
+    finally:
+        mission_board_path(name).unlink(missing_ok=True)
+        shutil.rmtree(sandbox / "custom" / name, ignore_errors=True)
+        NAMES.remove(name)
+
+
 async def test_human_continues_with_own_choice(sandbox: Path, people: SimpleNamespace) -> None:
     """原本的人類接著聊：改綁到自己能驅動的靈魂可以；別人不行."""
     _ = sandbox
