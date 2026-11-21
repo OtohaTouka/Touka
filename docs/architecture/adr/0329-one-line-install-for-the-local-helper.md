@@ -4,7 +4,7 @@
 - 日期：2026-11-22
 - 決策者：維護者
 - 相關：[ADR-0312](0312-local-helper-for-host-files.md)（本機小幫手第一版；決定 10「不從 Touka 資料夾安裝」）、[ADR-0299](0299-dependency-cooldown-and-emergency-patches.md)（依賴冷卻期）
-- 影響範圍：`ToukaLocal/install.ps1`（新）、`ToukaLocal/install.py`、`ToukaLocal/touka_local/settings.py`、`ToukaLocal/touka_local/view.py`、`ToukaLocal/README.md`、`scripts/local_helper_pins.py`（新）、`.github/workflows/native-tool-contracts.yml`、`.gitattributes`、`ToukaProxy/config/errors.json.example`（`LOCAL_HELPER_PROTOCOL_MISMATCH` 訊息）與重產的 `ToukaChat/src/lib/error_codes.ts`、兩份翻譯
+- 影響範圍：`ToukaLocal/install.ps1`（新）、`ToukaLocal/install.py`、`ToukaLocal/touka_local/settings.py`、`ToukaLocal/touka_local/view.py`、`ToukaLocal/README.md`、`scripts/local_helper_pins.py`（新）、`.github/workflows/native-tool-contracts.yml`（與 `isolation.yml` 同步）、`.gitattributes`、`ToukaProxy/config/errors.json.example`（`LOCAL_HELPER_PROTOCOL_MISMATCH` 訊息）與重產的 `ToukaChat/src/lib/error_codes.ts`、兩份翻譯
 
 ## 背景
 
@@ -83,7 +83,7 @@ README 放一行指令，做這幾件事：
   - 那個 commit 上的 install.ps1 和每個檔都和釘住的雜湊相同；
   - 整個 repo 只有 README 一處有這一行；
   - install.ps1 的安全檢查逐行還在。
-- CI 的 contracts job 用 `fetch-depth: 0`，而且有測試釘住這個設定：只有淺層 clone 才跳過 commit 核對，跳過時會寫出原因。
+- CI 的 contracts job 用 `fetch-depth: 0`（landlock job 照規定和它取一樣的 checkout），而且有測試釘住這個設定：只有淺層 clone 才跳過 commit 核對，跳過時會寫出原因。
 - 合併一律用 merge commit，指令裡的 commit 永遠留在 dev 與 main 的歷史裡；分支被自動刪掉也一樣。
 
 ### 6. 換版本的做法
