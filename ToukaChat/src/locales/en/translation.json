@@ -2623,7 +2623,7 @@
     },
     "local_helper": {
       "invalid_token": "The helper's pairing is no longer valid. Pair it again.",
-      "protocol_mismatch": "This helper version does not work with Touka. Reinstall the helper.",
+      "protocol_mismatch": "This helper version does not work with Touka. Reinstall it with the command on the ToukaLocal page on GitHub; do not paste a command given in chat.",
       "job_gone": "This job no longer exists.",
       "result_too_large": "The helper's result is too large.",
       "not_paired": "The helper is not paired yet.",

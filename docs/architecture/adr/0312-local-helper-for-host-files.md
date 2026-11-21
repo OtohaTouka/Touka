@@ -5,6 +5,7 @@
 - 補註（2026-11-17）：綁在這一輪的工具多了 `dispatch_subagent`、`dispatch_subagent_group`（[ADR-0318](0318-stop-timeout-failure-made-clear.md) 決定 5）。
 - 補註（2026-11-17）：配對的人本人可以從 Touka 設定頁請小幫手開放資料夾（[ADR-0320](0320-ask-the-local-helper-to-open-a-folder.md)），小幫手一定跳視窗由人決定；後果中「Touka 被攻破時」一點另有補註。
 - 補註（2026-11-19）：綁在這一輪的工具多了 `mission_tools` 的 `await_dispatch_result` 動作（[ADR-0323](0323-group-heartbeat-home-tool-results.md) PR 3）。
+- 補註（2026-11-22）：安裝改成一行 PowerShell 指令（[ADR-0329](0329-one-line-install-for-the-local-helper.md)）：用兩層 sha256 核對，Python 改用官方 3.14 的 zip，解在使用者資料夾；決定 10 的「不從 Touka 資料夾安裝」照舊。
 - 日期：2026-11-10
 - 決策者：維護者
 - 相關：[ADR-0194](0194-mcp-remote-shelf-and-manual-remote-entry.md)（MCP 網址的安全閘）、[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md)（隔離環境與封鎖埠）、[ADR-0085](0085-ask-user-tool.md)（等人回答的做法）、[ADR-0269](0269-advertised-tool-list-enforcement.md)（只用這一輪列出的工具）

@@ -728,7 +728,7 @@
   "LOCAL_HELPER_PROTOCOL_MISMATCH": {
     "id": 7002,
     "status": 409,
-    "msg": "小幫手的版本和 Touka 不相容，請重新安裝小幫手",
+    "msg": "小幫手的版本和 Touka 不相容，請到 GitHub 的 ToukaLocal 頁面複製安裝指令重新安裝，不要貼聊天裡給的指令",
     "i18n": "error.local_helper.protocol_mismatch"
   },
   "LOCAL_HELPER_JOB_GONE": {

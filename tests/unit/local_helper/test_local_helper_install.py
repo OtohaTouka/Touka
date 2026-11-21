@@ -6,6 +6,10 @@ import runpy
 import sys
 import types
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if sys.platform == "win32":
+    import _winapi
 
 import install as installer
 import pytest
@@ -20,7 +24,10 @@ from touka_local.winapi import (
     structure_size,
 )
 
-_LOCAL = Path(__file__).resolve().parents[3] / "ToukaLocal"
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+_LOCAL =Path(__file__).resolve().parents[3] / "ToukaLocal"
 
 is_windows = sys.platform == "win32"
 
@@ -382,6 +389,7 @@ def test_environment_knows_where_python_is(monkeypatch: pytest.MonkeyPatch) -> N
         "E:\\Py",
         "E:\\Base",
         f"C:\\Users\\Me\\Desktop\\{installer._LAUNCHER_NAME}",
+        f"C:\\A\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{installer._LAUNCHER_NAME}",
     )
 
 
@@ -412,3 +420,275 @@ def test_reinstall_leaves_the_key_switch_and_reset_alone(tmp_path: Path) -> None
     installer.copy_allowed(source, helper / "app")
     installer.update_settings(helper / "settings.json", "D:\\Touka")
     assert {file: file.read_bytes() for file in before} == before
+
+
+# --- 一行指令安裝：互動詢問、開機自動啟動、整個換掉 app（ADR-0329） ---
+
+STARTUP = "C:\\Users\\Me\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
+APP_DIR = f"{APPDATA}\\ToukaLocal\\app"
+
+
+def _answers(*replies: str) -> tuple[list[str], Callable[[str], str]]:
+    asked: list[str] = []
+    queue = list(replies)
+
+    def ask(prompt: str) -> str:
+        asked.append(prompt)
+        return queue.pop(0)
+
+    return asked, ask
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("  D:\\Touka  ", "D:\\Touka"),
+        ('"D:\\My Touka"', "D:\\My Touka"),
+        ('  "D:\\Touka"  ', "D:\\Touka"),
+        ('"D:\\Touka', '"D:\\Touka'),
+        ("", ""),
+    ],
+)
+def test_folder_answer_is_cleaned_like_the_settings_page(raw: str, expected: str) -> None:
+    assert installer.clean_folder_input(raw) == expected
+
+
+def test_given_folder_is_used_without_asking() -> None:
+    asked, ask = _answers()
+    assert installer.resolve_touka_folder('"D:\\Touka"', "D:\\Old", ask) == "D:\\Touka"
+    assert asked == []
+
+
+def test_empty_answer_keeps_the_current_folder() -> None:
+    asked, ask = _answers("")
+    assert installer.resolve_touka_folder(None, "D:\\Old", ask) == "D:\\Old"
+    assert "D:\\Old" in asked[0]
+
+
+def test_typed_answer_replaces_the_current_folder() -> None:
+    _asked, ask = _answers(' "E:\\Touka" ')
+    assert installer.resolve_touka_folder(None, "D:\\Old", ask) == "E:\\Touka"
+
+
+def test_empty_answer_without_a_current_folder_refuses() -> None:
+    _asked, ask = _answers("   ")
+    with pytest.raises(installer.InstallRefused):
+        installer.resolve_touka_folder(None, None, ask)
+
+
+def test_non_interactive_uses_the_current_folder() -> None:
+    assert installer.resolve_touka_folder(None, "D:\\Old", None) == "D:\\Old"
+
+
+def test_non_interactive_without_any_folder_refuses() -> None:
+    with pytest.raises(installer.InstallRefused):
+        installer.resolve_touka_folder(None, None, None)
+
+
+def test_current_folder_comes_from_settings(tmp_path: Path) -> None:
+    file = tmp_path / "settings.json"
+    assert installer.current_touka_folder(file) is None
+    save_settings(file, Settings(port=8000, token=None, touka_folder="D:\\Old"))
+    assert installer.current_touka_folder(file) == "D:\\Old"
+
+
+def test_startup_launcher_location() -> None:
+    assert installer.startup_launcher("C:\\Users\\Me\\AppData\\Roaming") == (
+        f"{STARTUP}\\{installer._LAUNCHER_NAME}"
+    )
+
+
+def test_installer_and_helper_agree_on_the_startup_launcher() -> None:
+    environ = {
+        "USERPROFILE": "C:\\Users\\Me",
+        "WINDIR": "C:\\Windows",
+        "ProgramFiles": "C:\\Program Files",
+        "ProgramData": "C:\\ProgramData",
+        "APPDATA": "C:\\Users\\Me\\AppData\\Roaming",
+        "LOCALAPPDATA": APPDATA,
+    }
+    code_paths = load_environment(environ, "D:\\Touka").code_paths
+    assert installer.startup_launcher(environ["APPDATA"]) in code_paths
+
+
+def _our_launcher() -> bytes:
+    plan = installer.plan_install(
+        source=SOURCE, local_app_data=APPDATA, python=PYTHON, touka_folder=TOUKA
+    )
+    assert plan.app_dir == APP_DIR
+    return installer.launcher_bytes(plan, "ascii")
+
+
+def test_our_launcher_is_recognised() -> None:
+    assert installer.is_our_launcher(_our_launcher(), APP_DIR, "ascii")
+
+
+def test_an_older_python_in_our_launcher_still_counts() -> None:
+    old = _our_launcher().replace(b"cpython-3.12", b"cpython-3.11")
+    assert installer.is_our_launcher(old, APP_DIR, "ascii")
+
+
+_OUR_APP = b'"C:\\Users\\Me\\AppData\\Local\\ToukaLocal\\app"'
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b'@echo off\r\nstart "" "C:\\Py\\pythonw.exe" -I -S "C:\\Other\\app"\r\n',
+        b'@echo off\r\nstart "" "C:\\Py\\pythonw.exe" -I -S ' + _OUR_APP + b"\r\ndel x\r\n",
+        b'@echo off\r\nstart "" "C:\\Py\\python.exe" -I -S ' + _OUR_APP + b"\r\n",
+        b'@echo off\r\nstart "" "C:\\Py\\pythonw.exe" -I -S ' + _OUR_APP + b"\n",
+        b"echo hello\r\n",
+        b"\xff\xfe\x00",
+    ],
+)
+def test_other_files_are_not_ours(data: bytes) -> None:
+    assert not installer.is_our_launcher(data, APP_DIR, "ascii")
+
+
+def test_app_dir_is_matched_literally() -> None:
+    # 「.」要照字面比，不能當成任意字元
+    dotted = f"{APPDATA}\\ToukaLocal\\ap."
+    assert not installer.is_our_launcher(_our_launcher(), dotted, "ascii")
+
+
+@pytest.mark.parametrize(("flag", "currently_on"), [(True, False), (False, True)])
+def test_flag_decides_autostart_without_asking(flag: bool, currently_on: bool) -> None:
+    asked, ask = _answers()
+    assert installer.decide_autostart(flag, currently_on=currently_on, ask=ask) is flag
+    assert asked == []
+
+
+@pytest.mark.parametrize("currently_on", [True, False])
+def test_non_interactive_keeps_autostart_as_it_is(currently_on: bool) -> None:
+    assert installer.decide_autostart(None, currently_on=currently_on, ask=None) is currently_on
+
+
+@pytest.mark.parametrize("currently_on", [True, False])
+def test_pressing_enter_keeps_autostart_as_it_is(currently_on: bool) -> None:
+    asked, ask = _answers("")
+    assert installer.decide_autostart(None, currently_on=currently_on, ask=ask) is currently_on
+    assert ("(Y/n)" if currently_on else "(y/N)") in asked[0]
+
+
+@pytest.mark.parametrize(
+    ("reply", "expected"), [("y", True), ("Y", True), ("n", False), ("N", False)]
+)
+def test_answer_decides_autostart(reply: str, expected: bool) -> None:
+    _asked, ask = _answers(reply)
+    assert installer.decide_autostart(None, currently_on=not expected, ask=ask) is expected
+
+
+def test_autostart_writes_our_launcher_and_creates_the_folder(tmp_path: Path) -> None:
+    target = tmp_path / "Startup" / installer._LAUNCHER_NAME
+    data = _our_launcher()
+    installer.apply_autostart(target, want=True, data=data, app_dir=APP_DIR, encoding="ascii")
+    assert target.read_bytes() == data
+
+
+def test_autostart_never_overwrites_someone_elses_file(tmp_path: Path) -> None:
+    target = tmp_path / installer._LAUNCHER_NAME
+    target.write_bytes(b"echo mine\r\n")
+    note = installer.apply_autostart(
+        target, want=True, data=_our_launcher(), app_dir=APP_DIR, encoding="ascii"
+    )
+    assert target.read_bytes() == b"echo mine\r\n"
+    assert note
+
+
+def test_turning_autostart_off_removes_only_our_launcher(tmp_path: Path) -> None:
+    ours = tmp_path / "ours" / installer._LAUNCHER_NAME
+    ours.parent.mkdir()
+    ours.write_bytes(_our_launcher())
+    installer.apply_autostart(ours, want=False, data=b"", app_dir=APP_DIR, encoding="ascii")
+    assert not ours.exists()
+    theirs = tmp_path / "theirs" / installer._LAUNCHER_NAME
+    theirs.parent.mkdir()
+    theirs.write_bytes(b"echo mine\r\n")
+    installer.apply_autostart(theirs, want=False, data=b"", app_dir=APP_DIR, encoding="ascii")
+    assert theirs.read_bytes() == b"echo mine\r\n"
+
+
+def test_autostart_is_on_only_when_our_launcher_is_there(tmp_path: Path) -> None:
+    target = tmp_path / installer._LAUNCHER_NAME
+    assert not installer.has_our_launcher(target, APP_DIR, "ascii")
+    target.write_bytes(b"echo mine\r\n")
+    assert not installer.has_our_launcher(target, APP_DIR, "ascii")
+    target.write_bytes(_our_launcher())
+    assert installer.has_our_launcher(target, APP_DIR, "ascii")
+
+
+def _helper_sources(source: Path, marker: str) -> None:
+    for relative in installer.ALLOWED_FILES:
+        target = source / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"# {marker} {relative}\n", encoding="utf-8")
+
+
+def _files(folder: Path) -> dict[str, bytes]:
+    files = (p for p in folder.rglob("*") if p.is_file())
+    return {p.relative_to(folder).as_posix(): p.read_bytes() for p in files}
+
+
+def test_failed_copy_keeps_the_old_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = tmp_path / "app"
+    _helper_sources(tmp_path / "old", "old")
+    installer.copy_allowed(tmp_path / "old", app)
+    before = _files(app)
+    _helper_sources(tmp_path / "new", "new")
+    written: list[Path] = []
+    real_write = Path.write_bytes
+
+    def flaky_write(self: Path, data: bytes) -> int:
+        if len(written) == 3:
+            msg = "disk full"
+            raise OSError(msg)
+        written.append(self)
+        return real_write(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", flaky_write)
+    with pytest.raises(OSError, match="disk full"):
+        installer.copy_allowed(tmp_path / "new", app)
+    monkeypatch.undo()
+    assert _files(app) == before
+
+
+def test_copy_cleans_up_leftovers_from_a_failed_run(tmp_path: Path) -> None:
+    app = tmp_path / "app"
+    (tmp_path / "app.new" / "junk").mkdir(parents=True)
+    (tmp_path / "app.old").mkdir()
+    (tmp_path / "app.old" / "x.py").write_text("x", encoding="utf-8")
+    _helper_sources(tmp_path / "src", "new")
+    installer.copy_allowed(tmp_path / "src", app)
+    assert not (tmp_path / "app.new").exists()
+    assert not (tmp_path / "app.old").exists()
+    assert set(_files(app)) == set(installer.ALLOWED_FILES)
+
+
+def test_replacing_the_app_does_not_follow_links(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("keep", encoding="utf-8")
+    app = tmp_path / "app"
+    app.mkdir()
+    try:
+        (app / "linked").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("這台電腦不能建符號連結")
+    _helper_sources(tmp_path / "src", "new")
+    installer.copy_allowed(tmp_path / "src", app)
+    assert (outside / "keep.txt").read_text(encoding="utf-8") == "keep"
+    assert not (app / "linked").exists()
+
+
+@pytest.mark.skipif(not is_windows, reason="只有 Windows 有 junction")
+def test_replacing_the_app_does_not_follow_junctions(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("keep", encoding="utf-8")
+    app = tmp_path / "app"
+    app.mkdir()
+    _winapi.CreateJunction(str(outside), str(app / "linked"))
+    _helper_sources(tmp_path / "src", "new")
+    installer.copy_allowed(tmp_path / "src", app)
+    assert (outside / "keep.txt").read_text(encoding="utf-8") == "keep"

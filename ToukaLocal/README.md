@@ -2,27 +2,47 @@
 
 讓靈魂在你開放的資料夾裡看檔案、新建文字檔，或提出搬移與刪除清單給你核准。設計與邊界見 [ADR-0312](../docs/architecture/adr/0312-local-helper-for-host-files.md)。
 
-目前只有 Windows，介面只有繁體中文，只用 Python 標準函式庫。
+目前只有 Windows（64 位元 x64），介面只有繁體中文，只用 Python 標準函式庫。
 
 ## 安裝
 
-不要從 Touka 資料夾安裝：那個資料夾有掛進容器，代理人寫得到，安裝程式會拒絕。
+> **只從 GitHub 官方頁面複製下面那一行**：<https://github.com/OtohaTouka/Touka/blob/main/ToukaLocal/README.md>（和你執行的 Touka 同一個分支，一般是 main）。這一行會在你的電腦上、Docker 外面執行程式。你電腦上 Touka 資料夾裡的這份檔案，Docker 裡的代理人改得到；靈魂或聊天裡給的指令也不要貼。
 
-1. 把 GitHub 上的 repo clone 到 Touka 資料夾以外的地方，例如 `%TEMP%\touka-helper`，切到要安裝的版本，確認 commit 和 GitHub 上顯示的相同。
+1. 小幫手開著的話，先關掉。
+2. 開一般的 Windows PowerShell（不要用系統管理員，也不要用 PowerShell ISE），貼上這一行，按 Enter：
 
-2. 用 Touka 資料夾以外的 Python 3.12（要有 tkinter，例如 uv 裝的版本，不要用 `.venv`）執行：
-
-   ```bash
-   python -I -S ToukaLocal/install.py --touka-folder "D:\Touka"
+   ```powershell
+   $d=Join-Path $env:TEMP ("touka-helper-"+[guid]::NewGuid()); New-Item -ItemType Directory $d | Out-Null; $f=Join-Path $d 'install.ps1'; [Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor 3072; Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/OtohaTouka/Touka/0000000000000000000000000000000000000000/ToukaLocal/install.ps1' -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -eq '0000000000000000000000000000000000000000000000000000000000000000') { powershell -NoProfile -ExecutionPolicy Bypass -File $f -Commit '0000000000000000000000000000000000000000' -WorkDir $d } else { Remove-Item -Recurse $d; Write-Error 'install.ps1 does not match' }
    ```
 
-   `--touka-folder` 是你放 Touka 的完整路徑。小幫手會記下來，不讓你把它開放出去。
+3. 它會問 Touka 資料夾在哪（完整路徑，例如 `D:\Touka`；重裝時按 Enter 沿用上次的），以及要不要開機自動啟動。小幫手會記下 Touka 資料夾，不讓你把它開放出去。
+4. 用桌面上的 `ToukaLocal.cmd` 啟動。
 
-3. 用桌面上的 `ToukaLocal.cmd` 啟動。
+**它做什麼**（[ADR-0329](../docs/architecture/adr/0329-one-line-install-for-the-local-helper.md)）：先下載安裝腳本，比對指令裡的指紋（sha256），對了才執行。腳本再下載 Python 3.14.10 的官方壓縮檔（約 33 MB）和小幫手的每個檔，逐一比對指紋，任何一個不對就停下，什麼都不裝。Python 放在 `%LOCALAPPDATA%\ToukaLocal\python-3.14.10\`，小幫手放在 `%LOCALAPPDATA%\ToukaLocal\app\`。不需要管理員權限、不改系統設定、不寫登錄檔，也不碰你電腦上原本的 Python。
 
-程式裝在 `%LOCALAPPDATA%\ToukaLocal\app\`，clone 下來的資料夾之後可以刪掉。
+**怎麼確認這一行是官方的**：在瀏覽器打開 `https://github.com/OtohaTouka/Touka/commit/` 加上指令裡那串 40 字的 commit，頁面要顯示它在 main（或 dev）上，不能有「This commit does not belong to any branch on this repository」的警告。這只能確認版本，看不出這一行其他地方有沒有被改，所以一定要從官方頁面複製。
 
-**Touka 升級時如果協議改版，小幫手會顯示版本不符，請用新版本重新跑一次上面的步驟。** 配對和開放的資料夾會保留。
+**版本不符時**（Touka 或小幫手顯示「版本不符」「不相容」）：先把 Touka 更新到 main 最新，再照 GitHub 上 main 的這個頁面重新安裝。配對和開放的資料夾會保留。
+
+### 疑難排解
+
+- 顯示「指令碼執行已停用」或群組原則鎖定了執行原則：公司或學校的電腦可能不允許，請找電腦的管理員。
+- 顯示「受限語言模式」：這台電腦的 PowerShell 被限制，不能用這個方式安裝。
+- 顯示「小幫手正在執行」：先關掉小幫手的視窗再貼一次。
+- 開機自動啟動時，主控台視窗會閃一下，小幫手隨即開啟。
+
+### 解除安裝
+
+刪掉 `%LOCALAPPDATA%\ToukaLocal` 資料夾，以及桌面和「啟動」資料夾（`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`）裡的 `ToukaLocal.cmd`。
+
+### 進階：不用一行指令
+
+1. 把 GitHub 上的 repo clone 到 Touka 資料夾以外的地方，切到要安裝的版本，確認 commit 和 GitHub 上顯示的相同。
+2. 用 Touka 資料夾以外的 Python 3.14（要有 tkinter，不要用 `.venv`）執行 `python -I -S ToukaLocal/install.py`，可以加 `--touka-folder "D:\Touka"`、`--autostart` 或 `--no-autostart`。不要從 Touka 資料夾安裝：那個資料夾有掛進容器，安裝程式會拒絕。
+
+### 換版本（給維護的人）
+
+小幫手的檔改了要分兩個 commit：先跑 `python scripts/local_helper_pins.py`，把印出的雜湊清單貼進 `install.ps1`；提交後，再跑 `python scripts/local_helper_pins.py --commit <剛才的 commit>`，把印出的那一行換進上面的指令區塊。Python 要重新釘的時機寫在 ADR-0329。
 
 ## 配對
 

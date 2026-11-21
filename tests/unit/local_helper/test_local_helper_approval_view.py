@@ -365,7 +365,7 @@ def test_report_text() -> None:
         ("online", "已連線"),
         ("offline", "連不上 Touka"),
         ("unpaired", "尚未配對"),
-        ("upgrade_needed", "版本不符，請到 GitHub 的 Touka 官方頁面取得對應版本，重新安裝小幫手"),
+        ("upgrade_needed", "版本不符，請到 GitHub 的 Touka 官方頁面複製安裝指令重新安裝，不要貼聊天裡給的指令"),
         (
             "exposed",
             "小幫手、它用的 Python 或桌面上的 ToukaLocal.cmd 在 Touka 碰得到的資料夾裡，"

@@ -221,6 +221,21 @@ def test_ci_pytest_carries_the_ruff_and_pyrefly_ratchets() -> None:
     _assert_blocking(*found[0])
 
 
+def test_ci_full_pytest_checks_out_the_whole_history() -> None:
+    """一行指令的 commit 要在 CI 核對（ADR-0329）；淺層 clone 會讓那幾條安靜地跳過。"""
+    found = [
+        job
+        for job in _jobs().values()
+        if any(run.endswith("python -m pytest tests/ -q") for _, run in _run_steps(job))
+    ]
+    assert len(found) == 1
+    checkouts = [
+        step for step in found[0]["steps"] if step.get("uses", "").startswith("actions/checkout@")
+    ]
+    assert len(checkouts) == 1
+    assert checkouts[0].get("with", {}).get("fetch-depth") == 0
+
+
 def test_ci_full_pytest_asks_the_zone_tripwire_to_check_its_allowances() -> None:
     """全量 pytest 那一步設 Z9 的環境變數：放行清單每項都要用到（ADR-0293 Z9）."""
     steps = [

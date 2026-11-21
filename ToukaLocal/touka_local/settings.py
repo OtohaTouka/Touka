@@ -29,6 +29,8 @@ DEFAULT_PORT: Final = 8000
 HELPER_FOLDER_NAME: Final = "ToukaLocal"
 # 和 install.py 的 _LAUNCHER_NAME 相同（安裝程式載入不到這裡，測試釘住）
 LAUNCHER_NAME: Final = "ToukaLocal.cmd"
+# 開機自動啟動的位置，和 install.py 的 _STARTUP_FOLDER 相同（ADR-0329，測試釘住）
+STARTUP_FOLDER: Final = ("Microsoft", "Windows", "Start Menu", "Programs", "Startup")
 _FIELDS: Final = frozenset({"port", "token", "touka_folder"})
 _REQUIRED_LOCATIONS: Final = (
     "USERPROFILE",
@@ -105,6 +107,7 @@ def load_environment(environ: Mapping[str, str], touka_folder: str | None) -> En
             ntpath.dirname(sys.executable),
             sys.base_prefix,
             join(values["USERPROFILE"], "Desktop", LAUNCHER_NAME),
+            join(values["APPDATA"], *STARTUP_FOLDER, LAUNCHER_NAME),
         ),
         touka_folder=str(touka_folder),
     )
