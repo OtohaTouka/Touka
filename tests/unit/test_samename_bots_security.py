@@ -483,7 +483,12 @@ def _unexpected(_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(bot_service_module, "disable_bound", _boom)
 
 
-@pytest.mark.parametrize("breakage", [_corrupt, _unwritable, _unexpected])
+def _bad_shape(path: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
+    """JSON 讀得出來，但平台的值不是清單：也不能當成沒有機器人."""
+    path.write_text(json.dumps({"discord": [], "telegram": "x"}), encoding="utf-8")
+
+
+@pytest.mark.parametrize("breakage", [_corrupt, _unwritable, _unexpected, _bad_shape])
 async def test_bots_failure_on_delete_is_listed_in_skipped(
     breakage: Callable[[Path, pytest.MonkeyPatch], None],
     sandbox: Path,
@@ -552,7 +557,7 @@ async def test_creating_a_soul_disables_leftover_bots(
     assert not other.stopped
 
 
-@pytest.mark.parametrize("breakage", [_corrupt, _unwritable])
+@pytest.mark.parametrize("breakage", [_corrupt, _unwritable, _bad_shape])
 async def test_create_refuses_when_bots_cannot_be_disabled(
     breakage: Callable[[Path, pytest.MonkeyPatch], None],
     sandbox: Path,
@@ -568,6 +573,30 @@ async def test_create_refuses_when_bots_cannot_be_disabled(
     assert _code(response) == ErrorCode.SYSTEM_ERROR.value
     assert not (sandbox / "soul" / "NewSoul").exists()
     assert bot.stopped
+
+
+async def test_schedule_refusal_on_create_leaves_bots_alone(
+    sandbox: Path,
+    bots_file: Path,
+    running: dict[str, dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """建立時排程第一個：心跳服務連不上而拒絕時，機器人還沒動（決定 3）."""
+
+    async def _unreachable(_identity: AgentIdentity) -> int:
+        raise ToukaException(ErrorCode.HEARTBEAT_UPSTREAM_FAILED)
+
+    monkeypatch.setattr(agent_leftovers, "_remove_schedules", _unreachable)
+    _put_bots(bots_file, telegram=[_bot("t1", "NewSoul")])
+    before = bots_file.read_bytes()
+    bot = _run(running, "telegram", "k1", FakeBot("NewSoul"))
+    response = _create("NewSoul")
+    assert response.status_code == 502, response.text
+    assert not (sandbox / "soul" / "NewSoul").exists()
+    assert bots_file.read_bytes() == before
+    assert not bot.retired
+    assert not bot.stopped
+    assert _listed(running, bot)
 
 
 async def test_repairing_a_soul_keeps_its_bots(
@@ -648,6 +677,9 @@ async def test_stop_bots_retires_everything_even_when_disable_runs_meanwhile(
     assert later.stopped
     assert first.retired
     assert later.retired
+    # 先換成空清單、標停用，才開始停（停完才換的話，重疊的重載會留下沒停的機器人）
+    assert first.seen_at_stop == (True, False)
+    assert later.seen_at_stop == (True, False)
     assert bot_service._running_bots == {"discord": {}, "telegram": {}}
     assert _enabled(bots_file) == {"t1": False}
 
