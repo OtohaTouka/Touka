@@ -27,7 +27,7 @@ from touka_local.winapi import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_LOCAL =Path(__file__).resolve().parents[3] / "ToukaLocal"
+_LOCAL = Path(__file__).resolve().parents[3] / "ToukaLocal"
 
 is_windows = sys.platform == "win32"
 
@@ -318,7 +318,6 @@ def test_touka_folder_must_exist(tmp_path: Path) -> None:
 
 def test_install_stops_when_the_touka_folder_does_not_exist(monkeypatch) -> None:
     monkeypatch.setattr(installer, "check_flags", lambda **_flags: None)
-    monkeypatch.setattr(installer, "copy_allowed", lambda *_args: pytest.fail("不應該開始複製"))
     environ = {"LOCALAPPDATA": "C:\\Users\\Me\\AppData\\Local"}
     with pytest.raises(installer.InstallRefused):
         installer._plan("Z:\\NoSuchTouka", environ)
@@ -692,3 +691,124 @@ def test_replacing_the_app_does_not_follow_junctions(tmp_path: Path) -> None:
     _helper_sources(tmp_path / "src", "new")
     installer.copy_allowed(tmp_path / "src", app)
     assert (outside / "keep.txt").read_text(encoding="utf-8") == "keep"
+
+
+def test_failed_swap_puts_the_old_app_back(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = tmp_path / "app"
+    _helper_sources(tmp_path / "old", "old")
+    installer.copy_allowed(tmp_path / "old", app)
+    before = _files(app)
+    _helper_sources(tmp_path / "new", "new")
+    real_rename = Path.rename
+    calls: list[Path] = []
+
+    def flaky_rename(self: Path, target: Path) -> Path:
+        calls.append(self)
+        if self.name == "app.new":
+            msg = "locked"
+            raise OSError(msg)
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", flaky_rename)
+    with pytest.raises(OSError, match="locked"):
+        installer.copy_allowed(tmp_path / "new", app)
+    monkeypatch.undo()
+    assert _files(app) == before
+
+
+def test_an_old_app_that_cannot_be_removed_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = tmp_path / "app"
+    _helper_sources(tmp_path / "old", "old")
+    installer.copy_allowed(tmp_path / "old", app)
+    _helper_sources(tmp_path / "new", "new")
+    real_remove = installer.remove_tree
+
+    def stubborn(folder: Path) -> None:
+        if folder.name == "app.old":
+            msg = "in use"
+            raise OSError(msg)
+        real_remove(folder)
+
+    monkeypatch.setattr(installer, "remove_tree", stubborn)
+    note = installer.copy_allowed(tmp_path / "new", app)
+    assert "app.old" in note
+    assert b"# new" in (app / "__main__.py").read_bytes()
+
+
+# --- run() 的接線：先問完、檢查完才複製；開機啟動的預設來自現有的啟動檔 ---
+
+
+def _fake_plan(tmp_path: Path) -> installer.InstallPlan:
+    helper = tmp_path / "helper"
+    return installer.InstallPlan(
+        helper_dir=str(helper),
+        app_dir=str(helper / "app"),
+        pythonw="C:\\Py\\pythonw.exe",
+        launcher=str(helper / installer._LAUNCHER_NAME),
+        touka_folder="D:\\Touka",
+    )
+
+
+def _wire_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, refuse: bool = False
+) -> list[str]:
+    events: list[str] = []
+    plan = _fake_plan(tmp_path)
+    monkeypatch.setattr(installer.sys, "platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("APPDATA", "C:\\Users\\Me\\AppData\\Roaming")
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "profile"))
+
+    def ask(prompt: str) -> str:
+        events.append(f"ask:{prompt[:5]}")
+        return ""
+
+    def fake_plan(folder: str, _environ: object) -> installer.InstallPlan:
+        events.append(f"plan:{folder}")
+        if refuse:
+            msg = "找不到這個 Touka 資料夾"
+            raise installer.InstallRefused(msg)
+        return plan
+
+    def has_ours(path: Path, app_dir: str, _encoding: str = "oem") -> bool:
+        events.append(f"has:{path.name}:{app_dir == plan.app_dir}")
+        return True
+
+    def copy(_source: Path, app: Path) -> str:
+        events.append(f"copy:{app.name}")
+        return ""
+
+    def autostart(_path: Path, *, want: bool, data: bytes, app_dir: str) -> str:
+        events.append(f"autostart:{want}")
+        return ""
+
+    monkeypatch.setattr(installer, "_console_ask", lambda: ask)
+    monkeypatch.setattr(installer, "_plan", fake_plan)
+    monkeypatch.setattr(installer, "has_our_launcher", has_ours)
+    monkeypatch.setattr(installer, "copy_allowed", copy)
+    monkeypatch.setattr(installer, "apply_autostart", autostart)
+    monkeypatch.setattr(installer, "launcher_bytes", lambda _plan: b"@echo off\r\n")
+    return events
+
+
+def test_run_refuses_before_copying_anything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events = _wire_run(tmp_path, monkeypatch, refuse=True)
+    assert installer.run(["--touka-folder", "Z:\\NoSuchTouka"]) == 1
+    assert events == ["plan:Z:\\NoSuchTouka"]
+
+
+def test_run_asks_everything_before_copying(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events = _wire_run(tmp_path, monkeypatch)
+    settings_file = tmp_path / "local" / "ToukaLocal" / "settings.json"
+    save_settings(settings_file, Settings(port=8000, token=None, touka_folder="D:\\Touka"))
+    assert installer.run([]) == 0
+    assert [e.split(":")[0] for e in events] == ["ask", "plan", "has", "ask", "copy", "autostart"]
+    assert events[2] == f"has:{installer._LAUNCHER_NAME}:True"
+    # 開機啟動目前開著，按 Enter 維持原狀
+    assert events[-1] == "autostart:True"

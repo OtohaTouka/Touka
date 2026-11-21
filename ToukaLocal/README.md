@@ -33,7 +33,7 @@
 
 ### 解除安裝
 
-刪掉 `%LOCALAPPDATA%\ToukaLocal` 資料夾，以及桌面和「啟動」資料夾（`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`）裡的 `ToukaLocal.cmd`。
+刪掉 `%LOCALAPPDATA%\ToukaLocal` 資料夾（裡面也有換版本後留下的舊 Python），以及桌面和「啟動」資料夾（`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`）裡的 `ToukaLocal.cmd`。
 
 ### 進階：不用一行指令
 
@@ -42,7 +42,7 @@
 
 ### 換版本（給維護的人）
 
-小幫手的檔改了要分兩個 commit：先跑 `python scripts/local_helper_pins.py`，把印出的雜湊清單貼進 `install.ps1`；提交後，再跑 `python scripts/local_helper_pins.py --commit <剛才的 commit>`，把印出的那一行換進上面的指令區塊。Python 要重新釘的時機寫在 ADR-0329。
+小幫手的檔改了要分兩個 commit：先跑 `python scripts/local_helper_pins.py`，把印出的雜湊清單貼進 `install.ps1`；提交後，再跑 `python scripts/local_helper_pins.py --commit <剛才的 commit>`，把印出的那一行換進上面的指令區塊。兩個 PR 都改了小幫手的檔時，後合併的那個要在合併後重做這兩步。Python 要重新釘的時機寫在 ADR-0329。
 
 ## 配對
 

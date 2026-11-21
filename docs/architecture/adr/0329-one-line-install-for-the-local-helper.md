@@ -1,10 +1,10 @@
 # ADR-0329：本機小幫手用一行指令安裝
 
-- 狀態：✅ 已實作。一頁計畫由維護者核准（2026-11-16，小幫手第二版 PR 4），細節設計審兩輪。
+- 狀態：✅ 已實作。一頁計畫由維護者核准（2026-11-16，小幫手第二版 PR 4），細節設計審兩輪。合併前在暫存的假環境實際跑一次一行指令；用 zip 還是傳統安裝程式待維護者確認（選傳統安裝程式時改決定 2）。
 - 日期：2026-11-22
 - 決策者：維護者
 - 相關：[ADR-0312](0312-local-helper-for-host-files.md)（本機小幫手第一版；決定 10「不從 Touka 資料夾安裝」）、[ADR-0299](0299-dependency-cooldown-and-emergency-patches.md)（依賴冷卻期）
-- 影響範圍：`ToukaLocal/install.ps1`（新）、`ToukaLocal/install.py`、`ToukaLocal/touka_local/settings.py`、`ToukaLocal/touka_local/view.py`、`ToukaLocal/README.md`、`scripts/local_helper_pins.py`（新）、`.github/workflows/native-tool-contracts.yml`、`.gitattributes`、`config/errors.json.example`（`LOCAL_HELPER_PROTOCOL_MISMATCH` 訊息）
+- 影響範圍：`ToukaLocal/install.ps1`（新）、`ToukaLocal/install.py`、`ToukaLocal/touka_local/settings.py`、`ToukaLocal/touka_local/view.py`、`ToukaLocal/README.md`、`scripts/local_helper_pins.py`（新）、`.github/workflows/native-tool-contracts.yml`、`.gitattributes`、`ToukaProxy/config/errors.json.example`（`LOCAL_HELPER_PROTOCOL_MISMATCH` 訊息）與重產的 `ToukaChat/src/lib/error_codes.ts`、兩份翻譯
 
 ## 背景
 
@@ -125,4 +125,5 @@ Python 要重新釘的時機：
 - 用 GitHub 的 Windows runner 跑小幫手測試；CI 另跑 3.14。
 - 每日依賴檢查列出釘住的 Python 版本。
 - 開機啟動改用 `.lnk`（不閃主控台）。
+- 互動時打錯 Touka 資料夾就重問（現在要整個重跑，Python 會重新下載）。
 - 視窗測試把 HOME 指到暫存資料夾。

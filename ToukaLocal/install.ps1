@@ -52,9 +52,9 @@ $HelperFiles = [ordered]@{
     'touka_local/rules.py' = '0EBAFF63B711DA1D59F1B3C4901D1F5F43D5B6B1266A38620A190057177D7EA6'
     'touka_local/service.py' = '01F5E4BE1A70FF145F6094C31FDE664A8F482362EF587519F0A9CD1EE3A7429F'
     'touka_local/settings.py' = '7CB908082DD8DAA1D128F9EEFFB15F8B5888CA3266D7B4E46E94A7B23779453A'
-    'touka_local/view.py' = '6CEF35123086D1D017AEBF303A7A1F94AEFC94528D5F2AEF787650268821D536'
+    'touka_local/view.py' = '4E6B194F0C4E4CD7A68DF65331F230DBBDC72603022E0B62D427E7CEE8674FDE'
     'touka_local/winapi.py' = '9A80CEB6D9235AB3927BEA5F9E57E867C58EE70F8A25CE8FE9D8149F20D5759A'
-    'install.py' = 'F4FF95B8E8AC56C7925945584F8A0FB02043EAF5EDE7DA2103503C2477DE9235'
+    'install.py' = 'C6A8D8D96C38799A93BE77A4D0AE22AAE41E1B841F156CB4390D13BF21F1F7C8'
 }
 
 $script:Staging = ''
@@ -146,8 +146,10 @@ $script:HelperDir = Join-Path $env:LOCALAPPDATA 'ToukaLocal'
 New-Item -ItemType Directory -Force -Path $script:HelperDir | Out-Null
 $script:HelperDir = Get-FullPath $script:HelperDir
 $script:Staging = Join-Path $script:HelperDir ('staging-' + [guid]::NewGuid())
+$code = 1
+# finally 在 Ctrl+C 與 exit 時也會跑，暫存不會留下
+try {
 New-Item -ItemType Directory -Path $script:Staging | Out-Null
-
 try {
     Write-Host "下載 Python $PythonVersion（約 33 MB）……"
     $zip = Join-Path $script:Staging 'python.zip'
@@ -201,6 +203,7 @@ try {
 } catch {
     Stop-Install $_.Exception.Message
 }
-
-Remove-Leftovers
+} finally {
+    Remove-Leftovers
+}
 exit $code

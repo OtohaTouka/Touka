@@ -175,8 +175,11 @@ def _clear(path: Path) -> None:
         path.unlink()
 
 
-def copy_allowed(source: Path, app: Path) -> None:
-    """只複製允許的檔案，寫好整份才換掉舊的；缺檔或中途失敗時舊的 app 還在。"""
+def copy_allowed(source: Path, app: Path) -> str:
+    """只複製允許的檔案，寫好整份才換掉舊的；缺檔或中途失敗時舊的 app 還在。
+
+    換好之後舊的刪不掉（例如防毒軟體鎖住）不算失敗，回傳要告訴人的話。
+    """
     contents = {}
     for relative in ALLOWED_FILES:
         file = source / relative
@@ -202,7 +205,11 @@ def copy_allowed(source: Path, app: Path) -> None:
             old.rename(app)
         raise
     if had_app:
-        _clear(old)
+        try:
+            _clear(old)
+        except OSError:
+            return f"舊的程式刪不掉，留在 {old}，可以之後自己刪。\n"
+    return ""
 
 
 def _read_settings(file: Path) -> object:
@@ -375,18 +382,24 @@ def run(argv: list[str]) -> int:
         want = decide_autostart(
             arguments.autostart, currently_on=has_our_launcher(startup, plan.app_dir), ask=ask
         )
-        copy_allowed(_source(), Path(plan.app_dir))
-    except (InstallRefused, KeyError, EOFError) as exc:
+        note = copy_allowed(_source(), Path(plan.app_dir))
+        update_settings(Path(plan.helper_dir) / _SETTINGS_NAME, plan.touka_folder)
+        data = launcher_bytes(plan)
+        Path(plan.launcher).write_bytes(data)
+        desktop = Path(environ["USERPROFILE"]) / "Desktop"
+        on_desktop = desktop.is_dir()
+        if on_desktop:
+            (desktop / _LAUNCHER_NAME).write_bytes(data)
+        note += apply_autostart(startup, want=want, data=data, app_dir=plan.app_dir)
+    except (InstallRefused, KeyError, OSError) as exc:
         sys.stderr.write(f"沒有安裝：{exc}\n")
         return 1
-    update_settings(Path(plan.helper_dir) / _SETTINGS_NAME, plan.touka_folder)
-    data = launcher_bytes(plan)
-    Path(plan.launcher).write_bytes(data)
-    desktop = Path(environ["USERPROFILE"]) / "Desktop"
-    on_desktop = desktop.is_dir()
-    if on_desktop:
-        (desktop / _LAUNCHER_NAME).write_bytes(data)
-    note = apply_autostart(startup, want=want, data=data, app_dir=plan.app_dir)
+    except EOFError:
+        sys.stderr.write("沒有安裝：沒有收到回答\n")
+        return 1
+    except KeyboardInterrupt:
+        sys.stderr.write("沒有安裝：已取消\n")
+        return 1
     sys.stdout.write(finish_message(plan.launcher, on_desktop=on_desktop) + note)
     return 0
 

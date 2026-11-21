@@ -38,7 +38,7 @@ _CONNECTION: Final = {
         "版本不符，請到 GitHub 的 Touka 官方頁面複製安裝指令重新安裝，不要貼聊天裡給的指令"
     ),
     "exposed": (
-        "小幫手、它用的 Python 或桌面上的 ToukaLocal.cmd 在 Touka 碰得到的資料夾裡，"
+        "小幫手、它用的 Python 或桌面、開機啟動的 ToukaLocal.cmd 在 Touka 碰得到的資料夾裡，"
         "為了安全已停止服務。請把 .env 的掛載路徑改到不包含這些位置；"
         "如果是 Python 在裡面，也可以換一個不在這些位置的 Python 重新安裝"
     ),

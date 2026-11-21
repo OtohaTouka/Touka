@@ -208,7 +208,7 @@ def test_bootstrap_avoids_unsafe_or_newer_syntax(banned: str) -> None:
     code = "\n".join(
         line for line in _bootstrap_text().splitlines() if not line.lstrip().startswith("#")
     )
-    if banned.isalpha():
+    if banned.replace("-", "").isalpha():
         assert not re.search(rf"(?<![\w-]){re.escape(banned)}(?![\w-])", code, re.I)
     else:
         assert banned not in code
@@ -260,6 +260,10 @@ def test_bootstrap_sets_up_before_the_first_download() -> None:
         "if ($arch -ne 'AMD64') { Stop-Install '小幫手目前只支援 64 位元的 x64 電腦' }",
         "if (Test-HelperRunning) { Stop-Install '小幫手正在執行，請先關掉小幫手再貼一次' }",
         "$MutexName = 'Local\\ToukaLocalHelper'",
+        "$RawBase = 'https://raw.githubusercontent.com/OtohaTouka/Touka'",
+        # Ctrl+C 或例外時也清暫存
+        "} finally {",
+        "    Remove-Leftovers",
         # Python 自我檢查要看結束碼
         "    if ($LASTEXITCODE -ne 0) "
         "{ Stop-Install 'Python 的自我檢查沒有通過（視窗元件載入不了）' }",
