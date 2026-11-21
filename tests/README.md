@@ -308,6 +308,7 @@ tests/
 | `test_mission_board_lifecycle.py` | （ADR-0325）看板跟著代理人走：刪除靈魂與自訂模型、同名與只差大小寫的舊模型（刪除與改名）、改名搬看板與失敗回滾、建立時清殘留看板（所有拒絕檢查之後）、別的身分有看板時 409、判斷讀不到時不建立（含 users.json 壞掉）、重置、備份與還原、個人資料匯出。 |
 | `test_sns_reach_security.py` ⭐ | （ADR-0327）SNS 外人只叫得到機器人擁有者的靈魂：Telegram 只剩 `/start`、試著 `/switch` 後訊息仍交給綁的靈魂；`sns_may_reach` 的各種情況；真的閘道接真的群聊分發器：別的擁有者的靈魂、整句拒絕、同一位擁有者照常、`ToukaSoul` 前綴、沒有或兩位擁有者、沿用的名單、讀不到使用者清單、沒有身分也沒有 `sns_soul`；閘道只在換目標時讀使用者清單 |
 | `test_samename_takeover_security.py` ⭐ | （ADR-0326 PR 1）刪掉的靈魂留下的東西不給同名的新靈魂：用真的 ToukaHeartbeat app（ASGI，不連網路），刪除與兩條建立路徑的排程、身分設定、統計；拒絕在清除之前（兩條建立路徑）；名字有人用時不清（模型清單停用、離線的也算）；刪除時統計與鎖外清排程失敗都不擋（含意料外的例外）、15 秒上限；轉換資料夾也擋人類同名；身分對照從磁碟重讀、立刻生效、兩個寫入交錯不互蓋；排程逐筆刪的版本衝突與次數上限；用編輯建立的兩道撞名檢查；自訂模型聊天身分仍是人類。 |
+| `test_samename_bots_security.py` ⭐ | （ADR-0326 PR 2）刪掉的靈魂的 SNS 機器人不給同名的新靈魂：真的靈魂路由，正在跑的機器人用假 adapter（不連網路）；比對兩種寫法與舊格式、只差大小寫不動；刪除與兩條建立路徑的停用、只停那幾個、await 之前就標停用；停用在破壞性操作鎖外、拒絕檢查之後；刪除沒做完照停、排程列 `skipped`；排程判斷在等機器人停下來之前；請求被取消照停；讀不出、寫不進、意料外的例外；修復不動；閘道拒絕停用的機器人；平行停與期限；整批重載和停用交錯；啟動中被停用；`bots.json` 讀改寫都在鎖內 |
 | `test_mission_board_write_deny_security.py` ⭐ | （ADR-0324）AI 的檔案工具不能改任務看板：寫入類動作與 write／edit／insert／delete 碰根目錄的 `missions/`（大小寫、子資料夾、`..`、絕對路徑）都被拒、檔不變、回結構化 permission_denied 並建議 mission_tools；相似名稱照常可寫、讀照常、系統經 MissionManager 照常存看板 |
 | `test_terminal_auth.py` | C8：終端機 `approve`/`reject` 端點 JWT + 角色驗證 |
 | `test_heartbeat_schedules_auth.py` | C9：Heartbeat `/v1/schedules` Bearer Token 驗證 |

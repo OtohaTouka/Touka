@@ -443,7 +443,9 @@ async def _sns(*chunks: str) -> tuple[str, MagicMock, MagicMock]:
     async def _proxy(_request: Any, _ctx: Any, is_anthropic: bool = False) -> Any:  # noqa: ARG001
         return MagicMock(body_iterator=_chunks())
 
-    adapter = MagicMock(agent_id="Alice", show_typing=AsyncMock(), send_message=AsyncMock())
+    adapter = MagicMock(
+        agent_id="Alice", show_typing=AsyncMock(), send_message=AsyncMock(), retired=False
+    )
     event = SNSIncomingEvent(platform="telegram", sender_id="u1", channel_id="c1", content="嗨")
     session = MagicMock(
         open_channel_session=AsyncMock(return_value="sns-1"),

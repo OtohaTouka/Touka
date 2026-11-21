@@ -10,28 +10,28 @@ All logic lives in pure functions so it is testable without HTTP/singletons.
 from __future__ import annotations
 
 from src.routers.bots import (
-    _flatten_agent_id,
     _mask_tokens,
     _normalize_config,
     _preserve_tokens,
 )
+from src.services.bot_service import flatten_agent_id
 from src.utils.secrets import MASK
 
 
 # ── B3: agent_id flattening ────────────────────────────────────────────────
 
 def test_flatten_agent_id_from_legacy_object():
-    assert _flatten_agent_id({"agent_id": "Aria", "role": "Base"}) == "Aria"
+    assert flatten_agent_id({"agent_id": "Aria", "role": "Base"}) == "Aria"
 
 
 def test_flatten_agent_id_passthrough_string():
-    assert _flatten_agent_id("Aria") == "Aria"
+    assert flatten_agent_id("Aria") == "Aria"
 
 
 def test_flatten_agent_id_empty_and_none():
-    assert _flatten_agent_id(None) == ""
-    assert _flatten_agent_id("") == ""
-    assert _flatten_agent_id({}) == ""
+    assert flatten_agent_id(None) == ""
+    assert flatten_agent_id("") == ""
+    assert flatten_agent_id({}) == ""
 
 
 # ── S1: GET masking ────────────────────────────────────────────────────────

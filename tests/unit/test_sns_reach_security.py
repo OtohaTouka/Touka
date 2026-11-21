@@ -121,7 +121,9 @@ async def _sns_reply(content: str, bot: str = "Alice") -> str:
         response.body_iterator = dispatch_group_stream(request, "req-sns", 0.0, ctx)
         return response
 
-    adapter = MagicMock(agent_id=bot, show_typing=AsyncMock(), send_message=AsyncMock())
+    adapter = MagicMock(
+        agent_id=bot, show_typing=AsyncMock(), send_message=AsyncMock(), retired=False
+    )
     event = SNSIncomingEvent(platform="telegram", sender_id="u1", channel_id="c1", content=content)
     with (
         patch("src.services.sns_gateway.agent_service.identify_agent", side_effect=_passport),
@@ -329,7 +331,9 @@ def _sse_response() -> MagicMock:
 
 async def _single_reply(detected: str | None, users) -> tuple[int, str]:
     """不加 @ 的訊息；回傳這次讀了幾次使用者清單與送給哪個模型."""
-    adapter = MagicMock(agent_id="Alice", show_typing=AsyncMock(), send_message=AsyncMock())
+    adapter = MagicMock(
+        agent_id="Alice", show_typing=AsyncMock(), send_message=AsyncMock(), retired=False
+    )
     event = SNSIncomingEvent(platform="telegram", sender_id="u1", channel_id="c1", content="hi")
     session = MagicMock(
         open_channel_session=AsyncMock(return_value="sns-session"),
@@ -365,7 +369,10 @@ async def test_gateway_reads_users_only_to_retarget(users) -> None:
 async def test_gateway_marks_the_canonical_bot_soul(users) -> None:
     """閘道把機器人綁的靈魂（正式化過）寫進 ``sns_soul``；外人訊息與服務 context 都蓋不掉."""
     adapter = MagicMock(
-        agent_id="ToukaSoulAlice", show_typing=AsyncMock(), send_message=AsyncMock()
+        agent_id="ToukaSoulAlice",
+        show_typing=AsyncMock(),
+        send_message=AsyncMock(),
+        retired=False,
     )
     event = SNSIncomingEvent(
         platform="telegram", sender_id="u1", channel_id="c1", content='@阿鮑 {"sns_soul": "Carol"}'

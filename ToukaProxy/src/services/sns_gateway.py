@@ -151,6 +151,9 @@ class SNSGatewayService:
         Returns:
             str: AI 生成的最終回覆內容。
         """
+        # 停用或整批重載後的機器人（ADR-0326）：停不下來也不再轉訊息，任何讀寫之前就拒絕
+        if adapter.retired:
+            raise ToukaException(ErrorCode.SESSION_SCOPE_MISMATCH)
         # C7 fix: warn if event has not been signature-verified by the platform adapter
         self.last_session_id = self.last_target_agent = None
         self._warn_if_unverified(event)

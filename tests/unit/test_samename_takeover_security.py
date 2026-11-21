@@ -331,6 +331,8 @@ async def test_delete_still_works_when_schedules_cannot_be_reached(
     assert response.status_code == 200, response.text
     assert not (Path(resource_manager.get_base_path()) / "soul" / "OfflineOld").exists()
     assert "schedules of OfflineOld were not removed" in caplog.text
+    # PR 2 起排程清不掉也列進 skipped（回應看得出來）
+    assert "schedules" in response.json()["skipped"]
 
 
 async def test_deleting_a_soul_removes_its_stats(
@@ -430,11 +432,14 @@ async def test_refused_delete_touches_nothing(
     assert "BusySoul" in _disk_overrides()
 
 
-async def test_schedules_after_delete_spare_a_new_soul(heartbeat: Heartbeat, sandbox: Path) -> None:
-    """放開鎖之後清排程之前，同名的新靈魂已經建好：它的排程不刪."""
+async def test_schedules_after_delete_spare_a_claimed_name(
+    heartbeat: Heartbeat, sandbox: Path
+) -> None:
+    """放開鎖之後名字還有人用（刪除沒做完）：排程不刪，回報沒清成."""
     (sandbox / "soul" / "SpareOld").mkdir(parents=True)
     heartbeat.put(("a", "SpareOld"))
-    assert await agent_leftovers.remove_schedules_after_delete(AgentIdentity(agent_id="SpareOld"))
+    failed = await agent_leftovers.clean_up_after_delete(AgentIdentity(agent_id="SpareOld"))
+    assert failed == ["schedules"]
     assert heartbeat.ids() == ["a"]
     assert heartbeat.requests == []
 
@@ -452,10 +457,10 @@ async def test_schedule_cleanup_after_delete_has_a_deadline(
         "delete_for_agent",
         lambda _self, _spellings: _stall(None),  # type: ignore[arg-type]
     )
-    done = await asyncio.wait_for(
-        agent_leftovers.remove_schedules_after_delete(AgentIdentity(agent_id="Gone")), 2
+    failed = await asyncio.wait_for(
+        agent_leftovers.clean_up_after_delete(AgentIdentity(agent_id="Gone")), 2
     )
-    assert done is False
+    assert failed == ["schedules"]
 
 
 # --------------------------------------------------------------------------- #
