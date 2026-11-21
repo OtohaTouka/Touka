@@ -203,7 +203,8 @@ async def create_soul(
     app_data_dir = Path(resource_manager.get_base_path())
     dir_specs = {"soul": soul_path, "legacy": app_data_dir / "legacy" / agent_id}
     # D6 回滾範圍＝本次「新建」的目錄；personal_drive/legacy 可能先於本次即存在
-    # （舊資料），失敗回滾絕不誤刪既有資料。
+    # （舊資料），失敗回滾絕不誤刪既有資料。名字沒人用時，殘留的已在上面清掉（ADR-0328），
+    # 這裡會算成新建。
     newly_created = [name for name, d in dir_specs.items() if not d.exists()]
     if resource_manager.zone_kind(drive) == "missing":
         newly_created.append("personal_drive")

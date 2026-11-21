@@ -4,8 +4,8 @@
 - 日期：2026-11-21
 - 決策者：維護者（總覽板第 96 項：照同名接手計畫第 2.1 版依序做；第 98 項回「甲」：PR 3 照新估算拆成兩個 PR）。封存搬到 `data/retired`、個人空間補刪而不是拒絕建立，是 PR 3 細節第 2.1 版裡継初定的（DEV-A 兩輪通過）
 - 相關：[ADR-0326](0326-deleted-soul-leftovers-not-inherited.md)（同名接手；本 ADR 是它的 PR 3b）、[ADR-0325](0325-mission-board-system-folder.md)（`data/missions` 為什麼代理人碰不到）、[ADR-0293](0293-agent-folders-no-follow.md)（不跟隨連結的檔案操作）、[ADR-0142](0142-soul-crud-repair-and-admin-stepup.md)（刪除靈魂的儲存範圍）
-- 修訂 ADR-0293（多一個不跟隨的跨資料夾搬移 `move_entry_no_follow`）、ADR-0326（決定 11 指向本 ADR）
-- 影響範圍：ToukaMemory `utils/no_follow.py`；ToukaProxy `services/resource_manager.py`、`services/agent_leftovers.py`、`utils/soul_io.py`；測試名單 `tests/zone_mutations.json`、`tests/lint/test_resource_manager_permission_repair.py`、`tests/lint/test_zone_path_guard.py`、`tests/support/link_defenses.py`
+- 修訂 ADR-0293（多一個不跟隨的跨資料夾搬移 `move_entry_no_follow`）、ADR-0326（決定 11 指向本 ADR）、ADR-0142（D6「既有的個人空間、封存不回滾」只在名字有人用時成立：沒人用時建立前就清掉）
+- 影響範圍：ToukaMemory `utils/no_follow.py`；ToukaProxy `services/resource_manager.py`、`services/agent_leftovers.py`、`utils/soul_io.py`、`scripts/manage_backup.py`（備份清單）；測試名單 `tests/zone_mutations.json`、`tests/lint/test_resource_manager_permission_repair.py`、`tests/lint/test_zone_path_guard.py`、`tests/support/link_defenses.py`
 
 ## 背景
 
@@ -23,7 +23,8 @@
 - SSOT：`resource_manager.get_retired_dir()`（`RETIRED_DIR_NAME`），和 `legacy` 同一個 data 根、同一個掛載點。
 - `resource_manager.is_protected_path` 加上 `retired`（和 `legacy`、`soul` 一樣）：專案根設到 data 底下時也擋得住代理人的寫入。
 - 代理人碰不到的其他理由同 ADR-0325 的 `data/missions`：終端沙盒、執行器容器、隔離的第三方 MCP、本機小幫手只給代理人資料夾；`retired` 不在任何錨點底下，不用加進別名檢查。
-- 只有決定 3 的搬移會寫它。沒有介面，管理員自己到資料夾看或刪；備份照 data 整個包含。
+- 只有決定 3 的搬移會寫它。沒有介面，管理員自己到資料夾看或刪。
+- 備份與還原收它：`manage_backup.SANCTUARY_FOLDERS` 是寫死的清單（不是整個 data），加上 `retired`；退役的封存是人類對話的舊段，不備份就只剩一份。
 
 ### 2. 不跟隨連結的跨資料夾搬移
 
@@ -33,7 +34,7 @@
 
 ### 3. `resource_manager.retire_legacy_dir(identity) -> bool`
 
-- 從**解析後的** data 根往下操作：data 路徑上有連結（Linux 連到別顆磁碟、macOS 的 `/var`、Windows junction）時，不解析的話每次都被不跟隨的檢查拒絕。
+- 從**解析後的** data 根往下操作：data 路徑上有連結（Linux 連到別顆磁碟、macOS 的 `/var`、Windows junction）時，不解析的話每次都被不跟隨的檢查拒絕。`legacy` 這一段也解析（管理員可能把整個封存資料夾連到別處，和 data 根同一層信任；代理人寫不到 data 根）；`legacy/<名字>`、`retired` 這兩段不解析。
 - `legacy/<名字>` 不存在回 False；是連結丟 `LinkRefusedError`；`retired/legacy` 用 `make_dirs_no_follow` 建（`retired` 是連結時拒絕）。
 - 新名字 `<毫秒時間>-<名字>`；UTF-8 超過 200 bytes 時改成 `<毫秒時間>-sha-<sha256(名字) 前 16 碼>`（名字太長時改名會失敗，這個名字就永遠建不起來）；同一毫秒撞名加 `-2`…，試 5 次仍撞名丟 `FileExistsError`。
 - 其他錯誤照實往上丟，封存留在原地。掛 `permission_repair(retry=False)`。
@@ -62,7 +63,10 @@
 ## 已知限制
 
 - POSIX 沒有 `RENAME_NOREPLACE`：「查目標不存在」到「改名」之間若有人建出空資料夾會被蓋過去。`retired` 只有這段程式寫，可以接受。
-- Windows 沒開長路徑時，`retired/legacy/<毫秒時間>-<名字>` 比原路徑長約 16 個字元，原路徑接近 260 時搬移失敗、建立回 `SOUL_VAULT_ERROR`。
+- Windows 沒開長路徑時，`retired/legacy/<毫秒時間>-<名字>` 比原路徑長 22 個字元（撞名加 `-N` 時 24 個），原路徑接近 260 時搬移失敗、建立回 `SOUL_VAULT_ERROR`。
+- 管理員把 `legacy` 連到別顆磁碟時，有殘留封存才會搬，搬到 data 那顆磁碟是跨裝置、會失敗，建立回 `SOUL_VAULT_ERROR`（沒有殘留時照常建立）。
+- 靈魂和單段名稱的一般模型同名（例如 `gemini-2.5-flash`）時，那個一般模型用「切分存入舊對話」存的封存也會被搬走；之後再存的會進新靈魂的封存。和 ADR-0326 PR 3a 對話那邊同一個撞名問題（`is_unclaimed` 不看一般模型名稱）。
+- 殘留的個人空間在處理請求的事件迴圈上同步刪，個人空間很大時建立期間伺服器會卡住（和刪除靈魂的刪除同一個既有寫法）。
 - Windows 上封存裡有檔案開著（防毒軟體、剛好在讀）時改名失敗，建立回 `SOUL_VAULT_ERROR`，稍後再建一次。Docker 若把 `legacy` 另外掛載（不在 data 同一個掛載點），跨裝置搬移失敗、建立不起來（預設的 compose 是同一個掛載點）。
 - 退役的封存沒有介面，要管理員自己到 `data/retired` 看或刪，不會自動清。
 - 名字還有人用（登記表有、`custom/<名字>` 留著）時不搬（和 ADR-0326 PR 1 同一套規則）。
@@ -73,3 +77,6 @@
 - `tests/unit/test_samename_archive_security.py`：真的靈魂路由與 conftest 沙盒，殘留直接寫進 data 根。涵蓋建立時搬走封存（內容原樣、新靈魂的封存是空的）、補刪個人空間、根是連結只刪連結、搬不走或刪不掉就不建立、名字有人用不動、用編輯建立也做、封存是連結時拒絕；搬移本身：data 路徑上有連結照樣搬、只改名不複製（同一個 inode）、沒有封存不建 `retired`、名字太長用雜湊、撞名換名字與試到上限、`legacy/<名字>` 或 `retired` 是連結時拒絕、`retired` 是受保護路徑。
 - `tests/unit/test_no_follow_zone.py::test_move_entry_between_folders`：跨資料夾搬、目的已存在、來源不存在、目的上層不存在不建、來源或目的上層是連結、名稱不是單段。
 - 改壞清單 `tests/zone_mutations.json` 加 `r10_retire_legacy_dir_copies`（搬移變成複製時對應測試變紅）。
+- 先後：`test_samename_takeover_security.py` 排程被拒、`test_samename_sessions_security.py` 解除失敗時，殘留的封存都還在原地。
+- 備份：`test_backup_and_restore_carry_retired_archives` 用真的備份檔驗內容與還原。
+- ADR-0142 D6 的既有測試 `test_soul_crud_real_writes.py::test_create_failure_rollback_spares_preexisting_dirs` 改用登記表裡有的名字（修復）。

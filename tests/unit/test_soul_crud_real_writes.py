@@ -228,7 +228,14 @@ def test_create_failure_rolls_back_dirs_and_id_reusable(admin_client, monkeypatc
 
 
 def test_create_failure_rollback_spares_preexisting_dirs(admin_client, monkeypatch):
-    """回滾只撤銷「本次新建」的目錄——先於建立即存在的 personal_drive 資料不得被誤刪。"""
+    """回滾只撤銷「本次新建」的目錄——先於建立即存在的 personal_drive 資料不得被誤刪。
+
+    名字沒人用時，殘留的個人空間在建立的第一個寫入之前就清掉（ADR-0328，見
+    ``test_samename_archive_security``）；這裡用登記表裡有的名字（修復），D6 照舊。
+    """
+    (_config_dir() / "agents_registry.json").write_text(
+        json.dumps({"CrudSoulD": ["CrudSoulD"]}), encoding="utf-8"
+    )
     pd = _app_data() / "personal_drive" / "CrudSoulD"
     pd.mkdir(parents=True)
     (pd / "keep.txt").write_text("珍貴資料", encoding="utf-8")

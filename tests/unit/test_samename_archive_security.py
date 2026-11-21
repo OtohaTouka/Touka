@@ -13,10 +13,12 @@ conftest 沙盒、真的靈魂路由；殘留直接寫進沙盒的 data 根模�
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
 import shutil
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
@@ -45,6 +47,7 @@ if TYPE_CHECKING:
 
 SOUL = "ArcSoul"
 NAMES = [SOUL]
+_BACKUP_SCRIPT = Path(__file__).resolve().parents[2] / "ToukaProxy" / "scripts" / "manage_backup.py"
 STAMPED = re.compile(r"^\d{13}-ArcSoul$")
 
 
@@ -53,6 +56,7 @@ async def sandbox() -> AsyncIterator[Path]:
     """靈魂路由要 conftest 沙盒；本檔用到的名字、退役資料夾在結束時清掉."""
     data = Path(resource_manager.get_base_path())
     await async_db.init_db_async()
+    _drop(data / "retired")  # 共用的 session 沙盒：從空的退役資料夾開始
     yield data
     for agent_id in NAMES:
         mission_board_path(agent_id).unlink(missing_ok=True)
@@ -330,6 +334,25 @@ def test_retire_picks_a_free_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert (tmp_path / "legacy" / SOUL).is_dir()
 
 
+def test_retire_follows_a_linked_legacy_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """管理員把整個 ``legacy`` 連到別處：沒有殘留時照常（不再被拒），有殘留時從連結的另一端搬."""
+    real_legacy = tmp_path / "elsewhere"
+    real_legacy.mkdir()
+    data = tmp_path / "data"
+    data.mkdir()
+    make_dir_link(data / "legacy", real_legacy)
+    _data_at(monkeypatch, data)
+    assert resource_manager.retire_legacy_dir(AgentIdentity(agent_id=SOUL)) is False
+    (real_legacy / SOUL).mkdir()
+    (real_legacy / SOUL / "a.txt").write_text("a", encoding="utf-8")
+    assert resource_manager.retire_legacy_dir(AgentIdentity(agent_id=SOUL)) is True
+    (moved,) = (data / "retired" / "legacy").iterdir()
+    assert (moved / "a.txt").read_text(encoding="utf-8") == "a"
+    assert not (real_legacy / SOUL).exists()
+
+
 @pytest.mark.parametrize("where", ["archive", "retired"])
 def test_retire_refuses_links(
     where: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outside: Path
@@ -353,3 +376,31 @@ def test_retired_dir_is_protected(sandbox: Path) -> None:
     assert resource_manager.get_retired_dir() == expected
     assert resource_manager.is_protected_path(sandbox / "retired" / "legacy" / "x")
     assert not resource_manager.is_protected_path(sandbox / "retired_backup" / "x")
+
+
+def test_backup_and_restore_carry_retired_archives(zone_data_root: Path, tmp_path: Path) -> None:
+    """退役的封存是人類對話的舊段：備份要收、還原要放回（manage_backup 的資料夾清單是寫死的）."""
+    spec = importlib.util.spec_from_file_location(
+        "manage_backup_retired_under_test", _BACKUP_SCRIPT
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert "retired" in mod.SANCTUARY_FOLDERS
+    kept = zone_data_root / "retired" / "legacy" / f"1700000000000-{SOUL}" / "archive.db"
+    kept.parent.mkdir(parents=True)
+    kept.write_text("old archive", encoding="utf-8")
+    project = tmp_path.resolve() / "project"
+    config = project / "ToukaProxy" / "config"
+    config.mkdir(parents=True)
+    env = project / ".env"
+    env.write_text(f"SANCTUARY_DATA_PATH={zone_data_root.as_posix()}\n", encoding="utf-8")
+    resolver = mod.PathResolver(project, env_path=env, data_root=zone_data_root, config_dir=config)
+    output = mod.BackupEngine(resolver).run_backup(tmp_path / "backups", "Touka_Backup")
+    with zipfile.ZipFile(output) as zf:
+        assert f"data/retired/legacy/1700000000000-{SOUL}/archive.db" in zf.namelist()
+    fresh = tmp_path.resolve() / "fresh_data"
+    mod.RestoreEngine(resolver).run_restore(str(output), str(fresh))
+    restored = fresh / "retired" / "legacy" / f"1700000000000-{SOUL}" / "archive.db"
+    assert restored.read_text(encoding="utf-8") == "old archive"

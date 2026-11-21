@@ -26,6 +26,7 @@ from memory_server.models.conversation_search import ConversationSearchError
 from memory_server.utils.drive_bound import same_drive
 from memory_server.utils.no_follow import (
     LINK_NOT_FOLLOWED,
+    LINK_REFUSED_MESSAGE,
     LinkRefusedError,
     WalkReport,
     ZoneLinkRefusedError,
@@ -110,8 +111,6 @@ RETIRED_DIR_NAME = "retired"
 RETIRE_NAME_ATTEMPTS = 5  # 同一毫秒撞名時加 -2… 的上限
 MAX_RETIRED_NAME_BYTES = 200  # 時間加名字超過就改用名字的雜湊（名字太長時改名會失敗）
 _RETIRED_HASH_CHARS = 16
-# 封存是連結時的訊息（和 no_follow 拒絕連結時同一句）
-_LINK_REFUSED_TEXT = "Path goes through a symbolic link or junction"
 
 
 def _retired_name(identity: AgentIdentity) -> str:
@@ -1173,8 +1172,8 @@ class ResourceManager:
     def retire_legacy_dir(self, identity: AgentIdentity) -> bool:
         """把殘留的 ``legacy/<id>`` 搬進 ``retired/legacy``（ADR-0328）；沒有時回 False.
 
-        只改名、不複製（``move_entry_no_follow``）。從解析後的 data 根往下操作（data 路徑上有連結
-        時不解析就每次都被不跟隨的檢查拒絕）；``legacy/<id>``、``retired`` 是連結丟
+        只改名、不複製（``move_entry_no_follow``）。從解析後的 data 根與 ``legacy`` 往下操作（管理員
+        做的連結，不解析就每次都被不跟隨的檢查拒絕）；``legacy/<id>``、``retired`` 是連結丟
         ``LinkRefusedError``；撞名試 ``RETIRE_NAME_ATTEMPTS`` 次仍撞丟 ``FileExistsError``；其他錯誤
         照實往上丟，封存留在原地。只給建立靈魂時清殘留用（``agent_leftovers``）。
         """
@@ -1182,12 +1181,12 @@ class ResourceManager:
         if not is_zone_segment(agent_id):
             raise ZoneSegmentError
         data = Path(get_app_data_dir()).resolve()
-        legacy = data / "legacy"
+        legacy = (data / "legacy").resolve()  # 管理員可能把整個封存資料夾連到別處
         kind = kind_no_follow(legacy / agent_id)
         if kind == "missing":
             return False
         if kind == "link":
-            raise LinkRefusedError(errno.ELOOP, _LINK_REFUSED_TEXT, str(legacy / agent_id))
+            raise LinkRefusedError(errno.ELOOP, LINK_REFUSED_MESSAGE, str(legacy / agent_id))
         target = self.get_retired_dir() / "legacy"
         make_dirs_no_follow(target)
         name = _retired_name(identity)
