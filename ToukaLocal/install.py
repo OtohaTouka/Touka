@@ -388,9 +388,16 @@ def run(argv: list[str]) -> int:
         Path(plan.launcher).write_bytes(data)
         desktop = Path(environ["USERPROFILE"]) / "Desktop"
         on_desktop = desktop.is_dir()
+        # 新版已經換上；桌面與開機啟動檔寫不進去（例如受控資料夾存取）只說明，不算失敗
         if on_desktop:
-            (desktop / _LAUNCHER_NAME).write_bytes(data)
-        note += apply_autostart(startup, want=want, data=data, app_dir=plan.app_dir)
+            try:
+                (desktop / _LAUNCHER_NAME).write_bytes(data)
+            except OSError as exc:
+                note += f"桌面的啟動檔寫不進去（{exc}），請直接開啟上面的啟動檔。\n"
+        try:
+            note += apply_autostart(startup, want=want, data=data, app_dir=plan.app_dir)
+        except OSError as exc:
+            note += f"開機自動啟動沒有改成功：{exc}\n"
     except (InstallRefused, KeyError, OSError) as exc:
         sys.stderr.write(f"沒有安裝：{exc}\n")
         return 1

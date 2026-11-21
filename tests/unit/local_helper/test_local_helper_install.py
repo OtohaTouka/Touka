@@ -812,3 +812,27 @@ def test_run_asks_everything_before_copying(
     assert events[2] == f"has:{installer._LAUNCHER_NAME}:True"
     # 開機啟動目前開著，按 Enter 維持原狀
     assert events[-1] == "autostart:True"
+
+def test_run_finishes_when_the_desktop_launcher_cannot_be_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    events = _wire_run(tmp_path, monkeypatch)
+    # 桌面上同名的是資料夾，寫不進去（真的電腦上常見的是受控資料夾存取擋下）
+    (tmp_path / "profile" / "Desktop" / installer._LAUNCHER_NAME).mkdir(parents=True)
+    assert installer.run(["--touka-folder", "D:\\Touka", "--no-autostart"]) == 0
+    assert "桌面的啟動檔寫不進去" in capsys.readouterr().out
+    assert events[-1] == "autostart:False"
+
+
+def test_run_finishes_when_autostart_cannot_be_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _wire_run(tmp_path, monkeypatch)
+
+    def blocked(_path: Path, *, want: bool, data: bytes, app_dir: str) -> str:
+        msg = "access denied"
+        raise OSError(msg)
+
+    monkeypatch.setattr(installer, "apply_autostart", blocked)
+    assert installer.run(["--touka-folder", "D:\\Touka", "--autostart"]) == 0
+    assert "開機自動啟動沒有改成功" in capsys.readouterr().out

@@ -261,9 +261,6 @@ def test_bootstrap_sets_up_before_the_first_download() -> None:
         "if (Test-HelperRunning) { Stop-Install '小幫手正在執行，請先關掉小幫手再貼一次' }",
         "$MutexName = 'Local\\ToukaLocalHelper'",
         "$RawBase = 'https://raw.githubusercontent.com/OtohaTouka/Touka'",
-        # Ctrl+C 或例外時也清暫存
-        "} finally {",
-        "    Remove-Leftovers",
         # Python 自我檢查要看結束碼
         "    if ($LASTEXITCODE -ne 0) "
         "{ Stop-Install 'Python 的自我檢查沒有通過（視窗元件載入不了）' }",
@@ -271,6 +268,11 @@ def test_bootstrap_sets_up_before_the_first_download() -> None:
 )
 def test_bootstrap_keeps_its_safety_checks(line: str) -> None:
     assert line in _bootstrap_text().splitlines()
+
+
+def test_bootstrap_always_cleans_up_at_the_end() -> None:
+    # Ctrl+C 或例外時 finally 也會跑；Stop-Install 裡另有一行 Remove-Leftovers，所以整段比
+    assert "} finally {\n    Remove-Leftovers\n}\nexit $code\n" in _bootstrap_text()
 
 
 def test_mutex_name_matches_the_helper() -> None:
