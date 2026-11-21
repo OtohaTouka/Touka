@@ -88,11 +88,17 @@ async def visible_control() -> None:
 
 
 def released(row: dict) -> dict:
-    """名字給新靈魂之前解除綁定（ADR-0326 決定 10）：不再綁著名字、家的標記清掉、記原本綁的名字."""
+    """名字給新靈魂之前解除綁定（ADR-0326 決定 10）：不再綁著名字、家的標記清掉、記原本綁的名字.
+
+    只靠家的標記對上、綁著別的代理人（B）的列：只清家的標記，綁定與原本的對象不動。
+    """
+    mine = row["agent_id"] in (None, A.agent_id, f"ToukaSoul{A.agent_id}")
     return {
         **row,
-        "agent_id": None,
-        "former_agent_id": row["agent_id"] or row["home_for_agent"],
+        "agent_id": None if mine else row["agent_id"],
+        "former_agent_id": (
+            row["agent_id"] or row["home_for_agent"] if mine else row["former_agent_id"]
+        ),
         "is_home": 0,
         "home_for_agent": None,
         "session_scope_version": 0,

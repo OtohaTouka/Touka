@@ -412,8 +412,12 @@ _INVALIDATE_AGENT_SQL = {
 _AGENT_ROW_IDS_SQL = "SELECT id FROM user_sessions WHERE agent_id IN (?, ?)"
 _DELETE_CHANNEL_SQL = "DELETE FROM user_sessions WHERE id = ?"
 _RELEASE_SESSIONS_SQL = (
-    "UPDATE user_sessions SET former_agent_id = COALESCE(agent_id, home_for_agent), "
-    "agent_id = NULL, is_home = 0, home_for_agent = NULL, session_scope_version = 0 "
+    # 只靠家的標記對上、其實綁著別的代理人的列（舊版本的矛盾資料）：只清家的標記，綁定不動
+    "UPDATE user_sessions SET "
+    "former_agent_id = CASE WHEN agent_id IS NULL OR agent_id IN (?, ?) "
+    "THEN COALESCE(agent_id, home_for_agent) ELSE former_agent_id END, "
+    "agent_id = CASE WHEN agent_id IN (?, ?) THEN NULL ELSE agent_id END, "
+    "is_home = 0, home_for_agent = NULL, session_scope_version = 0 "
     "WHERE agent_id IN (?, ?) OR home_for_agent IN (?, ?)"
 )
 _FORGET_AGENT_MARKS_SQL = "DELETE FROM soul_child_report_marks WHERE agent_id IN (?, ?)"
@@ -1201,7 +1205,7 @@ class SessionService:
                 ]
                 for sid in channels:
                     await db.execute(_DELETE_CHANNEL_SQL, (sid,))
-                cursor = await db.execute(_RELEASE_SESSIONS_SQL, (target, alias, target, alias))
+                cursor = await db.execute(_RELEASE_SESSIONS_SQL, (target, alias) * 4)
                 released = cursor.rowcount or 0
                 if await _has_table(db, "soul_child_report_marks"):
                     await db.execute(_FORGET_AGENT_MARKS_SQL, (target, alias))

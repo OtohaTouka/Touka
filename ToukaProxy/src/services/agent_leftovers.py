@@ -12,7 +12,8 @@
   沒人用再刪，最後等停用的機器人停下來；沒清成的回給呼叫端列進 ``skipped``。
 - 建立靈魂：所有拒絕檢查之後、名字不屬於任何代理人時呼叫 ``clear_for_new_soul``。排程第一個：
   它是唯一會因為連不上而拒絕的一步，拒絕時機器人、看板、身分設定、統計、對話都還沒動。
-- 自訂模型：建立、改名前 ``clear_for_new_custom_model``、刪除後 ``release_after_custom_model_delete``，
+- 自訂模型：建立、改名前 ``clear_for_new_custom_model``、刪除後
+  ``release_after_custom_model_delete``，
   只處理對話（排程、機器人、身分設定、統計自訂模型用不到，決定 7）；人類帳號不算「有人用」。
 """
 

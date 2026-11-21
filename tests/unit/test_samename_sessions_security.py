@@ -36,7 +36,7 @@ from src.models.identity import AgentIdentity
 from src.models.session_persistence import SavedResult, SessionChanges, SessionDocument
 from src.routers import souls as souls_router
 from src.routers import ui_sessions
-from src.services import agent_leftovers, destructive_ops, gdpr_export_service
+from src.services import agent_leftovers, destructive_ops, gdpr_export_service, mission_boards
 from src.services.auth_service import AuthService
 from src.services.identity_router import get_verified_identity
 from src.services.models import model_manager
@@ -333,14 +333,31 @@ async def test_original_human_export_keeps_released_rows(
 async def test_new_soul_cannot_reach_old_conversations(
     sandbox: Path, people: SimpleNamespace
 ) -> None:
+    """讀不到、寫不進、搜尋不到；新靈魂自己的對話照樣搜得到（對照）."""
     _ = sandbox
     await _model_with_old_chat(people)
     assert _create_soul(MODEL, people).status_code == 200
+    soul = AgentIdentity(agent_id=MODEL)
     with pytest.raises(ToukaException) as caught:
-        await async_db.session_service.read_execution_snapshot(
-            "rel-chat", AgentIdentity(agent_id=MODEL)
-        )
+        await async_db.session_service.read_execution_snapshot("rel-chat", soul)
     assert caught.value.code == ErrorCode.SESSION_SCOPE_MISMATCH
+    try:
+        snapshot = await async_db.session_service.read_persistence_snapshot("rel-chat", soul)
+    except ToukaException:
+        pass
+    else:
+        written = await async_db.session_service.conditional_save_session(
+            "rel-chat", snapshot.revision, SessionChanges(title="soul write"), soul
+        )
+        assert not isinstance(written, SavedResult)
+    row = await _row("rel-chat")
+    assert row is not None
+    assert (row["title"], row["agent_id"]) == ("old chat", None)
+    await _insert("rel-own", MODEL)
+    page = await async_db.session_service.query_ui_conversations(
+        soul, "old", None, None, None, False, 50, 0
+    )
+    assert {r.session_id for r in page.rows} == {"rel-own"}
 
 
 # --------------------------------------------------------------------------- #
@@ -363,12 +380,18 @@ async def test_home_marker_alone_is_cleared(sandbox: Path, people: SimpleNamespa
     """只有家的標記指著這個名字（agent_id 是空的）：也清掉，原名字取家的主人."""
     _ = sandbox
     await _insert("rel-marker", None, is_home=1, home_for=SOUL)
+    await _insert("rel-marker-other", TARGET, is_home=1, home_for=SOUL)  # 舊版本的矛盾資料
     assert _create_soul(SOUL, people).status_code == 200
     assert await async_db.session_service.read_home_snapshot(AgentIdentity(agent_id=SOUL)) is None
     row = await _row("rel-marker")
     assert row is not None
     assert (row["is_home"], row["home_for_agent"]) == (0, None)
     assert row["former_agent_id"] == SOUL
+    # 綁著別的代理人：只清家的標記，綁定不動、不記原本的對象
+    other = await _row("rel-marker-other")
+    assert other is not None
+    assert (other["is_home"], other["home_for_agent"]) == (0, None)
+    assert (other["agent_id"], other["former_agent_id"]) == (TARGET, None)
 
 
 async def test_leftover_channels_are_deleted(sandbox: Path, people: SimpleNamespace) -> None:
@@ -568,8 +591,9 @@ async def test_former_agent_is_public_and_read_only(sandbox: Path, people: Simpl
     assert snap.status_code == 200, snap.text
     assert snap.json()["session"]["former_agent_id"] == MODEL
     assert "former_agent_id" not in SessionChanges.model_fields
-    body = {"id": "rel-chat", "title": "t", "messages": EMPTY, "updatedAt": 1, "former_agent_id": "X"}
-    assert "former_agent_id" not in ui_sessions.SessionModel.model_validate(body).to_changes().model_fields_set
+    body = {"id": "rel-chat", "title": "t", "messages": EMPTY, "updatedAt": 1}
+    changes = ui_sessions.SessionModel.model_validate({**body, "former_agent_id": "X"}).to_changes()
+    assert "former_agent_id" not in changes.model_fields_set
 
 
 async def test_migration_adds_former_agent_column(
@@ -589,7 +613,8 @@ async def test_migration_adds_former_agent_column(
     monkeypatch.setattr(async_db, "get_db_path", lambda: path)
     await async_db.init_db_async()
     async with aiosqlite.connect(path) as conn:
-        columns = {row[1] for row in await conn.execute_fetchall("PRAGMA table_info(user_sessions)")}
+        info = await conn.execute_fetchall("PRAGMA table_info(user_sessions)")
+        columns = {row[1] for row in info}
         rows = await conn.execute_fetchall("SELECT former_agent_id FROM user_sessions")
     former = next(iter(rows))[0]
     assert "former_agent_id" in columns
@@ -717,7 +742,7 @@ async def test_create_paths_release_leftovers(
     assert row["former_agent_id"] == MODEL
 
 
-@pytest.mark.parametrize("path", ["create", "model"])
+@pytest.mark.parametrize("path", ["create", "edit_create", "model"])
 async def test_claimed_names_are_not_released(
     path: str, sandbox: Path, people: SimpleNamespace, registry: Path
 ) -> None:
@@ -725,7 +750,12 @@ async def test_claimed_names_are_not_released(
     _ = sandbox
     registry.write_text(json.dumps({MODEL: [MODEL]}), encoding="utf-8")
     await _insert("rel-chat", MODEL, owner=people.first.agent_id)
-    response = _create_soul(MODEL, people) if path == "create" else _create_model(MODEL, people)
+    if path == "create":
+        response = _create_soul(MODEL, people)
+    elif path == "edit_create":
+        response = _edit_create(MODEL, people)  # 登記表有這個名字：算修復
+    else:
+        response = _create_model(MODEL, people)
     assert response.status_code == 200, response.text
     row = await _row("rel-chat")
     assert row is not None
@@ -734,7 +764,11 @@ async def test_claimed_names_are_not_released(
 
 @pytest.mark.parametrize("path", ["create", "edit_create", "model", "rename"])
 async def test_release_failure_refuses_create(
-    path: str, sandbox: Path, people: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    path: str,
+    sandbox: Path,
+    people: SimpleNamespace,
+    registry: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _ = sandbox
     if path == "rename":
@@ -756,6 +790,8 @@ async def test_release_failure_refuses_create(
     assert response.json()["detail"]["code"] == "SESSION_SAVE_FAILED"
     assert not (sandbox / "soul" / MODEL).exists()
     assert not (sandbox / "custom" / MODEL).exists()
+    assert not mission_board_path(MODEL).exists()
+    assert MODEL not in json.loads(registry.read_text(encoding="utf-8"))
     if path == "rename":
         assert (sandbox / "custom" / RENAMED).exists()
 
@@ -791,6 +827,9 @@ async def test_custom_model_named_like_a_human_releases(
         assert row is not None
         assert row["agent_id"] is None
         assert row["former_agent_id"] == name
+        # 看板、統計的判斷照舊：人類帳號算「有人用」；只有對話這邊不算
+        assert not mission_boards.is_unclaimed(AgentIdentity(agent_id=name))
+        assert mission_boards.is_unclaimed(AgentIdentity(agent_id=name), ignore_humans=True)
     finally:
         mission_board_path(name).unlink(missing_ok=True)
         shutil.rmtree(sandbox / "custom" / name, ignore_errors=True)

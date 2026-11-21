@@ -305,7 +305,7 @@ Q12（2026-09-09）新增 1 處 `PATH_LITERAL_SSOT`：本筆 aggregate 315→316
 | `unit/test_facts_schema_migration.py` | L792（`test_t20_crash_journal_is_rolled_back_on_reopen`） | `S603` | 🔴 不可修復 | ADR-0256：要模擬升級中途當掉、留下殘留 journal，只能讓真的子程序在交易寫到一半時 `os._exit(1)`。子程序只用標準庫（`os`、`sqlite3`、`sys`），以 `sys.executable -I` 啟動（隔離模式：不讀 `PYTHONPATH`、不載入專案程式）；argv 固定、`shell=False`、有逾時，只寫 pytest `tmp_path` 裡合成的 DB。 |
 | `smoke/run_all_smoke_tests.py` | L48 | `S603` | 🔴 不可修復 | 冒煙測試自動化指令執行 |
 | `unit/test_samename_takeover_security.py` | L590、L778、L797、L806 | `SLF001` | 🔴 不可修復 | ADR-0326：用 `_atomic_users_write` 在沙箱 users.json 放擁有清單；呼叫 MonitorLayer 換身分的那一步，鎖住「聊自訂模型時身分仍是人類」；取系統清理用的排程橋（只給 `agent_leftovers` 用，不開放成公開函式）測逐筆刪除 |
-| `unit/test_samename_sessions_security.py` | L242、L319、L320、L580 | `SLF001` | 🔴 不可修復 | ADR-0326 PR 3a：呼叫 GDPR 匯出收集那步，驗原本的人類匯出時還拿得到解除綁定的對話；直接問專案的讀、改權限判斷，驗新擁有者碰不到沒有擁有者的舊專案；包住取消註冊那步，驗解除綁定發生在鎖內、取消註冊之後 |
+| `unit/test_samename_sessions_security.py` | L243、L320、L321、L654 | `SLF001` | 🔴 不可修復 | ADR-0326 PR 3a：呼叫 GDPR 匯出收集那步，驗原本的人類匯出時還拿得到解除綁定的對話；直接問專案的讀、改權限判斷，驗新擁有者碰不到沒有擁有者的舊專案；包住取消註冊那步，驗解除綁定發生在鎖內、取消註冊之後 |
 | `unit/test_ldh_cardless_no_type_flag.py` | L44 | `SLF001` | 🔴 不可修復 | G03 回歸鎖需直接呼叫 `_atomic_users_write` 清空沙箱 users.json，建立「系統未認領」的 LDH 前提 |
 | `unit/test_soul_stepup_audit.py` | L27 | `SLF001` | 🔴 不可修復 | G05 AUDIT 回歸鎖需直接呼叫 `_atomic_users_write` 清空沙箱 users.json，建立 admin 驗步升稽核軌跡 |
 | `unit/test_soul_model_registration_cache.py` | L34, L40, L43, L54, ＋G20/G22 | `SLF001` | 🔴 不可修復 | G07 快取權威回歸鎖需直接讀 `model_manager._models_cache`／呼叫 `_save_config`、並 `inspect.getsource(souls._update_models_config)` 驗不繞快取直寫；G20/G22 冪等/裸條目驗證亦需讀 `_models_cache` |

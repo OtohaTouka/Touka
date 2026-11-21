@@ -192,7 +192,7 @@ async def create_soul(
     if drive is None:
         raise ToukaException(ErrorCode.SOUL_VAULT_ERROR)
     # 拒絕檢查都過了、第一個寫入之前：名字不屬於任何代理人時，清掉殘留的排程、身分設定、
-    # 統計（ADR-0326）與看板（ADR-0325）。同一次判斷給兩邊用。
+    # 統計、舊對話（ADR-0326）與看板（ADR-0325）。同一次判斷給兩邊用。
     unclaimed = await mission_boards.new_board_unclaimed(new_identity, refuse_claimed=False)
     if unclaimed:
         await agent_leftovers.clear_for_new_soul(new_identity)
@@ -424,8 +424,8 @@ async def update_soul(
     if creating_soul and soul_id.casefold().startswith("toukasoul"):
         raise ToukaException(ErrorCode.VALIDATION_ERROR)
     if new_dir:
-        # 拒絕檢查都過了、第一個寫入之前：名字不屬於任何代理人時清殘留的排程、身分設定、統計
-        # （ADR-0326）與看板（ADR-0325）。轉換既有資料夾、修復擁有清單或模型清單裡還有的靈魂
+        # 拒絕檢查都過了、第一個寫入之前：名字不屬於任何代理人時清殘留的排程、身分設定、統計、
+        # 舊對話（ADR-0326）與看板（ADR-0325）。轉換既有資料夾、修復擁有清單或模型清單裡還有的靈魂
         # 不清（是它自己的）。
         unclaimed = await _edit_create_unclaimed(identity)
         if unclaimed:
