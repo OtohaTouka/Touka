@@ -702,7 +702,8 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | 來源 | 責任與使用邊界 |
 |---|---|
 | `ToukaProxy/src/utils/agent_spellings.py` 的 `legacy_spellings` | 一個名字的兩種寫法（`<id>`、`ToukaSoul<id>`；DebugAgent 兩格都是自己）。對話查詢、清排程、清身分對照都用它，SQL 照舊固定 `IN (?, ?)`。 |
-| `ToukaProxy/src/services/agent_leftovers.py` | 清掉以名字為鍵、靈魂刪了還留著的東西：建立時 `clear_for_new_soul`（排程→身分對照→統計，失敗就不建立）、刪除時 `remove_stats_on_soul_delete` 與鎖外的 `remove_schedules_after_delete`（15 秒，不往外丟）。系統用的排程橋只在這裡建。 |
+| `ToukaProxy/src/services/agent_leftovers.py` | 清掉以名字為鍵、靈魂刪了還留著的東西：建立時 `clear_for_new_soul`（排程→機器人→身分對照→統計，失敗就不建立）、刪除時 `remove_stats_on_soul_delete` 與鎖外的 `clean_up_after_delete`（機器人一律停用→排程→等機器人停下來，沒清成的回給 `skipped`；PR 1 時叫 `remove_schedules_after_delete`）（15 秒，不往外丟）。系統用的排程橋只在這裡建。 |
+| `ToukaProxy/src/services/bot_service.py` 的 `disable_bots_for`、`stop_adapters`、`locked`、`flatten_agent_id`、`disable_bound` | SNS 機器人的唯一停用入口（PR 2）：鎖內嚴格讀 `bots.json`、純函式 `disable_bound` 關掉綁著兩種寫法的條目、正在跑的標 `retired` 並移出執行清單（沒有 await），再由 `stop_adapters` 平行停（各自 `BOT_STOP_SECONDS`）。`locked()` 是 `bots.json` 讀改寫的程序內鎖，設定頁的讀取遷移、存檔與停用共用；`flatten_agent_id` 是舊格式 `agent_id` 攤平的唯一定義（從 `routers/bots.py` 搬來）。閘道看 `BaseSNSAdapter.retired` 拒絕停用的機器人。 |
 | `ToukaProxy/src/services/mission_boards.py` 的 `is_unclaimed`／`new_board_unclaimed` | 「這個名字沒人用」的唯一判斷，清看板與清殘留共用。 |
 | `ToukaProxy/src/services/permission_service.py` 的 `edit_identity_map`、`remove_agent_overrides` | 身分對照的唯一寫入口：行程鎖內重讀磁碟、改、原子寫入、立刻重載。檔案讀不到或不是物件時，`edit_identity_map` 把 None 交給呼叫端決定（`remove_agent_overrides` 不寫；`/identity` 存檔照寫管理員送來的內容）。 |
 

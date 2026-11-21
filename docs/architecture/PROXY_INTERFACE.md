@@ -2,6 +2,14 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 刪掉的靈魂的 SNS 機器人不給同名的新靈魂（2026-11-21，ADR-0326 PR 2）
+
+- `DELETE /v1/souls/{soul_id}`：放開鎖之後，綁著這個名字（兩種寫法、舊格式）的機器人在 `bots.json` 設 `enabled: false`（token 不動），正在跑的停掉，其他機器人不停、不重啟。設定讀不出來或寫不進去照常成功，`skipped` 多一個 `"bots"`；排程沒清成（名字還有人用、連不上、逾時）也多一個 `"schedules"`（PR 1 時只記警告）。回應最多約 25 秒。
+- `POST /v1/souls` 與 `POST /v1/souls/{soul_id}`（用編輯建立新資料夾）：名字不屬於任何代理人時，排程之後同樣停用；`bots.json` 讀不出來或寫不進去回 500 `SYSTEM_ERROR`，什麼都不建。
+- SNS：被停用（或整批重載換掉）的機器人轉來的訊息，閘道一律回 `SESSION_SCOPE_MISMATCH`（外人看到「內部錯誤」）。
+- `GET`／`POST /v1/bots`：行為不變；讀改寫和停用共用一把程序內鎖。存檔的整批重載每個舊機器人最多等 10 秒，舊機器人一開始就不再轉訊息。
+- 沒有新端點、新錯誤碼；OpenAPI 只有 `DELETE /v1/souls/{soul_id}` 的說明文字改變。
+
 ## SNS 外人只叫得到機器人擁有者的靈魂；拿掉 Telegram `/switch`（2026-11-21，ADR-0327）
 
 - Telegram 只剩 `/start`；打 `/switch` 沒有反應，訊息一律用機器人綁的靈魂。
@@ -14,7 +22,7 @@
 - `DELETE /v1/souls/{soul_id}`：
   - 鎖內刪看板之後刪統計（`data/stats/<id>`）；刪不掉（含意料外的例外）照常成功，`skipped` 多一個 `"stats"`。
   - 取消註冊的 `identity_override` 那步刪兩種寫法（`<id>`、`ToukaSoul<id>`）的覆寫，鎖內從磁碟重讀；讀不出來或寫不進去就列進 `failed_steps`，回 500 `SOUL_UNREGISTER_INCOMPLETE`（以前寫不進去也回成功）。
-  - 放開鎖之後、回應之前刪這個名字兩種寫法的心跳排程（名字又屬於某個代理人時不刪），最多 15 秒；連不上、逾時或其他錯誤只記警告，回應不變。
+  - 放開鎖之後、回應之前刪這個名字兩種寫法的心跳排程（名字又屬於某個代理人時不刪），最多 15 秒；連不上、逾時或其他錯誤只記警告，回應不變（PR 2 起這些情況 `skipped` 多一個 `"schedules"`）。
 - `POST /v1/souls` 與 `POST /v1/souls/{soul_id}`（用編輯建立新資料夾）：所有拒絕檢查之後、名字不屬於任何代理人時，先清這個名字的心跳排程、身分覆寫、統計，再清看板（ADR-0325）。心跳位址設定了卻連不上、結果不明或寫錯時，回排程橋的錯誤（例如 502 `HEARTBEAT_UPSTREAM_FAILED`），什麼都不建；身分覆寫或統計清不掉回 500 `SYSTEM_ERROR`。沒設心跳位址時不檢查排程。
 - `POST /v1/souls/{soul_id}` 建立新資料夾或轉換既有資料夾：和人類帳號同名回 422 `VALIDATION_ERROR`、和有 `config.json` 的自訂模型同名回 409 `MODEL_ALREADY_EXISTS`（和 `POST /v1/souls` 一樣）。建立新資料夾時名字還在某人的擁有清單或模型清單裡，算修復既有靈魂，排程、身分覆寫、統計、看板都不清。
 - `POST /v1/identity`：畫面上看不到的舊覆寫在寫入鎖內從磁碟讀（不讀快取），剛被刪除靈魂清掉的不會寫回；格式不對的舊覆寫略過。回應不變。

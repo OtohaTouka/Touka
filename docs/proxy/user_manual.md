@@ -76,6 +76,7 @@ Touka 的核心工具集由 **ToukaMemory** 模組提供，包括：
    - **手動配置**：在 `config/mcp_config.json` 中註冊新的伺服器。
 4. **SNS 機器人接入 (SNS Bots)**：
    - **介面設定**：在 ToukaChat 的 **Settings > SNS 機器人** 頁面配置 Discord/Telegram Token。
+   - **刪除或重建同名靈魂**：綁著那個靈魂的機器人會被關掉（Token 保留），要用時回到這一頁重新選靈魂、打開（ADR-0326）。
 
 ---
 

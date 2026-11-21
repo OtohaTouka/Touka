@@ -288,10 +288,11 @@ export interface paths {
          *
          *     清除範圍：三實體目錄（soul／legacy／personal_drive）＋models.json／agents_registry／
          *     brain_settings／各使用者 owned_agents／identity_map override（兩種寫法）＋任務看板
-         *     （ADR-0325）＋統計 ``data/stats/<id>``（刪不掉列進 skipped）＋心跳排程（放開鎖之後，
-         *     清不掉只記 log；ADR-0326）。**冪等**——孤兒（空目錄、零註冊）照清、清完 agent_id 可重用
-         *     （直解「建立失敗連清都清不掉」）。聊天 sessions 與記憶 vault 不在此範圍（既有 per-agent
-         *     破壞性重置涵蓋）。
+         *     （ADR-0325）＋統計 ``data/stats/<id>``＋綁著它的 SNS 機器人（放開鎖之後關掉、停掉，不看名字
+         *     有沒有人用）＋心跳排程（放開鎖之後；ADR-0326）；統計、機器人、排程沒清成的列進 skipped
+         *     （``stats``、``bots``、``schedules``）。**冪等**——孤兒（空目錄、零註冊）照清、清完 agent_id
+         *     可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與記憶 vault 不在此範圍（既有
+         *     per-agent 破壞性重置涵蓋）。
          *
          *     舊審查報告丙-4（ADR-0287）：從檢查到取消註冊整段持有破壞性操作鎖並標記目標（和重置、
          *     清除互斥，期間心跳不開跑）；還有心跳在跑就叫它停下、回 409，什麼都不清。
@@ -349,10 +350,11 @@ export interface paths {
          *
          *     清除範圍：三實體目錄（soul／legacy／personal_drive）＋models.json／agents_registry／
          *     brain_settings／各使用者 owned_agents／identity_map override（兩種寫法）＋任務看板
-         *     （ADR-0325）＋統計 ``data/stats/<id>``（刪不掉列進 skipped）＋心跳排程（放開鎖之後，
-         *     清不掉只記 log；ADR-0326）。**冪等**——孤兒（空目錄、零註冊）照清、清完 agent_id 可重用
-         *     （直解「建立失敗連清都清不掉」）。聊天 sessions 與記憶 vault 不在此範圍（既有 per-agent
-         *     破壞性重置涵蓋）。
+         *     （ADR-0325）＋統計 ``data/stats/<id>``＋綁著它的 SNS 機器人（放開鎖之後關掉、停掉，不看名字
+         *     有沒有人用）＋心跳排程（放開鎖之後；ADR-0326）；統計、機器人、排程沒清成的列進 skipped
+         *     （``stats``、``bots``、``schedules``）。**冪等**——孤兒（空目錄、零註冊）照清、清完 agent_id
+         *     可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與記憶 vault 不在此範圍（既有
+         *     per-agent 破壞性重置涵蓋）。
          *
          *     舊審查報告丙-4（ADR-0287）：從檢查到取消註冊整段持有破壞性操作鎖並標記目標（和重置、
          *     清除互斥，期間心跳不開跑）；還有心跳在跑就叫它停下、回 409，什麼都不清。
