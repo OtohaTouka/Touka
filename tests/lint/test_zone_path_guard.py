@@ -1201,7 +1201,7 @@ G2_SITES: dict[str, tuple[int, str]] = {
     f"src.utils.soul_io:<module>:{PERSONAL_NAME}": (1, "靈魂儲存的三個 base 名稱"),
     f"src.utils.soul_io:remove_soul_storage_dir:{PERSONAL_NAME}": (
         1,
-        "個人空間這個 base 改走區內方法（_remove_soul_drive）",
+        "個人空間這個 base 改走區內方法（remove_soul_drive）",
     ),
     f"permission_init:<module>:{PERSONAL_NAME}": (
         1,
@@ -3918,6 +3918,10 @@ T3_ALLOWED: dict[str, tuple[int, str]] = {
     "tests.unit.test_memory_env_selection:test_no_explicit_keeps_bounded_three_level_fallback": (
         1,
         _ENV_SELECTION,
+    ),
+    "tests.unit.test_samename_archive_security:test_create_refuses_when_leftovers_stay": (
+        1,
+        "故障注入：個人空間刪不掉時建立靈魂要拒絕（ADR-0328）；刪除本身由區內方法照實測",
     ),
     "tests.unit.test_memory_worker_thread:test_diagnostics_file_scans_run_off_the_event_loop": (
         1,

@@ -1,5 +1,7 @@
 # ADR-0142: 靈魂 CRUD 修復（soul_io 受認可通道）＋admin 步升驗證的靈魂資料管理
 
+> 🔧 **[ADR-0328](0328-retired-archives-for-reused-soul-names.md) 修訂（2026-11-21）**：D6「既有的 `personal_drive`、`legacy` 不回滾」只在名字還屬於某個代理人（修復）時成立。名字沒人用時，建立靈魂在第一個寫入之前就把殘留的封存搬到 `data/retired`、殘留的個人空間刪掉，之後失敗時回滾刪的是新建的空資料夾。
+
 > 🔧 **[ADR-0326](0326-deleted-soul-leftovers-not-inherited.md) 修訂（2026-11-20）**：刪除範圍多了心跳排程與統計；identity_map override 改成兩種寫法（編號、`ToukaSoul`+編號）一起刪，鎖內從磁碟重讀、寫不進去照實回報 `identity_override` 失敗。建立靈魂時，名字不屬於任何代理人就先清這三樣的殘留；用編輯建立也擋和人類帳號、自訂模型同名。
 
 > 🔧 **[ADR-0326](0326-deleted-soul-leftovers-not-inherited.md) 修訂（2026-11-21，PR 3a）**：刪除範圍多了還綁著它的舊對話：取消註冊之後、鎖內解除綁定（自己的心跳、SNS 頻道刪掉），名字有人用或任何錯誤時 `skipped` 多一個 `sessions`。正常流程下刪除前的重置已經刪光它的對話，這一步是安全網。

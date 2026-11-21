@@ -383,13 +383,24 @@ def rename_entry_no_follow(parent: Path | str, old: str, new: str) -> None:
     ``new`` 已存在時丟 ``FileExistsError``；只差大小寫而且是同一個檔案（大小寫不分的檔案系統）
     時照常改名。兩個名稱都要是單段。
     """
+    move_entry_no_follow(parent, old, parent, new)
+
+
+def move_entry_no_follow(
+    src_parent: Path | str, old: str, dst_parent: Path | str, new: str
+) -> None:
+    """把 ``src_parent/old`` 搬到 ``dst_parent/new``（只改名、不複製；ADR-0328）。
+
+    兩個上層都不跟隨連結開、不建（目的上層要先存在）；``old`` 是連結（含 junction）就拒絕；
+    ``new`` 已存在時丟 ``FileExistsError``（只差大小寫的同一個檔案照常改名）。兩個名稱都要是
+    單段。跨裝置時照 ``os.rename`` 丟 ``OSError``（不退回複製）。
+    """
     if not (is_zone_segment(old) and is_zone_segment(new)):
         raise ZoneSegmentError
-    base = Path(parent)
     if _POSIX_DIR_FD:
-        _rename_entry(_FdTree(), base, old, new)
+        _move_entry(_FdTree(), Path(src_parent), old, Path(dst_parent), new)
     else:
-        _rename_entry(_PathTree(), base, old, new)
+        _move_entry(_PathTree(), Path(src_parent), old, Path(dst_parent), new)
 
 
 def write_text_no_follow(
@@ -754,20 +765,24 @@ class _PathTree(_TreeOps[Path]):
         return False
 
 
-def _rename_entry[H](ops: _TreeOps[H], base: Path, old: str, new: str) -> None:
-    holder = ops.open_parent(base / old)
+def _move_entry[H](ops: _TreeOps[H], src: Path, old: str, dst: Path, new: str) -> None:
+    source = ops.open_parent(src / old)
     try:
-        info = ops.lstat(holder, old, base / old)
-        if info is None:
-            raise _missing(base / old)
-        if _is_link_stat(info):
-            raise _refused(base / old)
-        existing = ops.lstat(holder, new, base / new)
-        if existing is not None and not os.path.samestat(existing, info):
-            raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(base / new))
-        ops.rename(holder, old, holder, new, base / old)
+        target = ops.open_parent(dst / new)
+        try:
+            info = ops.lstat(source, old, src / old)
+            if info is None:
+                raise _missing(src / old)
+            if _is_link_stat(info):
+                raise _refused(src / old)
+            existing = ops.lstat(target, new, dst / new)
+            if existing is not None and not os.path.samestat(existing, info):
+                raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(dst / new))
+            ops.rename(source, old, target, new, src / old)
+        finally:
+            ops.close(target)
     finally:
-        ops.close(holder)
+        ops.close(source)
 
 
 @dataclass

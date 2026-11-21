@@ -571,6 +571,21 @@
     "note": "任務說明的「其他」項；改名變成複製（舊資料夾留著，連結也被複製過去）"
   },
   {
+    "id": "r10_retire_legacy_dir_copies",
+    "rule": [
+      "R10"
+    ],
+    "target": "src.services.resource_manager:ResourceManager.retire_legacy_dir",
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "                move_entry_no_follow(legacy, agent_id, target, candidate)",
+    "new": "                shutil.copytree(legacy / agent_id, target / candidate)",
+    "tests": [
+      "tests/unit/test_samename_archive_security.py::test_retire_moves_without_copying"
+    ],
+    "posix_only": false,
+    "note": "ADR-0328：搬走殘留封存變成複製（舊封存留在原地，同名新靈魂照樣讀得到）"
+  },
+  {
     "id": "r10_custom_model_delete_uses_agent_drive",
     "rule": [
       "R10",

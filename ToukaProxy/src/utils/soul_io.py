@@ -249,7 +249,7 @@ def remove_soul_storage_dir(base_name: str, agent_id: str) -> str:
     if base_name not in _SOUL_STORAGE_BASES:
         return "violation"
     if base_name == "personal_drive":
-        return _remove_soul_drive(agent_id)
+        return remove_soul_drive(agent_id)
     base = Path(resource_manager.get_base_path()) / base_name
     target = base / agent_id
     if not validate_no_symlink_escape(target, base) or target.resolve() == base.resolve():
@@ -266,8 +266,12 @@ def remove_soul_storage_dir(base_name: str, agent_id: str) -> str:
         return "removed"
 
 
-def _remove_soul_drive(agent_id: str) -> str:
-    """個人空間走區內方法（ADR-0293）：本身是連結只刪連結，樹裡的連結也只刪本身."""
+def remove_soul_drive(agent_id: str) -> str:
+    """刪靈魂的個人空間，回傳同 ``remove_soul_storage_dir``.
+
+    走區內方法（ADR-0293）：本身是連結只刪連結，樹裡的連結也只刪本身。建立靈魂時補刪殘留的個人
+    空間也用它（ADR-0328）。
+    """
     drive = resource_manager.soul_drive(AgentIdentity(agent_id=agent_id))
     if drive is None:
         logger.warning("🚫 Soul purge sandbox violation: personal_drive/%s", agent_id)

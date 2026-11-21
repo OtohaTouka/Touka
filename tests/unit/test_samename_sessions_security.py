@@ -773,6 +773,8 @@ async def test_release_failure_refuses_create(
     _ = sandbox
     if path == "rename":
         assert _create_model(RENAMED, people).status_code == 200
+    (sandbox / "legacy" / MODEL).mkdir(parents=True)
+    (sandbox / "legacy" / MODEL / "archive.db").write_text("old", encoding="utf-8")
 
     async def _broken(_identity: AgentIdentity) -> Any:
         raise ToukaException(ErrorCode.SESSION_SAVE_FAILED)
@@ -794,6 +796,8 @@ async def test_release_failure_refuses_create(
     assert MODEL not in json.loads(registry.read_text(encoding="utf-8"))
     if path == "rename":
         assert (sandbox / "custom" / RENAMED).exists()
+    # 檔案在對話之後（ADR-0328）：解除失敗時殘留的封存還沒搬
+    assert (sandbox / "legacy" / MODEL / "archive.db").is_file()
 
 
 async def test_custom_delete_spares_a_soul_name(sandbox: Path, people: SimpleNamespace) -> None:
