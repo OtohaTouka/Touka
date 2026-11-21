@@ -6,6 +6,8 @@
 
 ✅ **已接受（實作與驗證 2026-07-05；維護者核准計畫後動工——Q1 聯集／Q2 手動 backfill／Q3 不收緊皆照推薦）**。實作 [ADR-0131](0131-auth-renewal-and-ldh-containment.md) 明列的「授權地基長期正解」；計畫全文見 [proposals/session-owner-attribution-plan.md](../proposals/session-owner-attribution-plan.md)。比照 [ADR-0107](0107-user-self-service-data-clearing.md) 對 projects 的做法。
 
+> 🔧 **[ADR-0326](0326-deleted-soul-leftovers-not-inherited.md) 修訂（2026-11-21，PR 3a）**：代理人刪掉或名字給了新代理人時，對話解除綁定，靠 `owner_user_id` 留給當時聊天的人類；沒有 `owner_user_id` 的只剩管理員。`owner_user_id` 照舊只在 INSERT 記錄。
+
 ## 日期
 
 2026-07-05

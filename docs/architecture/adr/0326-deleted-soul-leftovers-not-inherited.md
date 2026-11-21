@@ -1,11 +1,11 @@
 # ADR-0326：刪掉的靈魂留下的東西不給同名的新靈魂
 
-- 狀態：🔄 部分實作（PR 0 排程頁連線、PR 1 排程、身分設定、統計與用編輯建立、PR 2 SNS 機器人；PR 3 舊對話與封存待做）
+- 狀態：🔄 部分實作（PR 0 排程頁連線、PR 1 排程、身分設定、統計與用編輯建立、PR 2 SNS 機器人、PR 3a 舊對話；PR 3b 封存與個人空間待做）
 - 日期：2026-11-20
 - 決策者：維護者（一頁計畫第 2.1 版，總覽板第 96 項回「①甲 ②甲」：照 2.1 版做，四個 PR 依序；統計一起刪、心跳服務連不上時刪除照做而建立不建、自訂模型不處理統計、用編輯建立時名字還在擁有清單或模型清單就當修復，是計畫裡寫明的「我自己定的」）
 - 相關：[ADR-0325](0325-mission-board-system-folder.md)（看板與「不屬於任何代理人」的判斷）、[ADR-0230](0230-heartbeat-transaction-and-credential-contracts.md)（排程橋）、[ADR-0303](0303-soul-names-and-who-can-create-souls.md)（靈魂名稱與建立權限）、[ADR-0147](0147-soul-role-type-binding.md)（靈魂與人類帳號不能撞名）、[ADR-0142](0142-soul-crud-repair-and-admin-stepup.md)（刪除範圍）、[ADR-0262](0262-consistent-snapshots-and-soul-delete-memory-check.md)（刪除前的記憶檢查）
-- 修訂 ADR-0303（用編輯建立與轉換也擋和人類帳號、自訂模型同名）、修訂 ADR-0142 與 ADR-0262（刪除範圍多了排程、統計，身分設定寫不進去照實回報）、修訂 ADR-0230（排程橋多了系統清理用途）、修訂 ADR-0325（用編輯建立判定為修復時看板不清）、修訂 ADR-0327（PR 2：閘道最前面多一道「機器人已停用」的檢查）
-- 影響範圍：ToukaProxy 新 `services/agent_leftovers.py`、新 `utils/agent_spellings.py`；`routers/souls.py`、`routers/identity.py`、`services/permission_service.py`、`services/heartbeat_schedule_bridge.py`、`services/mission_boards.py`、`utils/async_db.py`；PR 2：`services/bot_service.py`、`routers/bots.py`、`services/sns_gateway.py`、`protocols/sns_base.py`、`adapters/telegram_bot.py`、`adapters/discord_bot.py`
+- 修訂 ADR-0303（用編輯建立與轉換也擋和人類帳號、自訂模型同名）、修訂 ADR-0142 與 ADR-0262（刪除範圍多了排程、統計，身分設定寫不進去照實回報；PR 3a 多了舊對話）、修訂 ADR-0306 與 ADR-0307（PR 3a：解除綁定時回報位置刪掉、換家紀錄設失效）、修訂 ADR-0107 與 ADR-0132（PR 3a：解除綁定的列只剩 `owner_user_id` 那位與管理員）、修訂 ADR-0230（排程橋多了系統清理用途）、修訂 ADR-0325（用編輯建立判定為修復時看板不清）、修訂 ADR-0327（PR 2：閘道最前面多一道「機器人已停用」的檢查）
+- 影響範圍：ToukaProxy 新 `services/agent_leftovers.py`、新 `utils/agent_spellings.py`；`routers/souls.py`、`routers/identity.py`、`services/permission_service.py`、`services/heartbeat_schedule_bridge.py`、`services/mission_boards.py`、`utils/async_db.py`；PR 2：`services/bot_service.py`、`routers/bots.py`、`services/sns_gateway.py`、`protocols/sns_base.py`、`adapters/telegram_bot.py`、`adapters/discord_bot.py`；PR 3a：`utils/async_db.py`（`release_agent_sessions`、`former_agent_id`）、`models/session_persistence.py`、`services/mission_boards.py`（`ignore_humans`）、`routers/custom_models.py`、前端 `lib/session_tree.ts`、`components/sidebar/left/SessionTree.tsx`、`lib/export-utils.ts`、`lib/types.ts`
 
 ## 背景
 
@@ -30,6 +30,7 @@ SNS 機器人的綁定、舊對話、對話封存與個人空間也會被接手�
 - **身分設定**：取消註冊的 `identity_override` 那步改成 `permission_service.remove_agent_overrides(兩種寫法)`，讀不出來或寫不進去就算失敗，整個刪除回 `SOUL_UNREGISTER_INCOMPLETE`（`failed_steps` 含 `identity_override`），再刪一次會補清。
 - **鎖外**：放開鎖之後、回應之前 `clean_up_after_delete`（PR 2 起；PR 1 時叫 `remove_schedules_after_delete`）：先停用綁著它的機器人（決定 9），再刪排程，最後等機器人停下來。會連網路的事不在鎖內做。刪排程前先確認名字仍然不屬於任何代理人（`mission_boards.is_unclaimed`）。放開鎖到這個判斷之間沒有 await（PR 2 加的停用是同步的），同名的新靈魂不可能在這時建好，所以「有人用」只會是這次刪除沒做完（資料夾沒刪掉、登記表沒寫成，`_update_agents_registry` 會吞掉寫入例外、回應照樣 200，或 `custom/<名字>` 留著）：這時排程不刪、記警告。整段最多 15 秒（`SCHEDULE_CLEANUP_SECONDS`）。名字有人用、連不上、逾時、結果不明或其他例外都記警告，刪除照樣成功，`skipped` 多一個 `schedules`（PR 1 時只記警告、回應不變）；舊排程這時沒有擁有者，喚醒時會被拒絕，建立同名靈魂時會再清一次。
 - 回 `SOUL_UNREGISTER_INCOMPLETE` 時，`skipped` 的內容也寫進 log。
+- **舊對話**（PR 3a，決定 10）：取消註冊之後、還在鎖內解除綁定；名字有人用或任何錯誤時 `skipped` 多一個 `sessions`。
 
 ### 3. 建立靈魂
 
@@ -70,7 +71,7 @@ SNS 機器人的綁定、舊對話、對話封存與個人空間也會被接手�
 ### 8. 之後的 PR（各自開工前寫細節、另審）
 
 - **PR 2：SNS 機器人**：已實作，見決定 9。
-- **PR 3：舊對話、封存、個人空間**：刪掉的靈魂的對話只留給當時聊天的人與管理員；靈魂自己的心跳、SNS 頻道不給新靈魂接著用；刪除時沒刪成的封存與個人空間，建立時不讓新靈魂拿到。
+- **PR 3：舊對話、封存、個人空間**：拆成兩個 PR。3a 舊對話已實作，見決定 10；3b 封存與個人空間（建立時不讓新靈魂拿到刪除時沒刪成的）待做。
 
 ### 9. PR 2：SNS 機器人（2026-11-21）
 
@@ -88,6 +89,25 @@ SNS 機器人的綁定、舊對話、對話封存與個人空間也會被接手�
 - 不發 ConfigChange hook：刪除、建立靈魂順帶改 `models.json`、身分設定時也不發。
 - 只處理靈魂：閘道要求機器人綁的是靈魂，綁自訂模型的機器人本來就不能用，刪自訂模型不用停機器人。
 
+### 10. PR 3a：舊對話（2026-11-21）
+
+修補前：刪除自訂模型不用重置、不碰對話，對話一直綁著名字。刪除靈魂前一定要先重置（刪除要求記憶、活動紀錄、前情都清空；用過的靈魂聊過任何一輪就有活動紀錄），重置會刪掉綁著它的全部對話，所以靈魂在現行版本只剩殘留（舊版本刪掉的、重置的對話那步失敗、重置後才建的空對話）。之後有人建同名的靈魂或自訂模型：新代理人的擁有者經 `is_owner` 在清單、讀取、刪除、GDPR 匯出看到別人的舊對話，也能讀、改、刪沒有擁有者的舊專案（權限從底下對話的 `agent_id` 推）；同名新靈魂接手舊的家（`read_home_snapshot` 不看搜尋標記）、舊的心跳與 SNS 頻道（編號是 `channel_session_id` 算出來的，新靈魂算出同一個），以代理人身分也讀得到舊對話；側欄依名字分組，舊對話進新靈魂的資料夾；建立時設失效的回報位置永遠改不回來，同編號的新心跳頻道從此不回報給家。
+
+- **解除綁定**（`session_service.release_agent_sessions(identity) -> ReleasedSessions`）：資料庫檔不存在或沒有表回 0 筆、不建檔；其他情況一個 `BEGIN IMMEDIATE` 交易，名字固定兩種寫法（`IN (?, ?)`）：
+  1. 這個靈魂自己的心跳、SNS 頻道（`session_scope.is_heartbeat_channel`、`is_sns_channel`）刪掉，和重置一致。舊的共享頻道（`pulse_channel_default`、`sns_*`）不刪。
+  2. 其他對話與家的標記（`agent_id` 或 `home_for_agent` 是這個名字）：`former_agent_id` 記原本綁的名字（`COALESCE(agent_id, home_for_agent)`），`agent_id`、家的兩欄清空，搜尋標記降成 0；內容、`owner_user_id`、專案不動。只靠家的標記對上、其實綁著別的代理人的列（舊版本的矛盾資料）只清家的兩欄、降搜尋標記，綁定與 `former_agent_id` 不動（DEV-B LOW-1）。
+  3. 回報位置（`soul_child_report_marks`）刪掉：失效的位置永遠改不回來；人類之後改綁到某個靈魂時，`_move_report_mark` 在改綁那一點建新位置（ADR-0307）。
+  4. 前情與換家紀錄設失效（和 `invalidate_agent_sessions` 同一組 SQL）：自訂模型的路不會呼叫它，不設的話解除綁定的舊家仍是「舊家」，那位人類只能看、不能刪。
+  任何錯誤丟 `SESSION_SAVE_FAILED`，整個交易不寫。之後 `can_access_session` 的既有規則就是要的結果：沒有綁定 → 只剩 `owner_user_id` 那位人類與管理員（含 Debugger）；沒有 `owner_user_id` 的只剩管理員。`can_access_session` 不改。
+- **新欄位 `former_agent_id`**：只由解除綁定寫，存檔不寫（`_write_session_row` 不列它）；新列的預設字典有這個鍵（版本號用整列內容算，少了它第一次存檔回的版本號會和之後讀出來的對不上）；升級時補欄位。公開在 `SessionDocument`（預設 None：還原失敗、程序沒重啟時可能讀到沒有這欄的舊庫）、清單與單筆讀取；`SessionModel` 收到會忽略。
+- **呼叫點**：
+  - 刪除靈魂：破壞性操作鎖內、取消註冊之後（`agent_leftovers.release_sessions_on_soul_delete`）。只動本機資料庫；這時靈魂資料夾已刪，SNS 閘道與心跳認不出它，還在跑的一輪要寫已解除的列會被綁定檢查擋下，`touka.` 開頭的列只有 `open_channel_session` 建得出來。名字有人用（刪除沒做完）、判斷或解除丟任何例外都記警告、`skipped` 加 `sessions`，刪除照樣成功，鎖外的機器人、排程照做。正常流程下這一步是空轉（重置已刪光），是安全網。
+  - 建立靈魂（兩條路）：`clear_for_new_soul` 第 5 步（統計之後），失敗丟 `SESSION_SAVE_FAILED`，什麼都還沒建。
+  - 建立自訂模型（`prepare_new_board` 之後、存檔之前）、自訂模型改名（新名字，`rename_model` 之前）：`agent_leftovers.clear_for_new_custom_model`，失敗就不建立、不改名。刪除自訂模型（資料夾、擁有清單之後）：`release_after_custom_model_delete`，任何錯誤只記警告。這是現行版本最主要的情境；排程、機器人、身分設定、統計照決定 7 不處理。
+  - 自訂模型的三個呼叫點判斷「有沒有人用」時人類帳號不算（`mission_boards.is_unclaimed(..., ignore_humans=True)`，預設照舊）：自訂模型的名字可以和人類帳號相同，對話的 `agent_id` 卻不會是人類帳號本身；照舊判斷的話，和人類帳號同名的自訂模型刪掉、別人再建同名的，兩次都算有人用、不解除。靈魂的呼叫點照舊（靈魂名字不能和人類帳號相同）。
+- **人類接著聊**：前端打開沒有 `agent_id` 的對話不自動切模型；送出前先存 `agent_id = 目前選的模型`，等於改綁。伺服器照既有規則：要看得到這段對話，目標是靈魂時要能驅動它。別人的舊對話不會被綁到新靈魂；同一位人類自己選了同名的新靈魂，就是把自己的對話給自己的靈魂。
+- **前端**：側欄的模型標籤在沒有 `agent_id`、有 `former_agent_id` 時顯示「原本：名字」（中性的「原本」：名字也可能是一般模型）；解除綁定的對話落到「其他」，不進同名新靈魂的資料夾。匯出的模型名依序 `agent_id`、`home_for_agent`、`former_agent_id`、目前選擇。
+
 ## 沒選的做法
 
 - 排程放在刪除的鎖內刪：會連網路（最多 10 秒逾時）的事放在破壞性操作鎖裡，別的重置、刪除要跟著等。
@@ -102,6 +122,12 @@ SNS 機器人的綁定、舊對話、對話封存與個人空間也會被接手�
 - PR 2：停用後整批重載：其他機器人會斷線重連，正在回的訊息被打斷。
 - PR 2：刪掉 token 或清掉 `agent_id`：token 是維護者填的，刪了要重填；`agent_id` 留著，`bots.json` 看得出原本綁誰。
 - PR 2：刪除時看「名字有沒有人用」再停用：放開鎖之後沒有 await，有人用只會是刪除沒做完，看判斷反而漏停。
+- PR 3a：另加「已釋放」旗標而不是清空 `agent_id`：權限、搜尋、家、頻道、專案、前端分組都已經把「沒有綁定」當成只剩擁有者與管理員，加旗標要改每一個看 `agent_id` 的地方，漏一個就是洩漏。
+- PR 3a：頻道留給管理員（換成墓碑編號、唯讀）：正常流程下頻道在重置時已經刪了，只對殘留有用，還要多一個前綴。照重置刪掉。
+- PR 3a：刪除靈魂時在鎖外（`clean_up_after_delete`）解除：要改 PR 2 的流程與判斷時機，「擋頻道被建回來」的理由也不成立（資料夾刪掉之後閘道與心跳本來就認不出它）。
+- PR 3a：用搜尋標記管人類看得到什麼：還原備份會把所有列的標記降成 0，所有人會看不到自己的對話。
+- PR 3a：回報位置留著失效：失效的位置永遠改不回來，同編號的新頻道就永遠不回報。
+- PR 3a：和刪除一段對話一樣的頻道收尾（`home_transitions.forget_session`、版本號世代加一）：回報位置、前情、換家紀錄已經依名字整批處理；版本號由世代與整列內容一起算，新頻道建立時世代本來就加一、內容也不同，舊頻道的版本號對不上；頻道列只有 `open_channel_session` 建得出來，拿不存在時的版本號重送會被建立檢查擋下。世代加一沒有可觀察的作用。
 
 ## 已知限制
 
@@ -121,9 +147,18 @@ SNS 機器人的綁定、舊對話、對話封存與個人空間也會被接手�
 - 除錯用的「最近一次送出內容」紀錄（滿 5 MB 輪替）、子代理結果暫存（最多 7 天）、除錯快照檔（沒有介面讀回）、MCP 授權（只對同一位擁有者有效）、群聊點名的別名對應、回饋紀錄，照舊。
 - 清完之後、建立完成之前，被刪靈魂還沒跑完的那一輪剛好寫進東西：極少數，和看板一樣。
 - 升級前已經被同名接手的資料，不會回頭分開。
+- PR 3a，靈魂的對話在重置時就刪了（重置一律清全部 store，含別人跟它聊的；重置前一定先做系統備份）：「重置時把人類的對話留給那位人類」列路線圖候選。這次只處理殘留與自訂模型。
+- PR 3a，和一般模型同名：`is_unclaimed` 不看 `models.json` 裡的一般模型名稱。建一個名字等於一般模型的靈魂或自訂模型（例如 `gemini-2.5-flash`），所有人跟那個一般模型的對話都會被解除綁定（以前是新代理人的擁有者全部看得到），標籤「原本：gemini-2.5-flash」，打開時模型選單不會自動切回那個模型。
+- PR 3a，送出時改綁到目前選的模型（前端既有行為），在這種對話裡切換模式、選單上是靈魂時也會一起改綁（`ChatProvider.tsx`，不限空對話），「切分存入舊對話」也存到目前選的模型；伺服器照樣檢查要看得到對話、能驅動那個靈魂；對話畫面沒有「原本的對象不在了」的提示，只有側欄的標籤。
+- PR 3a，記憶體裡以對話編號為鍵的狀態沒清（串流緩衝保留 600 秒、活動紀錄、子代理完成卡）：同編號的新頻道建立後短時間內，同名新靈魂的擁有者可能看到殘留頻道的舊狀態。
+- PR 3a，GDPR 匯出（擁有的代理人）的換家紀錄不看範圍版本，前情連失效的段落一起匯出：只影響舊版本留下的殘留。
+- PR 3a，自訂模型改名後舊名字的對話不跟著改名（本來就這樣），下次有人用舊名字時才解除。「改名時對話跟著搬」列路線圖候選。
+- PR 3a，刪除那一刻機器人停用前已經過閘道的 SNS 回合，可能在解除之後把頻道建回來（綁定檢查只擋寫入既有列）；建立同名時會再處理。
 - 建立靈魂時清排程的結果不明，回的是排程橋原本的 `HEARTBEAT_OUTCOME_UNKNOWN`，訊息說「勿直接重送」；建立靈魂時其實可以再按一次（沒建任何東西，會重讀排程再刪）。訊息照舊，沒有為建立另外寫一句。
 
 ## 驗證
+
+- PR 3a：`tests/unit/test_samename_sessions_security.py`：conftest 沙盒、真的靈魂與自訂模型路由、真的對話資料庫，殘留直接寫進資料庫。涵蓋刪除自訂模型後解除、新擁有者在清單／讀取／刪除／GDPR 匯出／舊專案都碰不到、原本的人類照樣看得到與匯出、新靈魂以代理人身分讀不到；殘留的家、只有家標記的列、心跳與 SNS 頻道（刪掉、新頻道是空的、會回報）、舊家不再唯讀、兩種寫法與只差大小寫、舊共享頻道；交易全有或全無、沒有資料庫不建檔、舊分頁存檔被擋、新列第二次存檔、欄位公開且唯讀、升級補欄位；刪除靈魂在鎖內取消註冊之後、刪除沒做完不動、解除或判斷丟例外時刪除照樣成功；四條建立／改名路徑、名字有人用不動、失敗就不建立不改名、和靈魂同名的舊自訂模型資料夾、和人類帳號同名的自訂模型；人類接著聊改綁到自己能驅動的靈魂、別人不行。前端 vitest：側欄標籤、分組、匯出。`test_soul_session_reuse_security.py` 改成斷言解除綁定（建立靈魂多一個交易）。
 
 - `tests/unit/test_samename_takeover_security.py`：用真的 ToukaHeartbeat app（ASGI，不連網路）與 conftest 測試沙盒，涵蓋刪除與兩條建立路徑的排程、身分設定、統計；拒絕在清除之前；名字有人用時不清（兩條路分開）；鎖外清排程與 15 秒上限；身分設定從磁碟重讀、立刻生效、存檔不寫回、兩個寫入交錯時不互相蓋掉（兩個執行緒固定交錯）；排程逐筆刪除的版本衝突與次數上限；用編輯建立的兩道撞名檢查；自訂模型聊天身分仍是人類。
 - 改壞驗證：拿掉每個新呼叫點、「有人用就不清」的每個條件、回傳值檢查、鎖、重載與次數上限，對應測試都變紅（先跑綠基準）。

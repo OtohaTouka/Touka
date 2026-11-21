@@ -192,7 +192,7 @@ async def create_soul(
     if drive is None:
         raise ToukaException(ErrorCode.SOUL_VAULT_ERROR)
     # 拒絕檢查都過了、第一個寫入之前：名字不屬於任何代理人時，清掉殘留的排程、身分設定、
-    # 統計（ADR-0326）與看板（ADR-0325）。同一次判斷給兩邊用。
+    # 統計、舊對話（ADR-0326）與看板（ADR-0325）。同一次判斷給兩邊用。
     unclaimed = await mission_boards.new_board_unclaimed(new_identity, refuse_claimed=False)
     if unclaimed:
         await agent_leftovers.clear_for_new_soul(new_identity)
@@ -424,8 +424,8 @@ async def update_soul(
     if creating_soul and soul_id.casefold().startswith("toukasoul"):
         raise ToukaException(ErrorCode.VALIDATION_ERROR)
     if new_dir:
-        # 拒絕檢查都過了、第一個寫入之前：名字不屬於任何代理人時清殘留的排程、身分設定、統計
-        # （ADR-0326）與看板（ADR-0325）。轉換既有資料夾、修復擁有清單或模型清單裡還有的靈魂
+        # 拒絕檢查都過了、第一個寫入之前：名字不屬於任何代理人時清殘留的排程、身分設定、統計、
+        # 舊對話（ADR-0326）與看板（ADR-0325）。轉換既有資料夾、修復擁有清單或模型清單裡還有的靈魂
         # 不清（是它自己的）。
         unclaimed = await _edit_create_unclaimed(identity)
         if unclaimed:
@@ -475,11 +475,12 @@ async def delete_soul(
 
     清除範圍：三實體目錄（soul／legacy／personal_drive）＋models.json／agents_registry／
     brain_settings／各使用者 owned_agents／identity_map override（兩種寫法）＋任務看板
-    （ADR-0325）＋統計 ``data/stats/<id>``＋綁著它的 SNS 機器人（放開鎖之後關掉、停掉，不看名字
-    有沒有人用）＋心跳排程（放開鎖之後；ADR-0326）；統計、機器人、排程沒清成的列進 skipped
-    （``stats``、``bots``、``schedules``）。**冪等**——孤兒（空目錄、零註冊）照清、清完 agent_id
-    可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與記憶 vault 不在此範圍（既有
-    per-agent 破壞性重置涵蓋）。
+    （ADR-0325）＋統計 ``data/stats/<id>``＋還綁著它的舊對話（取消註冊之後、鎖內解除綁定，自己的
+    頻道刪掉；ADR-0326 決定 10）＋綁著它的 SNS 機器人（放開鎖之後關掉、停掉，不看名字有沒有人用）
+    ＋心跳排程（放開鎖之後；ADR-0326）；統計、對話、機器人、排程沒清成的列進 skipped
+    （``stats``、``sessions``、``bots``、``schedules``）。**冪等**——孤兒（空目錄、零註冊）照清、清完
+    agent_id 可重用（直解「建立失敗連清都清不掉」）。記憶 vault 與聊天 sessions 本身由既有的
+    per-agent 破壞性重置清（刪除前要求記憶已清，用過的靈魂一定先重置；重置會刪掉它的對話）。
 
     舊審查報告丙-4（ADR-0287）：從檢查到取消註冊整段持有破壞性操作鎖並標記目標（和重置、
     清除互斥，期間心跳不開跑）；還有心跳在跑就叫它停下、回 409，什麼都不清。
@@ -538,6 +539,9 @@ async def delete_soul(
         stats_removed = agent_leftovers.remove_stats_on_soul_delete(identity)
         storage = soul_io.purge_soul_storage(soul_id)
         failed = _unregister_soul(identity)
+        # 舊對話（ADR-0326 決定 10）：取消註冊之後、還在鎖內，只動本機資料庫。正常流程下重置已經
+        # 刪光它的對話，這裡是安全網；名字有人用（刪除沒做完）或任何錯誤都列進 skipped
+        sessions_released = await agent_leftovers.release_sessions_on_soul_delete(identity)
     # 機器人與排程在鎖外（停機器人、刪排程都會連網路）：放開鎖之後、回應之前；取消註冊沒做完也照做。
     # 不往外丟，沒清成的列進 skipped。
     after_delete = await agent_leftovers.clean_up_after_delete(identity)
@@ -546,6 +550,8 @@ async def delete_soul(
     skipped = [f"{base}:{status}" for base, status in storage.items() if status != "removed"]
     if not stats_removed:
         skipped.append("stats")
+    if not sessions_released:
+        skipped.append("sessions")
     skipped.extend(after_delete)
     if failed:
         # 資料已刪；登記各步都冪等，再刪一次會補清。

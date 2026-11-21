@@ -3,13 +3,18 @@
 依靈魂編號存放、靈魂刪掉後還留著的四樣：心跳排程（ToukaHeartbeat）、綁著它的 SNS 機器人
 （``bots.json`` 與正在跑的 adapter）、身分設定（``identity_map.json`` 的 ``agent_overrides``）、統計
 （``data/stats/<編號>``）。各自的讀寫仍在原處（排程橋、``bot_service``、``permission_service``、
-``resource_manager``），這裡只組合。看板歸 ``mission_boards``（ADR-0325），對話另外處理。
+``resource_manager``），這裡只組合。看板歸 ``mission_boards``（ADR-0325）。舊對話的解除綁定在
+``session_service.release_agent_sessions``（PR 3a，ADR-0326 決定 10），這裡決定什麼時候做。
 
-- 刪除靈魂：鎖內刪統計（``remove_stats_on_soul_delete``）；身分設定在取消註冊那步刪；放開鎖之後
-  ``clean_up_after_delete``：機器人一律停用（不看名字有沒有人用），排程先確認名字仍然沒人用再刪，
-  最後等停用的機器人停下來；沒清成的回給呼叫端列進 ``skipped``。
+- 刪除靈魂：鎖內刪統計（``remove_stats_on_soul_delete``）；身分設定在取消註冊那步刪；取消註冊之後、
+  還在鎖內解除舊對話的綁定（``release_sessions_on_soul_delete``；正常流程下重置已刪光，是安全網）；
+  放開鎖之後 ``clean_up_after_delete``：機器人一律停用（不看名字有沒有人用），排程先確認名字仍然
+  沒人用再刪，最後等停用的機器人停下來；沒清成的回給呼叫端列進 ``skipped``。
 - 建立靈魂：所有拒絕檢查之後、名字不屬於任何代理人時呼叫 ``clear_for_new_soul``。排程第一個：
-  它是唯一會因為連不上而拒絕的一步，拒絕時機器人、看板、身分設定、統計都還沒動。
+  它是唯一會因為連不上而拒絕的一步，拒絕時機器人、看板、身分設定、統計、對話都還沒動。
+- 自訂模型：建立、改名前 ``clear_for_new_custom_model``、刪除後
+  ``release_after_custom_model_delete``，
+  只處理對話（排程、機器人、身分設定、統計自訂模型用不到，決定 7）；人類帳號不算「有人用」。
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from src.services.heartbeat_schedule_bridge import HeartbeatScheduleBridge
 from src.services.permission_service import permission_service
 from src.services.resource_manager import resource_manager
 from src.utils.agent_spellings import legacy_spellings
+from src.utils.async_db import session_service
 
 if TYPE_CHECKING:
     from src.models.identity import AgentIdentity
@@ -72,10 +78,11 @@ def _remove_stats(identity: AgentIdentity) -> bool:
 
 
 async def clear_for_new_soul(identity: AgentIdentity) -> None:
-    """建立靈魂前清這個名字的舊排程、機器人、身分設定、統計；呼叫端已判定名字不屬於任何代理人.
+    """建立靈魂前清這個名字的舊排程、機器人、身分設定、統計、對話；呼叫端已判定名字不屬於任何代理人.
 
     排程清不掉（連不上、結果不明）丟原本的錯誤碼；機器人設定（讀不出來、寫不進去）、身分設定、
-    統計清不掉丟 ``SYSTEM_ERROR``。正在跑的機器人不論設定寫不寫得成都先停。丟出時靈魂什麼都還沒建。
+    統計清不掉丟 ``SYSTEM_ERROR``；對話解除不了丟 ``SESSION_SAVE_FAILED``。正在跑的機器人不論設定
+    寫不寫得成都先停。丟出時靈魂什麼都還沒建。
     """
     removed = await _remove_schedules(identity)
     if removed:
@@ -88,6 +95,70 @@ async def clear_for_new_soul(identity: AgentIdentity) -> None:
         raise ToukaException(ErrorCode.SYSTEM_ERROR)
     if not _remove_stats(identity):
         raise ToukaException(ErrorCode.SYSTEM_ERROR)
+    await _release_sessions(identity)
+
+
+async def _release_sessions(identity: AgentIdentity) -> None:
+    """解除綁著這個名字的舊對話、刪它自己的頻道；失敗往外丟 ``SESSION_SAVE_FAILED``."""
+    released = await session_service.release_agent_sessions(identity)
+    if released.channels or released.sessions:
+        logger.info(
+            "🧹 Released %d old conversation(s) and removed %d channel(s) of %s",
+            released.sessions,
+            released.channels,
+            identity.agent_id,
+        )
+
+
+async def release_sessions_on_soul_delete(identity: AgentIdentity) -> bool:
+    """刪除靈魂時（鎖內、取消註冊之後）解除舊對話；名字有人用或任何錯誤都記警告、回 False.
+
+    刪除已經做完，不往外丟（呼叫端列進 ``skipped``，鎖外的機器人與排程照做）。名字有人用只會是
+    這次刪除沒做完（資料夾沒刪掉、登記表沒寫成）：那時對話還是它的，不動。
+    """
+    try:
+        if not mission_boards.is_unclaimed(identity):
+            logger.warning(
+                "Conversations of %s kept: the name still belongs to an agent (delete incomplete?)",
+                identity.agent_id,
+            )
+            return False
+        await _release_sessions(identity)
+    except Exception:
+        logger.warning(
+            "The old conversations of %s were not released; creating the name again retries",
+            identity.agent_id,
+            exc_info=True,
+        )
+        return False
+    return True
+
+
+async def clear_for_new_custom_model(identity: AgentIdentity) -> None:
+    """建立或改名自訂模型、會拒絕的檢查都過了之後：名字不屬於任何代理人時解除舊對話.
+
+    人類帳號不算「有人用」（自訂模型可以和人類帳號同名）。判斷讀不到或解除失敗都往外丟，不建立、
+    不改名。
+    """
+    if mission_boards.is_unclaimed(identity, ignore_humans=True):
+        await _release_sessions(identity)
+
+
+async def release_after_custom_model_delete(identity: AgentIdentity) -> None:
+    """刪除自訂模型之後解除舊對話；資料夾已經刪了，任何錯誤都只記警告.
+
+    和靈魂同名的舊資料夾刪掉之後，名字仍屬於靈魂，不動；人類帳號不算「有人用」。
+    """
+    try:
+        if mission_boards.is_unclaimed(identity, ignore_humans=True):
+            await _release_sessions(identity)
+    except Exception:
+        logger.warning(
+            "The old conversations of custom model %s were not released; "
+            "creating the name again retries",
+            identity.agent_id,
+            exc_info=True,
+        )
 
 
 def remove_stats_on_soul_delete(identity: AgentIdentity) -> bool:

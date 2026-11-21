@@ -1401,7 +1401,8 @@
       "more_sessions": "{{count}} more",
       "folder_home_aria": "{{name}}, home chat: {{title}}",
       "folder_holds_active": "open chat inside",
-      "label_separator": ", "
+      "label_separator": ", ",
+      "former_agent": "was: {{name}}"
     },
     "session_activity": {
       "awaiting": "needs your attention",

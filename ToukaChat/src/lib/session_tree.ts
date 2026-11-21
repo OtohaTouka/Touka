@@ -27,6 +27,11 @@ export function canonicalSoulId(agentId: string): string {
   return agentId.startsWith(SOUL_PREFIX) ? agentId.slice(SOUL_PREFIX.length) : agentId;
 }
 
+/** 解除綁定的對話（ADR-0326 決定 10）原本的對象，側欄標「原本：名字」；還綁著代理人的回 null。 */
+export function formerAgentName(session: Session): string | null {
+  return !session.agent_id && session.former_agent_id ? canonicalSoulId(session.former_agent_id) : null;
+}
+
 /** 內部頻道與退休頻道不能當家，規則和後端 `can_be_home` 相同（ADR-0306）。 */
 const isChannel = (id: string): boolean =>
   id.startsWith('touka.') || id.startsWith('sns_') || id === 'pulse_channel_default';

@@ -164,6 +164,8 @@ export interface Session {
     /** 舊家（ADR-0306）：後端由交接紀錄推導，只在對話清單有。只能看、不能再聊。 */
     is_old_home?: boolean;
     agent_id?: string | null;
+    /** 解除綁定時綁的是誰（ADR-0326 決定 10）：原本的代理人刪掉或名字給了新代理人；只能看，存檔不收。 */
+    former_agent_id?: string | null;
     project_id?: string | null;
     auth_level?: string;
     active_mcp_servers?: string[];

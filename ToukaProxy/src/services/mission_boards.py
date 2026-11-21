@@ -126,11 +126,14 @@ async def import_legacy_boards() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def is_unclaimed(identity: AgentIdentity) -> bool:
+def is_unclaimed(identity: AgentIdentity, *, ignore_humans: bool = False) -> bool:
     """逐字的編號不屬於任何既有代理人.
 
     不在靈魂清單、不是 ``custom/`` 第一層的資料夾名稱、不是系統編號、不在 agents 登記表、不是
     人類帳號。讀不到資料回 ``AGENT_ID_CHECK_FAILED``：不能確認就不建立，也不能當成「不屬於」去清。
+
+    ``ignore_humans``：人類帳號不算（自訂模型的對話用，ADR-0326 決定 10）。自訂模型的名字可以和
+    人類帳號相同，對話的 ``agent_id`` 卻不會是人類帳號本身；人類帳號算「有人用」是為了統計。
     """
     try:
         claimed = (
@@ -138,7 +141,7 @@ def is_unclaimed(identity: AgentIdentity) -> bool:
             | set(_custom_names())
             | set(_system_ids())
             | set(_registry_ids())
-            | _human_ids()
+            | (set() if ignore_humans else _human_ids())
         )
     except _LISTING_ERRORS as exc:
         logger.warning("🚫 Cannot tell whether %r belongs to an agent", identity.agent_id)

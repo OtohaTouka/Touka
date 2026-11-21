@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentInfo } from '@/lib/providers/AgentProvider';
 import type { Session } from '@/lib/types';
-import { buildSessionTree, canonicalSoulId, canSetHome, FOLDER_PREVIEW_COUNT, previewChildren, sessionSortTime } from '../session_tree';
+import { buildSessionTree, canonicalSoulId, canSetHome, FOLDER_PREVIEW_COUNT, formerAgentName, previewChildren, sessionSortTime } from '../session_tree';
 
 function agent(id: string, type = 'soul', extra: Partial<AgentInfo> = {}): AgentInfo {
   return { id, name: id, type, is_group: type === 'group', ...extra };
@@ -13,7 +13,24 @@ function session(id: string, agentId: string | null, updatedAt: number, extra: P
 
 const ids = (list: Session[]) => list.map(item => item.id);
 
+describe('formerAgentName', () => {
+  it('解除綁定的對話回原本的對象（去掉前綴）；還綁著的、沒有原本對象的回 null', () => {
+    expect(formerAgentName(session('a', null, 1, { former_agent_id: 'ToukaSoulAlice' }))).toBe('Alice');
+    expect(formerAgentName(session('b', 'Bob', 1, { former_agent_id: 'Alice' }))).toBeNull();
+    expect(formerAgentName(session('c', null, 1))).toBeNull();
+  });
+});
+
 describe('buildSessionTree', () => {
+  it('解除綁定的對話（ADR-0326 決定 10）放其他對話，不進同名靈魂的資料夾', () => {
+    const { folders, others } = buildSessionTree([
+      session('released', null, 2, { former_agent_id: 'Alice' }),
+      session('bound', 'Alice', 1),
+    ], [agent('Alice')], 'ready');
+    expect(ids(others)).toEqual(['released']);
+    expect(ids(folders[0].children)).toEqual(['bound']);
+  });
+
   it('每個靈魂一個資料夾：家對話在上面，其他對話新到舊', () => {
     const { folders, others } = buildSessionTree([
       session('old', 'Alice', 1),

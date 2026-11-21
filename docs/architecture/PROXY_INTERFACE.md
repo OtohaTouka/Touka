@@ -2,6 +2,15 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 刪掉的代理人的舊對話不給同名的新代理人（2026-11-21，ADR-0326 PR 3a）
+
+- 對話多一個欄位 `former_agent_id`（`GET /v1/ui/sessions`、`GET /v1/ui/sessions/{id}`、快照的 `SessionDocument`）：解除綁定時綁的是誰；只能看，存檔帶了也不收。
+- `DELETE /v1/souls/{soul_id}`：取消註冊之後、鎖內解除還綁著它的舊對話（自己的心跳、SNS 頻道刪掉）。名字還有人用（刪除沒做完）或任何錯誤，`skipped` 多一個 `"sessions"`，刪除照樣成功。正常流程下刪除前的重置已經刪光它的對話。
+- `POST /v1/souls`、`POST /v1/souls/{soul_id}`（用編輯建立新資料夾）：名字不屬於任何代理人時，統計之後解除綁定；失敗回 500 `SESSION_SAVE_FAILED`，什麼都不建。
+- `POST /v1/ui/custom_models/{id}`（新建）、`POST /v1/ui/custom_models/{id}/rename`（新名字）：名字（人類帳號不算）不屬於任何代理人時解除綁定；失敗回 500 `SESSION_SAVE_FAILED`，不建立、不改名。`DELETE /v1/ui/custom_models/{id}`：刪掉之後解除綁定，失敗只記警告，回應不變。
+- 解除綁定的對話：`agent_id`、`is_home`、`home_for_agent` 清空，只剩 `owner_user_id` 那位人類與管理員看得到；繼續聊時照既有規則改綁到送出時選的模型（要看得到這段對話、目標是靈魂時要能驅動它）。
+- 沒有新端點、新錯誤碼。
+
 ## 刪掉的靈魂的 SNS 機器人不給同名的新靈魂（2026-11-21，ADR-0326 PR 2）
 
 - `DELETE /v1/souls/{soul_id}`：放開鎖之後，綁著這個名字（兩種寫法、舊格式）的機器人在 `bots.json` 設 `enabled: false`（token 不動），正在跑的停掉，其他機器人不停、不重啟。設定讀不出來或寫不進去照常成功，`skipped` 多一個 `"bots"`；排程沒清成（名字還有人用、連不上、逾時）也多一個 `"schedules"`（PR 1 時只記警告）。回應最多約 25 秒。

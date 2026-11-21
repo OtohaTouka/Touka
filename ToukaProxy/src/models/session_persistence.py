@@ -86,6 +86,8 @@ class SessionDocument(PersistenceModel):
     active_skills: list[str]
     last_activity_at: int
     context_summary: str | None
+    # 解除綁定時綁的是誰（ADR-0326 決定 10）；有預設值：還原失敗、程序沒重啟時可能讀到沒有這欄的舊庫
+    former_agent_id: str | None = None
 
 
 class PresentSessionSnapshot(PersistenceModel):
