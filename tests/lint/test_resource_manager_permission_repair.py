@@ -91,6 +91,7 @@ EXPECTED_EXEMPT = {
     "is_protected_path": ("path_only", "路徑"),
     "get_vault_path": ("path_only", "路徑"),
     "is_within_workspace": ("path_only", "路徑"),
+    "get_retired_dir": ("path_only", "路徑"),
     "read_json": ("delegates", "read_file_text"),
     "write_json": ("delegates", "write_file_text"),
     "query_ui_conversations": ("delegates", "query_ui_conversations"),

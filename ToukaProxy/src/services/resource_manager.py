@@ -681,6 +681,7 @@ class ResourceManager:
         """獲取 App Data 根目錄 (禁令下的合法管道)."""
         return get_app_data_dir()
 
+    @permission_repair_exempt(category="path_only", reason="只解析路徑")
     def get_retired_dir(self) -> Path:
         """退役資料夾 ``data/retired``（ADR-0328）：只有 ``retire_legacy_dir`` 寫，代理人碰不到.
 
