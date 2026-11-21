@@ -88,6 +88,7 @@ async def sandbox() -> AsyncIterator[Path]:
         for name in NAMES:
             await db.execute("DELETE FROM soul_child_report_marks WHERE agent_id = ?", (name,))
             await db.execute("DELETE FROM soul_home_transitions WHERE agent_id = ?", (name,))
+            await db.execute("DELETE FROM soul_prelude_segments WHERE agent_id = ?", (name,))
         await db.commit()
     for agent_id in NAMES:
         mission_board_path(agent_id).unlink(missing_ok=True)
@@ -387,6 +388,28 @@ async def test_leftover_channels_are_deleted(sandbox: Path, people: SimpleNamesp
     assert json.loads(fresh["messages"])["messages"] == {}
 
 
+async def test_old_channel_revision_cannot_write_new_channel(
+    sandbox: Path, people: SimpleNamespace
+) -> None:
+    """刪舊頻道時世代沒有加一：新頻道建立時會加一、內容也不同，舊版本號照樣被擋."""
+    _ = sandbox
+    soul = AgentIdentity(agent_id=SOUL)
+    await _insert(HEARTBEAT, SOUL)
+    old = await async_db.session_service.read_persistence_snapshot(HEARTBEAT, soul)
+    assert _create_soul(SOUL, people).status_code == 200
+    opened = await async_db.session_service.open_channel_session("heartbeat", soul, title="Pulse")
+    assert opened == HEARTBEAT
+    stale = await async_db.session_service.conditional_save_session(
+        HEARTBEAT, old.revision, SessionChanges(title="stale round"), soul
+    )
+    assert not isinstance(stale, SavedResult)
+    fresh = await async_db.session_service.read_persistence_snapshot(HEARTBEAT, soul)
+    saved = await async_db.session_service.conditional_save_session(
+        HEARTBEAT, fresh.revision, SessionChanges(title="new round"), soul
+    )
+    assert isinstance(saved, SavedResult)  # 被擋的原因是舊版本號，不是頻道不准存
+
+
 async def test_new_heartbeat_channel_reports_again(sandbox: Path, people: SimpleNamespace) -> None:
     """舊頻道的回報位置刪掉了：同編號的新頻道寫得進新位置（失效的位置永遠改不回來）."""
     _ = sandbox
@@ -418,6 +441,32 @@ async def test_released_old_home_is_no_longer_read_only(
     assert await async_db.session_service.is_old_home("rel-old-home")
     assert _delete_model(MODEL, people).status_code == 200
     assert not await async_db.session_service.is_old_home("rel-old-home")
+
+
+async def test_release_forgets_reports_and_preludes(
+    sandbox: Path, people: SimpleNamespace
+) -> None:
+    """自訂模型的路不會呼叫 invalidate_agent_sessions：回報位置要刪、前情要設失效."""
+    _ = sandbox
+    await _model_with_old_chat(people, delete=False)
+    await _mark("rel-chat", MODEL)
+    async with async_db.get_async_db() as db:
+        await db.execute(
+            "INSERT INTO soul_prelude_segments (agent_id, kind, source_session, dedupe_key, "
+            "content, created_at) VALUES (?, 'child_report', 'rel-chat', 'k', 'c', 1000)",
+            (MODEL,),
+        )
+        await db.commit()
+    assert _delete_model(MODEL, people).status_code == 200
+    async with async_db.get_async_db() as db:
+        marks = await db.execute_fetchall(
+            "SELECT 1 FROM soul_child_report_marks WHERE agent_id = ?", (MODEL,)
+        )
+        scopes = await db.execute_fetchall(
+            "SELECT scope_version FROM soul_prelude_segments WHERE agent_id = ?", (MODEL,)
+        )
+    assert not list(marks)
+    assert [row[0] for row in scopes] == [0]
 
 
 async def test_release_matches_both_spellings_only(sandbox: Path, people: SimpleNamespace) -> None:
