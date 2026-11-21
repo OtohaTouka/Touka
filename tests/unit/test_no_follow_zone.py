@@ -28,6 +28,7 @@ from memory_server.utils.no_follow import (
     iter_regular_files,
     kind_no_follow,
     make_dirs_no_follow,
+    move_entry_no_follow,
     open_read_no_follow,
     read_bytes_no_follow,
     remove_tree_no_follow,
@@ -191,6 +192,33 @@ def test_rename_entry(base, outside):
             rename_entry_no_follow(base, "alice", bad)
     assert (base / "alice" / "notes.txt").is_file()
     assert (base / "link").exists()
+
+
+def test_move_entry_between_folders(base, outside):
+    """跨資料夾搬（ADR-0328）：只改名、不複製；來源或目的上層是連結就拒絕；目的已存在丟錯."""
+    _tree(base, "legacy/Alice/a.txt", "retired/legacy/", "retired/legacy/taken/")
+    before = os.stat(base / "legacy" / "Alice")
+    move_entry_no_follow(base / "legacy", "Alice", base / "retired" / "legacy", "1-Alice")
+    assert os.path.samestat(os.stat(base / "retired" / "legacy" / "1-Alice"), before)
+    assert not (base / "legacy" / "Alice").exists()
+    _tree(base, "legacy/Bob/")
+    with pytest.raises(FileExistsError):
+        move_entry_no_follow(base / "legacy", "Bob", base / "retired" / "legacy", "taken")
+    with pytest.raises(FileNotFoundError):
+        move_entry_no_follow(base / "legacy", "Carol", base / "retired" / "legacy", "x")
+    with pytest.raises(FileNotFoundError):  # 目的上層不存在時不建
+        move_entry_no_follow(base / "legacy", "Bob", base / "missing", "x")
+    make_dir_link(base / "legacy" / "link", outside)
+    with pytest.raises(LinkRefusedError):
+        move_entry_no_follow(base / "legacy", "link", base / "retired" / "legacy", "y")
+    make_dir_link(base / "via", outside)
+    with pytest.raises(LinkRefusedError):  # 目的的上層是連結
+        move_entry_no_follow(base / "legacy", "Bob", base / "via", "z")
+    for bad in ("..", "a/b", "", "a\x00b"):
+        with expect_zone_refusal("ZoneSegmentError"), pytest.raises(ZoneSegmentError):
+            move_entry_no_follow(base / "legacy", "Bob", base / "retired" / "legacy", bad)
+    assert (base / "legacy" / "Bob").is_dir()
+    assert sorted(p.name for p in outside.iterdir()) == ["hooks.json"]
 
 
 # --- 例外（R12） --------------------------------------------------------------

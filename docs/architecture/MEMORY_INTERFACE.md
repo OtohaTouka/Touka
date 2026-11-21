@@ -2,6 +2,11 @@
 
 > **TL;DR** — 整合模式單一部署（Proxy 同行程掛載，ADR-0116 退役獨立 MCP 模式）；工廠函數 `get_resource_proxy()` 是 I/O 唯一入口，回傳 ToukaProxy 真實 `ResourceManager`（取不到即 fail-loud，不再降級）；`sanitize_memory_content()` 防 Prompt Injection；來回計算 SSOT：`count_rounds_from_linear()`。
 
+## 封存在建立同名靈魂時搬走（2026-11-21，ADR-0328）
+
+- 建立靈魂時名字不屬於任何代理人，殘留的封存 `legacy/<名字>`（刪除靈魂時沒刪成的，或刪掉的自訂模型用「切分存入舊對話」存的）搬到 `data/retired/legacy/<毫秒時間>-<名字>`，新靈魂的封存從空的開始。`data/retired` 是受保護路徑，代理人碰不到，沒有介面。
+- 舊對話庫的讀寫、封存格式不變。
+
 ## 記憶讀寫在哪條執行緒上跑（舊審查報告乙-3，ADR-0288）
 
 - 記憶的讀寫（事實庫、向量庫、嵌入模型、舊對話庫）排在整個行程一條單執行緒的工作者上（`memory_server/utils/memory_worker.py`，執行緒名稱 `touka-memory`），一次只跑一個；不在 Proxy 的事件迴圈上跑。例外：舊對話歸檔 `archive_payload`（滑動視窗與 UI 對話）仍用預設執行緒池；只讀事實庫、本來就用 `asyncio.to_thread` 的（`_scrub_dependencies`、`assert_id_free`）沒改。

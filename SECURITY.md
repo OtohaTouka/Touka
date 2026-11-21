@@ -191,6 +191,12 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### 同名的新靈魂讀到刪掉的靈魂留下的封存與個人空間（2026-11-21，ADR-0328，同名接手 PR 3b）
+
+| 弱點 | 修正與驗證 |
+|---|---|
+| 封存 `legacy/<名字>` 與個人空間 `personal_drive/<名字>` 只看名字。刪除靈魂時沒刪成（只列進 `skipped`），或刪掉的自訂模型用「切分存入舊對話」存過封存，之後建同名靈魂（可能指給別人擁有），新靈魂與它的擁有者直接讀到別人的舊封存與舊檔案 | 建立靈魂時（`agent_leftovers.clear_for_new_soul` 最後一步，名字不屬於任何代理人時）：`resource_manager.retire_legacy_dir` 把殘留的封存不跟隨連結地搬到 `data/retired/legacy/<毫秒時間>-<名字>`（只改名、不複製；`retired` 是受保護路徑，代理人碰不到），`soul_io.remove_soul_drive` 刪掉殘留的個人空間（根是連結只刪連結）；封存是連結、搬不走或刪不掉回 `SOUL_VAULT_ERROR`，不建立。`tests/unit/test_samename_archive_security.py`、`tests/unit/test_no_follow_zone.py::test_move_entry_between_folders`；[ADR-0328](docs/architecture/adr/0328-retired-archives-for-reused-soul-names.md) |
+
 ### 同名的新代理人看到、接手刪掉的代理人的舊對話（2026-11-21，ADR-0326 PR 3a）
 
 | 弱點 | 修正與驗證 |

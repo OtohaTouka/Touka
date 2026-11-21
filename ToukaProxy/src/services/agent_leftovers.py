@@ -5,13 +5,16 @@
 （``data/stats/<編號>``）。各自的讀寫仍在原處（排程橋、``bot_service``、``permission_service``、
 ``resource_manager``），這裡只組合。看板歸 ``mission_boards``（ADR-0325）。舊對話的解除綁定在
 ``session_service.release_agent_sessions``（PR 3a，ADR-0326 決定 10），這裡決定什麼時候做。
+殘留的封存搬到 ``data/retired``（``resource_manager.retire_legacy_dir``）、殘留的個人空間刪掉
+（``soul_io.remove_soul_drive``），都在建立靈魂的最後一步（PR 3b，ADR-0328）。
 
 - 刪除靈魂：鎖內刪統計（``remove_stats_on_soul_delete``）；身分設定在取消註冊那步刪；取消註冊之後、
   還在鎖內解除舊對話的綁定（``release_sessions_on_soul_delete``；正常流程下重置已刪光，是安全網）；
   放開鎖之後 ``clean_up_after_delete``：機器人一律停用（不看名字有沒有人用），排程先確認名字仍然
   沒人用再刪，最後等停用的機器人停下來；沒清成的回給呼叫端列進 ``skipped``。
 - 建立靈魂：所有拒絕檢查之後、名字不屬於任何代理人時呼叫 ``clear_for_new_soul``。排程第一個：
-  它是唯一會因為連不上而拒絕的一步，拒絕時機器人、看板、身分設定、統計、對話都還沒動。
+  它是唯一會因為連不上而拒絕的一步，拒絕時機器人、看板、身分設定、統計、對話、檔案都還沒動。
+  檔案（封存、個人空間）最後一個：檔案失敗時前面清掉的都是舊東西，不用復原。
 - 自訂模型：建立、改名前 ``clear_for_new_custom_model``、刪除後
   ``release_after_custom_model_delete``，
   只處理對話（排程、機器人、身分設定、統計自訂模型用不到，決定 7）；人類帳號不算「有人用」。
@@ -31,6 +34,7 @@ from src.services.bot_service import BotsDisabled, bot_service
 from src.services.heartbeat_schedule_bridge import HeartbeatScheduleBridge
 from src.services.permission_service import permission_service
 from src.services.resource_manager import resource_manager
+from src.utils import soul_io
 from src.utils.agent_spellings import legacy_spellings
 from src.utils.async_db import session_service
 
@@ -78,11 +82,11 @@ def _remove_stats(identity: AgentIdentity) -> bool:
 
 
 async def clear_for_new_soul(identity: AgentIdentity) -> None:
-    """建立靈魂前清這個名字的舊排程、機器人、身分設定、統計、對話；呼叫端已判定名字不屬於任何代理人.
+    """建立靈魂前清這個名字的舊排程、機器人、身分設定、統計、對話、檔案；呼叫端已判定名字沒人用.
 
     排程清不掉（連不上、結果不明）丟原本的錯誤碼；機器人設定（讀不出來、寫不進去）、身分設定、
-    統計清不掉丟 ``SYSTEM_ERROR``；對話解除不了丟 ``SESSION_SAVE_FAILED``。正在跑的機器人不論設定
-    寫不寫得成都先停。丟出時靈魂什麼都還沒建。
+    統計清不掉丟 ``SYSTEM_ERROR``；對話解除不了丟 ``SESSION_SAVE_FAILED``；封存搬不走、個人空間
+    刪不掉丟 ``SOUL_VAULT_ERROR``。正在跑的機器人不論設定寫不寫得成都先停。丟出時靈魂什麼都還沒建。
     """
     removed = await _remove_schedules(identity)
     if removed:
@@ -96,6 +100,30 @@ async def clear_for_new_soul(identity: AgentIdentity) -> None:
     if not _remove_stats(identity):
         raise ToukaException(ErrorCode.SYSTEM_ERROR)
     await _release_sessions(identity)
+    _clear_old_files(identity)
+
+
+def _clear_old_files(identity: AgentIdentity) -> None:
+    """殘留的封存搬到 ``data/retired``、殘留的個人空間刪掉（ADR-0328）；不成丟 ``SOUL_VAULT_ERROR``.
+
+    封存是連結時拒絕（不跟隨）；個人空間的根是連結時只刪連結、不碰另一端
+    （``soul_io.remove_soul_drive``）。
+    """
+    try:
+        retired = resource_manager.retire_legacy_dir(identity)
+    except Exception:
+        logger.exception("❌ The old archive of %s was not moved to retired", identity.agent_id)
+        raise ToukaException(ErrorCode.SOUL_VAULT_ERROR) from None
+    if retired:
+        logger.info("🧹 Moved the old archive of %s to retired", identity.agent_id)
+    status = soul_io.remove_soul_drive(identity.agent_id)
+    if status not in ("removed", "absent"):
+        logger.error(
+            "❌ The old personal drive of %s was not removed (%s)", identity.agent_id, status
+        )
+        raise ToukaException(ErrorCode.SOUL_VAULT_ERROR)
+    if status == "removed":
+        logger.info("🧹 Removed the old personal drive of %s", identity.agent_id)
 
 
 async def _release_sessions(identity: AgentIdentity) -> None:

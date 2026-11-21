@@ -2,6 +2,11 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 刪掉的靈魂的封存與個人空間不給同名的新靈魂（2026-11-21，ADR-0328）
+
+- `POST /v1/souls`、`POST /v1/souls/{soul_id}`（用編輯建立新資料夾）：名字不屬於任何代理人時，最後一步把殘留的 `legacy/<名字>` 搬到 `data/retired/legacy/<毫秒時間>-<名字>`、刪掉殘留的 `personal_drive/<名字>`（根是連結只刪連結）。封存是連結、搬不走或刪不掉回 500 `SOUL_VAULT_ERROR`，什麼都不建（前面清掉的排程、機器人、身分設定、統計、對話是舊的，不復原）。
+- 刪除靈魂、自訂模型的建立／改名／刪除不變。沒有新端點、新錯誤碼。
+
 ## 刪掉的代理人的舊對話不給同名的新代理人（2026-11-21，ADR-0326 PR 3a）
 
 - 對話多一個欄位 `former_agent_id`（`GET /v1/ui/sessions`、`GET /v1/ui/sessions/{id}`、快照的 `SessionDocument`）：解除綁定時綁的是誰；只能看，存檔帶了也不收。

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import errno
 import fnmatch
+import hashlib
 import json
 import logging
 import os
@@ -24,11 +26,13 @@ from memory_server.models.conversation_search import ConversationSearchError
 from memory_server.utils.drive_bound import same_drive
 from memory_server.utils.no_follow import (
     LINK_NOT_FOLLOWED,
+    LinkRefusedError,
     WalkReport,
     ZoneLinkRefusedError,
     ensure_no_links,
     kind_no_follow,
     make_dirs_no_follow,
+    move_entry_no_follow,
     open_read_no_follow,
     read_bytes_no_follow,
     read_text_no_follow,
@@ -79,6 +83,7 @@ from src.services.soul_service import soul_service
 from src.utils.isolation_policy import is_skill_segment
 from src.utils.path_security import validate_no_symlink_escape
 from src.utils.permission_repair import permission_repair, permission_repair_exempt
+from src.utils.time_utils import get_current_epoch_ms
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -100,6 +105,23 @@ _ARCHIVE_COPY_CHUNK = 1024 * 1024  # rewrite_archive 串流照抄時每次搬的
 # Windows 上相對寫法的專案根：每個路徑只警告一次；路徑來自設定，集合有上限（sec-9 PR 1b）
 _RELATIVE_ROOT_WARN_LIMIT = 64
 _RELATIVE_ROOT_WARNED: set[str] = set()
+# 退役資料夾（ADR-0328）：建立靈魂時把殘留的封存搬來這裡；只有管理員碰得到
+RETIRED_DIR_NAME = "retired"
+RETIRE_NAME_ATTEMPTS = 5  # 同一毫秒撞名時加 -2… 的上限
+MAX_RETIRED_NAME_BYTES = 200  # 時間加名字超過就改用名字的雜湊（名字太長時改名會失敗）
+_RETIRED_HASH_CHARS = 16
+# 封存是連結時的訊息（和 no_follow 拒絕連結時同一句）
+_LINK_REFUSED_TEXT = "Path goes through a symbolic link or junction"
+
+
+def _retired_name(identity: AgentIdentity) -> str:
+    """退役後的名字 ``<毫秒時間>-<名字>``；超過 ``MAX_RETIRED_NAME_BYTES`` 改用名字的雜湊."""
+    stamp = get_current_epoch_ms()
+    name = f"{stamp}-{identity.agent_id}"
+    if len(name.encode("utf-8")) <= MAX_RETIRED_NAME_BYTES:
+        return name
+    digest = hashlib.sha256(identity.agent_id.encode("utf-8")).hexdigest()
+    return f"{stamp}-sha-{digest[:_RETIRED_HASH_CHARS]}"
 
 
 def _archive_skips_dir(parts: tuple[str, ...]) -> bool:
@@ -660,6 +682,14 @@ class ResourceManager:
         """獲取 App Data 根目錄 (禁令下的合法管道)."""
         return get_app_data_dir()
 
+    def get_retired_dir(self) -> Path:
+        """退役資料夾 ``data/retired``（ADR-0328）：只有 ``retire_legacy_dir`` 寫，代理人碰不到.
+
+        只解析 data 根（data 路徑上可以有人做的連結），``retired`` 這一段不解析：它是連結時由不跟隨
+        的操作拒絕，不能先被解析掉。
+        """
+        return Path(get_app_data_dir()).resolve() / RETIRED_DIR_NAME
+
     def get_container_mount(self) -> Path | None:
         """Docker 裡工作區的容器掛載點（translate_path 同一個）；不在 Docker 回 None。"""
         return self._container_mount if self._is_docker else None
@@ -766,11 +796,14 @@ class ResourceManager:
 
         legacy_prefix = base_dir / "legacy"
         soul_prefix = base_dir / "soul"
+        retired_prefix = self.get_retired_dir()  # ADR-0328
 
-        # 只要路徑位於 legacy 或 soul 之下即受保護。
+        # 只要路徑位於 legacy、soul 或 retired 之下即受保護。
         # DA27: is_relative_to（非 str.startswith）—— 前綴字串比對會把 sibling 目錄
         # （如 soul_archive / legacy_backup）誤判為受保護；is_relative_to 只認真正的子路徑。
-        return p.is_relative_to(legacy_prefix) or p.is_relative_to(soul_prefix)
+        return any(
+            p.is_relative_to(prefix) for prefix in (legacy_prefix, soul_prefix, retired_prefix)
+        )
 
     @permission_repair(retry=True)
     def read_file_text(self, path: Path | str, encoding: str = "utf-8") -> str:
@@ -1135,6 +1168,37 @@ class ResourceManager:
             raise ZoneRootsUnavailableError
         with zone_errors(f"zone://{anchor.value}/{old_name}"):
             rename_entry_no_follow(base, old_name, new_name)
+
+    @permission_repair(retry=False)
+    def retire_legacy_dir(self, identity: AgentIdentity) -> bool:
+        """把殘留的 ``legacy/<id>`` 搬進 ``retired/legacy``（ADR-0328）；沒有時回 False.
+
+        只改名、不複製（``move_entry_no_follow``）。從解析後的 data 根往下操作（data 路徑上有連結
+        時不解析就每次都被不跟隨的檢查拒絕）；``legacy/<id>``、``retired`` 是連結丟
+        ``LinkRefusedError``；撞名試 ``RETIRE_NAME_ATTEMPTS`` 次仍撞丟 ``FileExistsError``；其他錯誤
+        照實往上丟，封存留在原地。只給建立靈魂時清殘留用（``agent_leftovers``）。
+        """
+        agent_id = identity.agent_id
+        if not is_zone_segment(agent_id):
+            raise ZoneSegmentError
+        data = Path(get_app_data_dir()).resolve()
+        legacy = data / "legacy"
+        kind = kind_no_follow(legacy / agent_id)
+        if kind == "missing":
+            return False
+        if kind == "link":
+            raise LinkRefusedError(errno.ELOOP, _LINK_REFUSED_TEXT, str(legacy / agent_id))
+        target = self.get_retired_dir() / "legacy"
+        make_dirs_no_follow(target)
+        name = _retired_name(identity)
+        for attempt in range(1, RETIRE_NAME_ATTEMPTS + 1):
+            candidate = name if attempt == 1 else f"{name}-{attempt}"
+            try:
+                move_entry_no_follow(legacy, agent_id, target, candidate)
+            except FileExistsError:
+                continue
+            return True
+        raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(target / name))
 
     @permission_repair(retry=False)
     def remove_custom_model_dir(self, identity: AgentIdentity) -> bool:

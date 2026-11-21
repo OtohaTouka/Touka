@@ -1,6 +1,6 @@
 # ADR-0293：代理人資料夾的讀寫不跟隨連結（ZonePath；PR 1：個人空間；PR 2：其他三個錨點）
 
-- 狀態：✅ 已實作（PR 1：`PERSONAL_DRIVE`、`CUSTOM_DRIVE`；PR 2：`MCP_SERVERS`、`DOCGEN_OUTPUT`、`SANDBOX_STATE`，見「PR 2」一節；後續 PR：授與只用字面位置，見最後一節）。ADR-0292 合併後的後續；一頁計畫與技術設計由維護者核准，設計與交件各經 4 位對抗式複審（PR 2 的設計經三輪複審後改由測試與改壞工具判定，交件仍經 4 位複審）。〔[ADR-0325](0325-mission-board-system-folder.md) 修訂：任務看板搬到 `data/missions`，不再用區內方法；鎖檔改成 `<雜湊>.lock`〕
+- 狀態：✅ 已實作（PR 1：`PERSONAL_DRIVE`、`CUSTOM_DRIVE`；PR 2：`MCP_SERVERS`、`DOCGEN_OUTPUT`、`SANDBOX_STATE`，見「PR 2」一節；後續 PR：授與只用字面位置，見最後一節）。ADR-0292 合併後的後續；一頁計畫與技術設計由維護者核准，設計與交件各經 4 位對抗式複審（PR 2 的設計經三輪複審後改由測試與改壞工具判定，交件仍經 4 位複審）。〔[ADR-0325](0325-mission-board-system-folder.md) 修訂：任務看板搬到 `data/missions`，不再用區內方法；鎖檔改成 `<雜湊>.lock`〕〔[ADR-0328](0328-retired-archives-for-reused-soul-names.md) 修訂：`no_follow` 多一個跨資料夾的不跟隨搬移 `move_entry_no_follow`，`rename_entry_no_follow` 改成呼叫它；`soul_io._remove_soul_drive` 改名公開為 `remove_soul_drive`〕
 - 日期：2026-10-30
 - 決策者：維護者
 - 相關：ADR-0004（路徑 SSOT）、ADR-0013（時間）、ADR-0115（vault-jailed MCP；本 ADR 起這類伺服器的工具呼叫一律拒絕，D1 的注入不再使用）、ADR-0214（測試沙盒）、ADR-0255（個人空間目錄）、ADR-0270（重置）、ADR-0272、0275（隔離層）、ADR-0292（hook；決定 12 的不跟隨連結）。

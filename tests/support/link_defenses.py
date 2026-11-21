@@ -95,6 +95,11 @@ LINK_SCAN_ALLOWED: dict[str, tuple[int, str, frozenset[str]]] = {
         "session 沙盒的擁有權判斷（RM.is_owner）換成合成的擁有關係，和區無關",
         frozenset({"is_owner"}),
     ),
+    "tests.unit.test_samename_archive_security:test_retire_picks_a_free_name": (
+        1,
+        "固定毫秒時間，測同一毫秒撞名時換名字與試到上限（ADR-0328；搬移與連結判斷照實執行）",
+        frozenset({"get_current_epoch_ms"}),
+    ),
     "tests.unit.test_custom_model_rename_security:"
     "test_a_failed_move_is_an_error_and_moves_no_ownership": (
         1,

@@ -75,6 +75,8 @@ EXPECTED_RETRY = {
     "zone_access": True,
     "rename_agent_container": False,
     "remove_custom_model_dir": False,
+    # ADR-0328：建立靈魂時把殘留的封存搬到 retired（改名不重試）
+    "retire_legacy_dir": False,
 }
 # 方法 → (類別, 理由裡必須出現的摘要)
 EXPECTED_EXEMPT = {
@@ -125,7 +127,8 @@ IO_HELPERS = frozenset(
 )
 WRITE_IO_HELPERS = frozenset(
     {"write_text_no_follow", "replace_text_no_follow", "remove_no_follow", "write_bytes_no_follow",
-     "make_dirs_no_follow", "remove_tree_no_follow", "rename_entry_no_follow", "ensure_anchor"}
+     "make_dirs_no_follow", "remove_tree_no_follow", "rename_entry_no_follow", "ensure_anchor",
+     "move_entry_no_follow"}
 )
 EXTERNAL_READ_DELEGATES = frozenset({"self._ui_conversation_reader.query_ui_conversations"})
 CATEGORIES = frozenset({"swap_semantics", "path_only", "delegates", "generator"})
