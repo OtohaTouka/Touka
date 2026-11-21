@@ -5,6 +5,8 @@
 - **影響範圍**：ToukaProxy（`utils/async_db.py` projects schema+migration+SessionService、`routers/ui_sessions.py` save/access、`routers/auth.py` clear-my-data 端點）＋ ToukaChat（`GeneralTab.tsx` 危險區、`useUserSettings.ts`、i18n）
 - **關鍵字**：self-service data clearing, project ownership, owner_user_id, JWT self-only, password re-entry, CSRF, 資料模型 agent-keyed, 範圍邊界, 保留實體資料夾, audit retention, 設定頁路線圖, 建基於 ADR-0104（破壞性重置）/ADR-0003（身分主權）/ADR-0078（原子寫）
 
+> 🔧 **[ADR-0326](0326-deleted-soul-leftovers-not-inherited.md) 修訂（2026-11-21，PR 3a）**：解除綁定的對話（`agent_id` 清空、`former_agent_id` 記原名字）只剩 `owner_user_id` 那位人類與管理員看得到；沒有擁有者的舊專案，底下對話全解除綁定後只剩管理員。
+
 ## 背景（Context）
 
 設定頁審查路線圖項目「使用者自助清空資料」。經 5 區唯讀研究釐清一個**關鍵資料模型事實**：Touka 中**對話、記憶、產出、feedback 全部以 `agent_id` 為鍵**——技術上掛在使用者「擁有的 AI agents」名下，不是掛在「人類帳號」下。人類使用者透過 `User.owned_agents` 擁有 agents。

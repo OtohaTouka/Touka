@@ -17,7 +17,7 @@ from src.models.custom_models import (  # noqa: TC001
 )
 from src.models.identity import SYSTEM_AGENT_IDS, AgentIdentity  # noqa: TC001
 from src.routers.system import restore_in_progress
-from src.services import destructive_ops, memory_collection_guard, mission_boards
+from src.services import agent_leftovers, destructive_ops, memory_collection_guard, mission_boards
 from src.services.agent_reset.orchestrator import destructive_op, refuse_linked_drive
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import require_privileged
@@ -266,6 +266,8 @@ async def update_custom_model(
             await _assert_collection_free(temp_id)
             # 第一個寫入之前：殘留看板清掉，別的身分有看板就 409（ADR-0325）
             await mission_boards.prepare_new_board(temp_id, refuse_claimed=True)
+            # 綁著這個名字的舊對話解除綁定，新模型的擁有者看不到（ADR-0326 決定 10）
+            await agent_leftovers.clear_for_new_custom_model(temp_id)
 
         name = data.name or model_id
         try:
@@ -337,6 +339,8 @@ async def rename_custom_model(
                 unclaimed = await mission_boards.new_board_unclaimed(
                     new_identity, refuse_claimed=True
                 )
+                # 新名字的舊對話解除綁定（ADR-0326 決定 10）；失敗就不改名
+                await agent_leftovers.clear_for_new_custom_model(new_identity)
                 custom_model_service.rename_model(old_identity, new_id)
                 await _carry_board(old_identity, new_identity, clear_target=unclaimed, by=_identity)
         except ToukaException:
@@ -391,6 +395,8 @@ async def delete_custom_model(
         # 和靈魂同名的舊資料夾：清單裡的這個 ID 也是靈魂的擁有權，留著。
         if model_id not in soul_io.list_soul_ids():
             user_service.remove_owned_agent_from_all(identity)
+        # 綁著它的對話只留給 owner_user_id 那位人類與管理員（ADR-0326 決定 10）；不往外丟
+        await agent_leftovers.release_after_custom_model_delete(identity)
 
         notify_config_change("custom_models")
         return {"status": "success"}

@@ -100,6 +100,20 @@ describe('export-utils formatToOpenWebUI', () => {
         const result2 = formatToOpenWebUI(session2, 'GirlG');
         expect(result2.chat.models).toContain('Alice');
     });
+
+    it('解除綁定的對話（ADR-0326 決定 10）用原本的對象，不是目前選的模型', () => {
+        const session: Session = {
+            id: 'test-id-5',
+            title: 'Released Session',
+            updatedAt: 1000000,
+            agent_id: null,
+            former_agent_id: 'OldModel',
+            messages: []
+        };
+        const result = formatToOpenWebUI(session, 'GirlG');
+        expect(result.chat.models).toContain('OldModel');
+        expect(result.chat.models).not.toContain('GirlG');
+    });
 });
 
 describe('export-utils splitSessionMessages', () => {

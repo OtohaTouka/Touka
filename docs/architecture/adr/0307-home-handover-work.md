@@ -7,6 +7,8 @@
 - 相關：ADR-0305（靈魂前情與主線；本 ADR 修訂「退任摘要不合併」）、ADR-0306（換家的狀態與舊家唯讀；本 ADR 做它留下的交接工作）、ADR-0092（滑動視窗剪裁）、ADR-0264（剪下的對話歸檔）、ADR-0078（失效可觀察）、ADR-0302（收尾保存）
 - 影響範圍：`ToukaProxy/src/services/home_handover.py`・`src/services/soul_locks.py`・`src/utils/home_handover_db.py`・`src/services/dispatcher.py`・`src/routers/heartbeat.py`・`src/routers/stats.py`・`src/services/soul_prelude_merge.py`・`src/services/soul_prelude_service.py`・`src/services/mainline_service.py`・`src/services/reply_in_flight.py`・`src/services/sns_gateway.py`・`src/services/chat_trim_wait.py`・`src/services/dialogue_summarizer.py`・`src/services/sliding_window_service.py`・`src/utils/home_transitions.py`・`src/utils/async_db.py`・`ToukaChat/src/lib/session_persistence.ts`・`ToukaChat/src/lib/providers/SessionListProvider.tsx`・`ToukaChat/src/lib/providers/StreamRegistryProvider.tsx`
 
+> 🔧 **[ADR-0326](0326-deleted-soul-leftovers-not-inherited.md) 修訂（2026-11-21，PR 3a）**：解除綁定時這個名字的回報位置刪掉（不是設失效：失效的位置永遠改不回來，同編號的新心跳頻道會永遠不回報）。人類之後把解除綁定的對話改綁到某個靈魂，照本 ADR 在改綁那一點建新位置。
+
 ## 背景
 
 ADR-0306 記下誰換到誰、舊家唯讀、交接完成前不能刪，交接工作本身留到這裡。沒有這一步，舊家原文會一直帶在主線裡、舊家也一直不能刪。

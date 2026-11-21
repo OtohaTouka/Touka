@@ -159,6 +159,15 @@ describe('SessionTree — 結構', () => {
     expect(rows()).toEqual(['g，群聊', 'c，我的模型', 'n']);
   });
 
+  it('解除綁定的對話（ADR-0326 決定 10）標原本的對象，不進同名靈魂的資料夾', () => {
+    state.sessions = [
+      session('old', null, 2, { former_agent_id: 'ToukaSoulAlice' }),
+      session('now', 'Alice', 1),
+    ];
+    renderTree();
+    expect(rows()).toEqual(['Alice', 'now', 'old，原本：Alice']);
+  });
+
   it('靈魂清單還沒讀到先畫骨架，不畫樹', () => {
     state.agentsStatus = 'loading';
     state.sessions = [session('a1', 'Alice', 1)];

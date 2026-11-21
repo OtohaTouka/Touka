@@ -14,7 +14,7 @@ import { useProjects } from '@/lib/providers/ProjectProvider';
 import { useSessionActivity } from '@/lib/providers/SessionActivityProvider';
 import { useSessionList } from '@/lib/providers/SessionListProvider';
 import { isBusyStatus, mostUrgentStatus, type SessionWorkStatus } from '@/lib/session_activity';
-import { buildSessionTree, canSetHome, previewChildren, sessionSortTime } from '@/lib/session_tree';
+import { buildSessionTree, canSetHome, formerAgentName, previewChildren, sessionSortTime } from '@/lib/session_tree';
 import { GROUP_CHAT_ID } from '@/lib/chat/messageNavigation';
 import { useHomeConfirm } from '@/hooks/useHomeConfirm';
 import { HomeConfirmDialog } from '@/components/chat/HomeConfirmDialog';
@@ -251,7 +251,9 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
 
   const renderNode = (node: TreeNode) => {
     if (node.kind === 'session') {
-      const modelLabel = node.level === 1 && node.session.agent_id ? modelLabelOf(node.session.agent_id) : undefined;
+      const former = node.level === 1 ? formerAgentName(node.session) : null;
+      const modelLabel = node.level === 1 && node.session.agent_id ? modelLabelOf(node.session.agent_id)
+        : former ? t('sidebar.session_tree.former_agent', { name: former }) : undefined;
       return renderSession(node.session, node, { modelLabel });
     }
     if (node.kind === 'more') {

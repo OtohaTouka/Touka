@@ -46,7 +46,9 @@ from .session_scope import (
     can_rebind_session,
     channel_session_id,
     is_empty_draft,
+    is_heartbeat_channel,
     is_searchable_session,
+    is_sns_channel,
     is_ui_turn_base,
     require_conversation_actor,
     require_session_scope,
@@ -116,6 +118,14 @@ class SessionPersistenceError(RuntimeError):
 
     def __init__(self) -> None:
         super().__init__("Session persistence could not be confirmed")
+
+
+@dataclass(frozen=True)
+class ReleasedSessions:
+    """解除綁定的結果（筆數，只記 log）：刪掉的頻道、解除綁定的對話."""
+
+    channels: int
+    sessions: int
 
 
 @dataclass(frozen=True)
@@ -259,6 +269,8 @@ def _apply_session_changes(
             "context_summary": None,
             "owner_user_id": identity.agent_id if identity and identity.is_human else None,
             "session_scope_version": 1,
+            # 讀出來的整列一定有這欄：新列少了它，第一次存檔回的版本號會和之後讀的對不上
+            "former_agent_id": None,
         }
     )
     for field in changes.model_fields_set:
@@ -395,6 +407,16 @@ _INVALIDATE_AGENT_SQL = {
         "UPDATE soul_child_report_marks SET scope_version = 0 WHERE agent_id IN (?, ?)"
     ),
 }
+# 解除綁定（ADR-0326 決定 10）：刪掉的代理人的對話只留給 owner_user_id 那位人類與管理員。
+# 每句都是固定字面量（禁令 24）；名字的兩種寫法固定兩個值
+_AGENT_ROW_IDS_SQL = "SELECT id FROM user_sessions WHERE agent_id IN (?, ?)"
+_DELETE_CHANNEL_SQL = "DELETE FROM user_sessions WHERE id = ?"
+_RELEASE_SESSIONS_SQL = (
+    "UPDATE user_sessions SET former_agent_id = COALESCE(agent_id, home_for_agent), "
+    "agent_id = NULL, is_home = 0, home_for_agent = NULL, session_scope_version = 0 "
+    "WHERE agent_id IN (?, ?) OR home_for_agent IN (?, ?)"
+)
+_FORGET_AGENT_MARKS_SQL = "DELETE FROM soul_child_report_marks WHERE agent_id IN (?, ?)"
 _INVALIDATE_ALL_SQL = {
     "soul_prelude_segments": "UPDATE soul_prelude_segments SET scope_version = 0",
     "soul_home_transitions": "UPDATE soul_home_transitions SET scope_version = 0",
@@ -1152,6 +1174,46 @@ class SessionService:
             raise ToukaException(ErrorCode.SESSION_SAVE_FAILED) from None
 
     @staticmethod
+    async def release_agent_sessions(identity: AgentIdentity) -> ReleasedSessions:
+        """名字被刪掉或要給新代理人用時：舊對話不再綁著這個名字（ADR-0326 決定 10）.
+
+        一個交易：這個靈魂自己的心跳、SNS 頻道刪掉（和重置一致；編號是算出來的，同名新靈魂會
+        算出同一個）；其他對話與家的標記解除綁定，``former_agent_id`` 記原本綁的名字，只剩
+        ``owner_user_id`` 那位人類與管理員看得到；回報位置刪掉（失效的位置永遠改不回來）；
+        前情與換家紀錄設失效（自訂模型的路不會呼叫 ``invalidate_agent_sessions``）。
+
+        資料庫檔不存在或沒有表回 0 筆、不建檔。任何錯誤丟 ``SESSION_SAVE_FAILED``，整個交易不寫。
+        """
+        try:
+            if not resource_manager.exists(get_db_path()):
+                return ReleasedSessions(channels=0, sessions=0)
+            target, alias = _session_agent_candidates(identity)
+            async with get_async_db() as db:
+                await db.execute("BEGIN IMMEDIATE")
+                if not await _has_table(db, "user_sessions"):
+                    await db.rollback()
+                    return ReleasedSessions(channels=0, sessions=0)
+                cursor = await db.execute(_AGENT_ROW_IDS_SQL, (target, alias))
+                channels = [
+                    row["id"]
+                    for row in await cursor.fetchall()
+                    if is_heartbeat_channel(row["id"]) or is_sns_channel(row["id"])
+                ]
+                for sid in channels:
+                    await db.execute(_DELETE_CHANNEL_SQL, (sid,))
+                cursor = await db.execute(_RELEASE_SESSIONS_SQL, (target, alias, target, alias))
+                released = cursor.rowcount or 0
+                if await _has_table(db, "soul_child_report_marks"):
+                    await db.execute(_FORGET_AGENT_MARKS_SQL, (target, alias))
+                for table in ("soul_prelude_segments", "soul_home_transitions"):
+                    if await _has_table(db, table):
+                        await db.execute(_INVALIDATE_AGENT_SQL[table], (target, alias))
+                await db.commit()
+        except Exception:
+            raise ToukaException(ErrorCode.SESSION_SAVE_FAILED) from None
+        return ReleasedSessions(channels=len(channels), sessions=released)
+
+    @staticmethod
     def mark_restore_pending() -> None:
         """子程序覆蓋資料前先原子寫入，讓中斷後的啟動仍能補降標記。"""
         resource_manager.write_file_text(get_restore_pending_path(), "pending\n")
@@ -1561,7 +1623,8 @@ async def init_db_async() -> None:
                 last_activity_at INTEGER,
                 context_summary TEXT,
                 owner_user_id TEXT,
-                session_scope_version INTEGER NOT NULL DEFAULT 0
+                session_scope_version INTEGER NOT NULL DEFAULT 0,
+                former_agent_id TEXT
             )
         """
         )
@@ -1646,6 +1709,9 @@ async def init_db_async() -> None:
                 "ALTER TABLE user_sessions ADD COLUMN "
                 "session_scope_version INTEGER NOT NULL DEFAULT 0"
             )
+        # 解除綁定時綁的是誰（ADR-0326 決定 10）：只由 release_agent_sessions 寫，存檔不寫
+        if "former_agent_id" not in columns:
+            await db.execute("ALTER TABLE user_sessions ADD COLUMN former_agent_id TEXT")
 
         # 換家交接紀錄與子對話回報位置（3d PR 2a，ADR-0306）：升級時既有子對話的回報位置
         # 設在當下內容，不補寫歷史；之後新建的子對話沒有位置（全部算新內容）。

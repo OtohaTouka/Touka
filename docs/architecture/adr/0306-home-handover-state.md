@@ -6,6 +6,8 @@
 - 相關：ADR-0305（靈魂前情與主線；本 ADR 接著做換家）、ADR-0301（家標記不算版本；本 ADR 修訂決定 2 的「心跳跑到一半換家」）、ADR-0092（滑動視窗剪裁）、ADR-0257（歷史資料界線）、ADR-0260（家對話外送白名單）、ADR-0264（剪下的對話歸檔）、ADR-0267（活動時間軸的生命週期前例）、ADR-0276（對話歸屬與範圍版本）、ADR-0277（跨來源查對話）、ADR-0302（聊天側剪裁）、ADR-0078（失效不沉默）、ADR-0231（對話保存的版本）。
 - 影響範圍：`ToukaProxy/src/utils/home_transitions.py`・`src/utils/async_db.py`・`src/services/proxy_service.py`・`src/services/mainline_service.py`・`src/services/soul_service.py`・`src/routers/heartbeat.py`・`src/routers/ui_sessions.py`・`src/routers/ui_interjections.py`・`src/services/agent_reset/`・`src/services/gdpr_export_service.py`・`src/services/context_snapshot_service.py`＋`ToukaProxy/config/errors.json.example`＋`ToukaChat/src/lib/error_codes.ts`・`src/locales/`。
 
+> 🔧 **[ADR-0326](0326-deleted-soul-leftovers-not-inherited.md) 修訂（2026-11-21，PR 3a）**：名字被刪掉或要給新代理人用時，舊家的標記清掉（`is_home`、`home_for_agent`）、對話解除綁定，這個名字的換家紀錄設失效：解除綁定的舊家不再唯讀，那位人類可以刪、可以接著聊。
+
 ## 背景
 
 以前換家只清家標記（`async_db.set_home`），舊家變成普通子對話：可以繼續聊、可以刪、可以換靈魂，它的內容就此離開主線。Owner 2026-11-06 定下的方向是「換家＝搬家」：舊家原文進舊對話庫、摘要併進前情、舊家唯讀；新家第一次被使用才真正交接，之前改回去當沒換過。

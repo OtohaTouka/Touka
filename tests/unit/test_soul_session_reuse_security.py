@@ -87,6 +87,18 @@ async def visible_control() -> None:
     assert "allowed-control" in result
 
 
+def released(row: dict) -> dict:
+    """名字給新靈魂之前解除綁定（ADR-0326 決定 10）：不再綁著名字、家的標記清掉、記原本綁的名字."""
+    return {
+        **row,
+        "agent_id": None,
+        "former_agent_id": row["agent_id"] or row["home_for_agent"],
+        "is_home": 0,
+        "home_for_agent": None,
+        "session_scope_version": 0,
+    }
+
+
 @pytest.mark.parametrize("alias", [False, True])
 async def test_deleted_soul_recreated_under_new_owner_hides_old_history(
     conversation_db: ConversationDB, soul_lifecycle: Path, alias: bool
@@ -99,13 +111,14 @@ async def test_deleted_soul_recreated_under_new_owner_hides_old_history(
     success(await search(source="ui"), 1)
     await souls.delete_soul(A.agent_id, SoulDeleteRequest(admin_password="unused"), ADMIN)
     assert not soul_lifecycle.exists()
-    assert await raw_row("old") == before
+    # 刪除時（鎖內、取消註冊之後）就解除綁定；建立同名時沒有東西可解除
+    assert await raw_row("old") == released(before)
     await create()
     await conversation_db.ui("new", "allowed-new-owner", owner=ADMIN.agent_id)
     result = await search(source="ui")
     success(result, 1)
     assert "allowed-new-owner" in result and "forbidden-old-owner" not in result
-    assert await raw_row("old") == {**before, "session_scope_version": 0}
+    assert await raw_row("old") == released(before)
     await visible_control()
 
 
@@ -260,7 +273,8 @@ async def test_human_preclaim_is_not_new_souls_history(
     result = await search(source="ui")
     success(result, 1)
     assert "allowed-new" in result and "forbidden-planted" not in result
-    assert await raw_row("preclaim") == {**before, "session_scope_version": 0}
+    # 搶先綁到還沒建的名字：建立時解除綁定，只剩那位人類與管理員
+    assert await raw_row("preclaim") == released(before)
     await visible_control()
 
 
@@ -314,12 +328,15 @@ async def test_every_new_soul_entry_lowers_all_candidate_metadata_atomically(
     else:
         await souls.update_soul(A.agent_id, SoulUpdateRequest(config=SoulConfig()), ADMIN)
     statements = list(conversation_db.statements)
+    # 建立靈魂：名字沒人用，先解除綁定（多一個交易，ADR-0326 決定 10），再降兩次標記
+    transactions = 3 if entry == "create" else 2
     for sid, row in rows.items():
-        assert await raw_row(sid) == {**row, "session_scope_version": 0}
+        expected = released(row) if entry == "create" else {**row, "session_scope_version": 0}
+        assert await raw_row(sid) == expected
     assert (await raw_row("already-zero"))["session_scope_version"] == 0
     assert await raw_row("control") == control
-    assert sum(s.startswith("BEGIN IMMEDIATE") for s in statements) == 2
-    assert sum(s == "COMMIT" for s in statements) == 2
+    assert sum(s.startswith("BEGIN IMMEDIATE") for s in statements) == transactions
+    assert sum(s == "COMMIT" for s in statements) == transactions
     await visible_control()
 
 
@@ -418,7 +435,10 @@ async def test_restore_cannot_revive_preclaimed_history(
     success(await search(source="ui"), 0)
     success(await search(B, source="ui"), 0)
     for sid, row in before.items():
-        assert await raw_row(sid) == {**row, "session_scope_version": 0}
+        expected = {**row, "session_scope_version": 0}
+        if outcome == "no-db-in-archive" and sid == "plant":
+            expected = released(row)  # 資料庫沒有被還原：留著建立時解除綁定的結果
+        assert await raw_row(sid) == expected
     assert exits == ([] if outcome == "partial-failure" else [0])
     if outcome == "partial-failure":
         assert system._last_restore.model_dump() == {

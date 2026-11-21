@@ -102,7 +102,8 @@ const messageSeconds = (msg: Pick<MessageNode, 'timestamp' | 'createdAt'> | unde
 export function formatToOpenWebUI(session: Session, selectedModel: string) {
     const tree = migrateFlatToTree(session.messages);
     const messages = Object.values(tree.messages);
-    const targetModel = session.agent_id || session.home_for_agent || selectedModel || "ToukaGroup";
+    // 解除綁定的對話（ADR-0326 決定 10）用原本的對象，不是目前選的模型
+    const targetModel = session.agent_id || session.home_for_agent || session.former_agent_id || selectedModel || "ToukaGroup";
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const messageRecord: Record<string, any> = {};
 

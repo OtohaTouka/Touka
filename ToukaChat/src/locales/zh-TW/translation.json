@@ -1399,7 +1399,8 @@
       "more_sessions": "還有 {{count}} 個",
       "folder_home_aria": "{{name}}，家對話：{{title}}",
       "folder_holds_active": "開著的對話在裡面",
-      "label_separator": "，"
+      "label_separator": "，",
+      "former_agent": "原本：{{name}}"
     },
     "session_activity": {
       "awaiting": "等您處理",

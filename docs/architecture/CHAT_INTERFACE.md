@@ -2,6 +2,13 @@
 
 > **TL;DR** — 所有 HTTP 請求走 `fetchTouka()`（FETCH_SSOT）；`localStorage.*` 必須用 `useLocalStorage` hook（LOCALSTORAGE_SSOT）；`console.*` 禁止，`error_handler.ts` 靠行內 noqa（CONSOLE_BAN）；來回計算 SSOT：`countRounds()` in `export-utils.ts`；模型輸出的 Markdown 只經 `SafeMarkdown` 顯示（外部圖片不自動載入，ADR-0294）；ToukaChat 跑在 port 3001（`npm run dev` 只開網頁）。
 
+## 刪掉的代理人的舊對話（ADR-0326 PR 3a）
+
+- `Session.former_agent_id`：解除綁定時綁的是誰（代理人刪掉、名字給了新代理人）。只能看，存檔不收。
+- 側欄（`SessionTree`）：沒有 `agent_id`、有 `former_agent_id` 的對話，模型標籤顯示「原本：名字」（`session_tree.formerAgentName`，去掉 `ToukaSoul` 前綴；用中性的「原本」，名字也可能是一般模型）；這種對話落到「其他」，不進同名新靈魂的資料夾。
+- 匯出（`formatToOpenWebUI`）的模型名依序 `agent_id`、`home_for_agent`、`former_agent_id`、目前選擇。
+- 打開這種對話不自動切模型；送出前照舊先把 `agent_id` 存成目前選的模型（`useChatStream`），等於改綁。
+
 ## 本機小幫手設定頁（ADR-0312）
 
 - 分頁 `local_helper`，只有 admin 看得到。資料層是 `useLocalHelper`，每 10 秒更新狀態。
