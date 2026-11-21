@@ -321,7 +321,7 @@ def test_install_stops_when_the_touka_folder_does_not_exist(monkeypatch) -> None
     monkeypatch.setattr(installer, "copy_allowed", lambda *_args: pytest.fail("不應該開始複製"))
     environ = {"LOCALAPPDATA": "C:\\Users\\Me\\AppData\\Local"}
     with pytest.raises(installer.InstallRefused):
-        installer._prepare("Z:\\NoSuchTouka", environ)
+        installer._plan("Z:\\NoSuchTouka", environ)
 
 
 def test_finish_message_mentions_a_missing_desktop() -> None:

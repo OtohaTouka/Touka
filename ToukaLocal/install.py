@@ -347,12 +347,6 @@ def _plan(touka_folder: str, environ: Mapping[str, str]) -> InstallPlan:
     return plan
 
 
-def _prepare(touka_folder: str, environ: Mapping[str, str]) -> InstallPlan:
-    plan = _plan(touka_folder, environ)
-    copy_allowed(_source(), Path(plan.app_dir))
-    return plan
-
-
 def _console_ask() -> Callable[[str], str] | None:
     """在主控台裡才問；被別的程式呼叫（沒有終端機）時不問，免得卡住。"""
     return input if sys.stdin is not None and sys.stdin.isatty() else None
