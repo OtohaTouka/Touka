@@ -22,6 +22,7 @@
 
 - SSOT：`resource_manager.get_retired_dir()`（`RETIRED_DIR_NAME`），和 `legacy` 同一個 data 根、同一個掛載點。
 - `resource_manager.is_protected_path` 加上 `retired`（和 `legacy`、`soul` 一樣）：專案根設到 data 底下時也擋得住代理人的寫入。
+- `is_protected_path` 也比解析後的前綴：管理員把整個 `legacy`、`soul` 或 `retired` 連到別處時，要檢查的路徑已解析到連結的另一端，只比沒解析的前綴會放行代理人改自己的封存。這是本來就有的漏洞（DEV-B 發現），決定 3 把連結的 `legacy` 寫成支援的設定，所以一起修；只會擋得更多。
 - 代理人碰不到的其他理由同 ADR-0325 的 `data/missions`：終端沙盒、執行器容器、隔離的第三方 MCP、本機小幫手只給代理人資料夾；`retired` 不在任何錨點底下，不用加進別名檢查。
 - 只有決定 3 的搬移會寫它。沒有介面，管理員自己到資料夾看或刪。
 - 備份與還原收它：`manage_backup.SANCTUARY_FOLDERS` 是寫死的清單（不是整個 data），加上 `retired`；退役的封存是人類對話的舊段，不備份就只剩一份。
@@ -74,7 +75,7 @@
 
 ## 驗證
 
-- `tests/unit/test_samename_archive_security.py`：真的靈魂路由與 conftest 沙盒，殘留直接寫進 data 根。涵蓋建立時搬走封存（內容原樣、新靈魂的封存是空的）、補刪個人空間、根是連結只刪連結、搬不走或刪不掉就不建立、名字有人用不動、用編輯建立也做、封存是連結時拒絕；搬移本身：data 路徑上有連結照樣搬、只改名不複製（同一個 inode）、沒有封存不建 `retired`、名字太長用雜湊、撞名換名字與試到上限、`legacy/<名字>` 或 `retired` 是連結時拒絕、`retired` 是受保護路徑。
+- `tests/unit/test_samename_archive_security.py`：真的靈魂路由與 conftest 沙盒，殘留直接寫進 data 根。涵蓋建立時搬走封存（內容原樣、新靈魂的封存是空的）、補刪個人空間、根是連結只刪連結、搬不走或刪不掉就不建立、名字有人用不動、用編輯建立也做、封存是連結時拒絕；搬移本身：data 路徑上有連結照樣搬、只改名不複製（同一個 inode）、沒有封存不建 `retired`、名字太長用雜湊、撞名換名字與試到上限、`legacy/<名字>` 或 `retired` 是連結時拒絕、`retired` 是受保護路徑、整個 `legacy`／`soul`／`retired` 連到別處時另一端照樣受保護（`test_linked_protected_folder_stays_protected`）。
 - `tests/unit/test_no_follow_zone.py::test_move_entry_between_folders`：跨資料夾搬、目的已存在、來源不存在、目的上層不存在不建、來源或目的上層是連結、名稱不是單段。
 - 改壞清單 `tests/zone_mutations.json` 加 `r10_retire_legacy_dir_copies`（搬移變成複製時對應測試變紅）。
 - 先後：`test_samename_takeover_security.py` 排程被拒、`test_samename_sessions_security.py` 解除失敗時，殘留的封存都還在原地。

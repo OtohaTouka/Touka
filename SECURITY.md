@@ -196,6 +196,7 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 | 弱點 | 修正與驗證 |
 |---|---|
 | 封存 `legacy/<名字>` 與個人空間 `personal_drive/<名字>` 只看名字。刪除靈魂時沒刪成（只列進 `skipped`），或刪掉的自訂模型用「切分存入舊對話」存過封存，之後建同名靈魂（可能指給別人擁有），新靈魂與它的擁有者直接讀到別人的舊封存與舊檔案 | 建立靈魂時（`agent_leftovers.clear_for_new_soul` 最後一步，名字不屬於任何代理人時）：`resource_manager.retire_legacy_dir` 把殘留的封存不跟隨連結地搬到 `data/retired/legacy/<毫秒時間>-<名字>`（只改名、不複製；`retired` 是受保護路徑，代理人碰不到），`soul_io.remove_soul_drive` 刪掉殘留的個人空間（根是連結只刪連結）；封存是連結、搬不走或刪不掉回 `SOUL_VAULT_ERROR`，不建立。`tests/unit/test_samename_archive_security.py`、`tests/unit/test_no_follow_zone.py::test_move_entry_between_folders`；[ADR-0328](docs/architecture/adr/0328-retired-archives-for-reused-soul-names.md) |
+| `resource_manager.is_protected_path` 只比沒解析的 `legacy`、`soul` 前綴（本來就有）：管理員把整個資料夾連到別處時，代理人寫入的路徑已解析到連結另一端，檢查放行，代理人能改或放檔到自己的封存 | 也比解析後的前綴（`retired` 一樣），只會擋得更多。`tests/unit/test_samename_archive_security.py::test_linked_protected_folder_stays_protected`；[ADR-0328](docs/architecture/adr/0328-retired-archives-for-reused-soul-names.md) 決定 1 |
 
 ### 同名的新代理人看到、接手刪掉的代理人的舊對話（2026-11-21，ADR-0326 PR 3a）
 

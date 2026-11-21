@@ -369,6 +369,24 @@ def test_retire_refuses_links(
         resource_manager.retire_legacy_dir(AgentIdentity(agent_id=SOUL))
     assert sorted(p.name for p in outside.iterdir()) == ["secret.txt"]
     assert (tmp_path / "legacy" / SOUL).exists()
+    if where == "archive":
+        assert not (tmp_path / "retired").exists()  # 拒絕在建退役資料夾之前
+
+
+@pytest.mark.parametrize("folder", ["legacy", "soul", "retired"])
+def test_linked_protected_folder_stays_protected(
+    folder: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """管理員把整個受保護資料夾連到別處：連結另一端的檔案照樣受保護（代理人寫入要被擋）."""
+    real = tmp_path / "elsewhere"
+    real.mkdir()
+    data = tmp_path / "data"
+    data.mkdir()
+    make_dir_link(data / folder, real)
+    _data_at(monkeypatch, data)
+    assert resource_manager.is_protected_path(data / folder / SOUL / "x.json")
+    assert resource_manager.is_protected_path(real / SOUL / "x.json")
+    assert not resource_manager.is_protected_path(tmp_path / "elsewhere_backup" / "x.json")
 
 
 def test_retired_dir_is_protected(sandbox: Path) -> None:

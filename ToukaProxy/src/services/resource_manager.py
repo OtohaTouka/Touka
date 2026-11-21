@@ -794,15 +794,14 @@ class ResourceManager:
         p = Path(path).resolve()
         base_dir = Path(get_app_data_dir()).resolve()
 
-        legacy_prefix = base_dir / "legacy"
-        soul_prefix = base_dir / "soul"
-        retired_prefix = self.get_retired_dir()  # ADR-0328
+        prefixes = (base_dir / "legacy", base_dir / "soul", self.get_retired_dir())  # ADR-0328
 
-        # 只要路徑位於 legacy、soul 或 retired 之下即受保護。
+        # 只要路徑位於 legacy、soul 或 retired 之下即受保護；管理員把整個資料夾連到別處時，
+        # p 已解析到連結的另一端，所以也比解析後的前綴（ADR-0328）。
         # DA27: is_relative_to（非 str.startswith）—— 前綴字串比對會把 sibling 目錄
         # （如 soul_archive / legacy_backup）誤判為受保護；is_relative_to 只認真正的子路徑。
         return any(
-            p.is_relative_to(prefix) for prefix in (legacy_prefix, soul_prefix, retired_prefix)
+            p.is_relative_to(prefix) or p.is_relative_to(prefix.resolve()) for prefix in prefixes
         )
 
     @permission_repair(retry=True)
@@ -1181,8 +1180,8 @@ class ResourceManager:
         agent_id = identity.agent_id
         if not is_zone_segment(agent_id):
             raise ZoneSegmentError
-        data = Path(get_app_data_dir()).resolve()
-        legacy = (data / "legacy").resolve()  # 管理員可能把整個封存資料夾連到別處
+        # 管理員可能把整個封存資料夾連到別處
+        legacy = (Path(get_app_data_dir()) / "legacy").resolve()
         kind = kind_no_follow(legacy / agent_id)
         if kind == "missing":
             return False
