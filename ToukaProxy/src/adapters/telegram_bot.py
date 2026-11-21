@@ -91,7 +91,9 @@ class TelegramAdapter(BaseSNSAdapter):
         )
 
     async def start(self) -> None:
-        """啟動 Telegram 機器人輪詢."""
+        """啟動 Telegram 機器人輪詢；已停用的不啟動，啟動途中被停用的自己停下（ADR-0326）."""
+        if self.retired:
+            return
         try:
             await self.application.initialize()
             await self.application.start()
@@ -99,6 +101,9 @@ class TelegramAdapter(BaseSNSAdapter):
             logger.info("Telegram Bot is ready. (Gateway Mode)")
         except Exception:
             logger.exception("Failed to start Telegram bot polling")
+        # 啟動途中被停用時，停用那次的 stop() 還停不到（還沒在跑），這裡補停
+        if self.retired:
+            await self.stop()
 
     async def stop(self) -> None:
         """停止 Telegram 機器人服務."""

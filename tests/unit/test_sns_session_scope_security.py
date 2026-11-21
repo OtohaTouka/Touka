@@ -29,7 +29,10 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("scope_db")]
 
 def adapter(identity=A):
     return SimpleNamespace(
-        agent_id=identity.agent_id, show_typing=AsyncMock(), send_message=AsyncMock()
+        agent_id=identity.agent_id,
+        show_typing=AsyncMock(),
+        send_message=AsyncMock(),
+        retired=False,
     )
 
 

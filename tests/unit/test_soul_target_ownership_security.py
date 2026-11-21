@@ -402,7 +402,9 @@ async def test_sns_internal_path_still_reaches_soul(
     identity = AgentIdentity.for_role(PROBE_SOUL, "Owner")
     monkeypatch.setattr(identity_service, "get_identity", lambda _agent: identity)
     soul_probe["dispatch"].return_value = _sse("pong")
-    adapter = MagicMock(agent_id=PROBE_SOUL, show_typing=AsyncMock(), send_message=AsyncMock())
+    adapter = MagicMock(
+        agent_id=PROBE_SOUL, show_typing=AsyncMock(), send_message=AsyncMock(), retired=False
+    )
     event = SNSIncomingEvent(platform="telegram", sender_id="u1", channel_id="u2s", content="ping")
 
     text = await SNSGatewayService().on_event(adapter, event)

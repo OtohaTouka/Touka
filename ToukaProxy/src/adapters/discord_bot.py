@@ -39,10 +39,15 @@ class DiscordAdapter(BaseSNSAdapter):
         self._task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
-        """啟動 Discord 機器人背景任務."""
+        """啟動 Discord 機器人背景任務；已停用的不啟動（ADR-0326）."""
+        if self.retired:
+            return
 
         async def run_bot() -> None:
             """執行 Discord 機器人的核心迴圈."""
+            # 開出 task 之後、還沒跑之前被停用：還沒有 client，停用那次的 stop() 關不到
+            if self.retired:
+                return
             try:
                 intents = discord.Intents.default()
                 intents.message_content = True

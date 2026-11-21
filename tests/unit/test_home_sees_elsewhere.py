@@ -207,6 +207,8 @@ async def test_an_sns_group_leaves_the_members_who_spoke_to_the_gateway(
 
 
 class _Adapter:
+    retired = False  # 閘道看這個（ADR-0326 PR 2）
+
     def __init__(self, agent_id: str = "Alice", *, delivered: bool = True) -> None:
         self.agent_id = agent_id
         self.delivered = delivered

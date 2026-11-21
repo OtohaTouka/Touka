@@ -285,7 +285,9 @@ async def test_sns_flow_still_replies_on_its_soul(
         "sns", AgentIdentity(agent_id=BOB), "telegram", channel, title="SNS"
     )
     await _make_session(sid, BOB, "SNS-OWN-SUMMARY")
-    adapter = MagicMock(agent_id=BOB, show_typing=AsyncMock(), send_message=AsyncMock())
+    adapter = MagicMock(
+        agent_id=BOB, show_typing=AsyncMock(), send_message=AsyncMock(), retired=False
+    )
     event = SNSIncomingEvent(
         platform="telegram", sender_id="u1", channel_id=channel, content="ping"
     )

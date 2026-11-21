@@ -301,7 +301,9 @@ async def _sns_reply(content: str) -> str:
         )
         return resp
 
-    adapter = MagicMock(agent_id="Alice", show_typing=AsyncMock(), send_message=AsyncMock())
+    adapter = MagicMock(
+        agent_id="Alice", show_typing=AsyncMock(), send_message=AsyncMock(), retired=False
+    )
     event = SNSIncomingEvent(platform="telegram", sender_id="u1", channel_id="c1", content=content)
     session = MagicMock(
         get_session_by_id=AsyncMock(return_value={"id": "x"}),

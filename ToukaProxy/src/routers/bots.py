@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity  # noqa: TC001
 from src.services.authorization_gateway import require_owner_or_admin
-from src.services.bot_service import bot_service
+from src.services.bot_service import bot_service, flatten_agent_id
 from src.services.hooks.lifecycle import notify_config_change
 from src.utils.secrets import is_masked, mask_secret
 
@@ -25,23 +25,12 @@ _PLATFORMS = ("discord", "telegram")
 # ── 純函式：遮罩 / 正規化 / write-only 保留 (SSOT, 易測) ─────────────────────────
 
 
-def _flatten_agent_id(value: Any) -> str:
-    """B3: 接受字串或舊版 AgentIdentity-dict，回傳 agent id 字串。
-
-    歷史上 `agent_id` 經 AgentIdentity 驗證器序列化成完整物件落盤；adapter 與前端
-    都只要字串 id，故在 API 邊界一律攤平為字串（執行期 identity 於 dispatch 時解析）。
-    """
-    if isinstance(value, dict):
-        return str(value.get("agent_id", ""))
-    return str(value) if value else ""
-
-
 def _normalize_bot(item: dict[str, Any]) -> dict[str, Any]:
-    """B2+B3：補穩定 id（缺則生）、攤平 agent_id 為字串。"""
+    """B2+B3：補穩定 id（缺則生）、攤平 agent_id 為字串（``bot_service.flatten_agent_id``）。"""
     out = dict(item)
     if not out.get("id"):
         out["id"] = uuid.uuid4().hex
-    out["agent_id"] = _flatten_agent_id(out.get("agent_id"))
+    out["agent_id"] = flatten_agent_id(out.get("agent_id"))
     return out
 
 
@@ -137,15 +126,17 @@ async def get_bots_config(
     _identity: AgentIdentity = Depends(_require_bots_role),  # noqa: B008
 ) -> dict[str, list[dict[str, Any]]]:
     """獲取所有 Bot 設定（token 遮罩、agent_id 攤平為字串；首次讀取一次性補 id 落盤）。"""
-    config = bot_service.load_config()
-    normalized, changed = _normalize_config(config)
-    if changed:
-        # 一次性遷移：穩定 id 須先落盤，write-only 才可靠。best-effort——磁碟不可寫時
-        # 仍回傳遮罩設定（R7：GET 不因遷移寫入失敗而 500），id 留待下次可寫時穩定。
-        try:
-            bot_service.save_config(normalized)
-        except Exception:
-            logger.warning("bots.json id-migration write failed; serving normalized config")
+    # 讀與遷移寫入在同一把鎖裡（和存檔、停用共用；ADR-0326）
+    with bot_service.locked():
+        config = bot_service.load_config()
+        normalized, changed = _normalize_config(config)
+        if changed:
+            # 一次性遷移：穩定 id 須先落盤，write-only 才可靠。best-effort——磁碟不可寫時
+            # 仍回傳遮罩設定（R7：GET 不因遷移寫入失敗而 500），id 留待下次可寫時穩定。
+            try:
+                bot_service.save_config(normalized)
+            except Exception:
+                logger.warning("bots.json id-migration write failed; serving normalized config")
     return _mask_tokens(normalized)
 
 
@@ -156,9 +147,11 @@ async def save_bots_config(
 ) -> dict:
     """更新並重載 Bot 設定（write-only：MASK token 保留既值）。"""
     try:
-        existing, _ = _normalize_config(bot_service.load_config())
-        merged = _preserve_tokens(data.model_dump(), existing)
-        bot_service.save_config(merged)
+        # 讀、合併、寫在同一把鎖裡（和讀取遷移、停用共用；ADR-0326）；重載會 await，放鎖外
+        with bot_service.locked():
+            existing, _ = _normalize_config(bot_service.load_config())
+            merged = _preserve_tokens(data.model_dump(), existing)
+            bot_service.save_config(merged)
         await bot_service.reload_bots()
     except Exception as e:
         raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=str(e)) from e

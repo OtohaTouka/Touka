@@ -11,6 +11,10 @@ class BaseSNSAdapter(ABC):
     所有通訊軟體處理器 (Discord, Telegram, etc.) 都必須實作此介面 (SOLID - DIP)。
     """
 
+    # 機器人服務停用它（綁的靈魂被刪除或建立同名靈魂）或整批重載後設 True：閘道不再處理它轉來的
+    # 訊息，還在啟動的也不再啟動（ADR-0326）。類別屬性，不靠子類呼叫 super().__init__。
+    retired: bool = False
+
     def __init__(self, token: str, agent_id: str, **kwargs: Any) -> None:
         """初始化適配器.
 
