@@ -5,7 +5,7 @@ from __future__ import annotations
 import runpy
 import sys
 import types
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import TYPE_CHECKING
 
 if sys.platform == "win32":
@@ -773,7 +773,8 @@ def _wire_run(
         return plan
 
     def has_ours(path: Path, app_dir: str, _encoding: str = "oem") -> bool:
-        events.append(f"has:{path.name}:{app_dir == plan.app_dir}")
+        # 開機啟動檔是 Windows 路徑字串；CI 的 Linux 不把反斜線當分隔，所以用 PureWindowsPath 取檔名
+        events.append(f"has:{PureWindowsPath(str(path)).name}:{app_dir == plan.app_dir}")
         return True
 
     def copy(_source: Path, app: Path) -> str:
@@ -812,6 +813,7 @@ def test_run_asks_everything_before_copying(
     assert events[2] == f"has:{installer._LAUNCHER_NAME}:True"
     # 開機啟動目前開著，按 Enter 維持原狀
     assert events[-1] == "autostart:True"
+
 
 def test_run_finishes_when_the_desktop_launcher_cannot_be_written(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
