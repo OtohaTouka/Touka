@@ -667,7 +667,7 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 
 `session_scope_version` 舊列預設 0、公開投影不回傳、UPDATE 不提升；聊天搜尋須同時驗精確靈魂歸屬，不能把 marker 當授權或逐則作者證明（ADR-0277）。所有 writer 一起升級；舊共享頻道不搬移、不續寫。
 
-### 3-K. 資訊安全守衛層：本機小幫手（ADR-0312、ADR-0317、ADR-0320）
+### 3-K. 資訊安全守衛層：本機小幫手（ADR-0312、ADR-0317、ADR-0320、ADR-0329）
 
 協議的準在 `ToukaProxy/src/models/local_bridge.py`；小幫手不能載入 Touka 的程式，所以 `ToukaLocal/touka_local/protocol.py` 另存一份，`tests/unit/test_local_protocol_parity.py` 核對兩邊相同。
 
@@ -686,6 +686,9 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | 小幫手沒做成時的說法 | `ToukaProxy/src/services/local_bridge_results.py` |
 | 風險下限 | `ToukaProxy/src/models/safety.py` 的 `MIN_TOOL_RISK` |
 | 小幫手的底線與總量 | `ToukaLocal/touka_local/floors.py`（數字只在這裡，協議改不到） |
+| 小幫手要安裝的檔案 | `ToukaLocal/install.py` 的 `ALLOWED_FILES`；`install.ps1` 的雜湊清單由 `scripts/local_helper_pins.py` 產生，測試核對（ADR-0329） |
+| 一行指令的樣板、釘住的 Python | 樣板在 `scripts/local_helper_pins.py` 的 `ONE_LINE_TEMPLATE`（README 只能有一份）；Python 版本、網址、sha256 在 `ToukaLocal/install.ps1` 頂端（ADR-0329） |
+| 開機啟動的位置 | `ToukaLocal/install.py` 的 `_STARTUP_FOLDER`，小幫手 `settings.py` 的 `STARTUP_FOLDER` 另存一份，測試核對（ADR-0329） |
 
 ### 3-K. 資訊安全守衛層：登入憑證綁後端（ADR-0297）
 

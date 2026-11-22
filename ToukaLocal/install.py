@@ -17,7 +17,7 @@ from pathlib import Path, PureWindowsPath
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
 ALLOWED_FILES: Final = (
     "__main__.py",
@@ -45,6 +45,10 @@ ALLOWED_FILES: Final = (
 _HELPER_FOLDER: Final = "ToukaLocal"
 _LAUNCHER_NAME: Final = "ToukaLocal.cmd"
 _SETTINGS_NAME: Final = "settings.json"
+# 和 settings.py 的 STARTUP_FOLDER 相同（安裝程式載入不到那裡，測試釘住）
+_STARTUP_FOLDER: Final = ("Microsoft", "Windows", "Start Menu", "Programs", "Startup")
+_STAGED_SUFFIX: Final = ".new"
+_OLD_SUFFIX: Final = ".old"
 _DRIVE: Final = re.compile(r"[A-Za-z]:")
 _UNQUOTABLE: Final = re.compile(r'["%&^!\r\n]')
 
@@ -137,8 +141,45 @@ def finish_message(launcher: str, *, on_desktop: bool) -> str:
     return f"已安裝。啟動檔：{launcher}\n{note}"
 
 
-def copy_allowed(source: Path, app: Path) -> None:
-    """只複製允許的檔案，舊的先清掉。缺檔就什麼都不動。"""
+def _is_link(path: Path) -> bool:
+    return path.is_symlink() or path.is_junction()
+
+
+def _drop_link(path: Path) -> None:
+    """只刪連結本身：指向資料夾的連結和 junction 要用 rmdir。"""
+    if path.is_junction() or path.is_dir():
+        path.rmdir()
+    else:
+        path.unlink()
+
+
+def remove_tree(folder: Path) -> None:
+    """刪資料夾，不跟著連結走；連結只刪本身，指向的內容不動。"""
+    if _is_link(folder):
+        _drop_link(folder)
+        return
+    for entry in folder.iterdir():
+        if _is_link(entry):
+            _drop_link(entry)
+        elif entry.is_dir():
+            remove_tree(entry)
+        else:
+            entry.unlink()
+    folder.rmdir()
+
+
+def _clear(path: Path) -> None:
+    if _is_link(path) or path.is_dir():
+        remove_tree(path)
+    elif path.exists():
+        path.unlink()
+
+
+def copy_allowed(source: Path, app: Path) -> str:
+    """只複製允許的檔案，寫好整份才換掉舊的；缺檔或中途失敗時舊的 app 還在。
+
+    換好之後舊的刪不掉（例如防毒軟體鎖住）不算失敗，回傳要告訴人的話。
+    """
     contents = {}
     for relative in ALLOWED_FILES:
         file = source / relative
@@ -146,14 +187,29 @@ def copy_allowed(source: Path, app: Path) -> None:
             msg = f"缺少檔案：{relative}"
             raise InstallRefused(msg)
         contents[relative] = file.read_bytes()
-    if app.is_dir():
-        for stale in app.rglob("*"):
-            if stale.is_file():
-                stale.unlink()
+    staged = app.with_name(app.name + _STAGED_SUFFIX)
+    old = app.with_name(app.name + _OLD_SUFFIX)
+    _clear(staged)
+    _clear(old)
     for relative, data in contents.items():
-        target = app / relative
+        target = staged / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
+    had_app = _is_link(app) or app.exists()
+    if had_app:
+        app.rename(old)
+    try:
+        staged.rename(app)
+    except OSError:
+        if had_app:
+            old.rename(app)
+        raise
+    if had_app:
+        try:
+            _clear(old)
+        except OSError:
+            return f"舊的程式刪不掉，留在 {old}，可以之後自己刪。\n"
+    return ""
 
 
 def _read_settings(file: Path) -> object:
@@ -166,6 +222,102 @@ def _read_settings(file: Path) -> object:
         except (OSError, ValueError):
             return {}
     return {}
+
+
+def current_touka_folder(file: Path) -> str | None:
+    """上次安裝記下的 Touka 資料夾；重裝時按 Enter 沿用。"""
+    current = _read_settings(file)
+    folder = current.get("touka_folder") if isinstance(current, dict) else None
+    return folder if isinstance(folder, str) and folder else None
+
+
+def clean_folder_input(raw: str) -> str:
+    """去掉前後空白，以及檔案總管「複製為路徑」會帶的一組前後雙引號（和設定頁相同）。"""
+    trimmed = raw.strip()
+    quoted = len(trimmed) >= 2 and trimmed.startswith('"') and trimmed.endswith('"')
+    return (trimmed[1:-1] if quoted else trimmed).strip()
+
+
+def resolve_touka_folder(
+    given: str | None, current: str | None, ask: Callable[[str], str] | None
+) -> str:
+    """有指定就用指定的；能問就問（Enter 沿用上次）；不能問就沿用上次，沒有上次就不裝。"""
+    if given is not None:
+        return clean_folder_input(given)
+    if ask is None:
+        if current:
+            return current
+        msg = "請用 --touka-folder 指定 Touka 資料夾"
+        raise InstallRefused(msg)
+    hint = f"（直接按 Enter 沿用 {current}）" if current else ""
+    answer = clean_folder_input(ask(f"Touka 資料夾在哪？{hint}："))
+    if answer:
+        return answer
+    if current:
+        return current
+    msg = "沒有輸入 Touka 資料夾"
+    raise InstallRefused(msg)
+
+
+def startup_launcher(app_data: str) -> str:
+    """開機自動啟動的啟動檔放在使用者自己的「啟動」資料夾。"""
+    return str(PureWindowsPath(app_data, *_STARTUP_FOLDER, _LAUNCHER_NAME))
+
+
+def is_our_launcher(data: bytes, app_dir: str, encoding: str = "oem") -> bool:
+    """整份內容要是我們產生的樣子、啟動這次的 app 資料夾；Python 的位置可以不同（舊版）。"""
+    try:
+        text = data.decode(encoding)
+    except UnicodeDecodeError:
+        return False
+    pattern = (
+        r'@echo off\r\nstart "" "[^"\r\n]+\\pythonw\.exe" -I -S "'
+        + re.escape(app_dir)
+        + r'"\r\n'
+    )
+    return re.fullmatch(pattern, text) is not None
+
+
+def has_our_launcher(path: Path, app_dir: str, encoding: str = "oem") -> bool:
+    """開機啟動目前開著嗎：那裡有我們的啟動檔才算。"""
+    if _is_link(path) or not path.is_file():
+        return False
+    return is_our_launcher(path.read_bytes(), app_dir, encoding)
+
+
+def decide_autostart(
+    flag: bool | None, *, currently_on: bool, ask: Callable[[str], str] | None
+) -> bool:
+    """有指定就照指定；不能問就維持原狀；問的時候預設也是維持原狀（升級一路按 Enter 不會改掉）。"""
+    if flag is not None:
+        return flag
+    if ask is None:
+        return currently_on
+    choices = "(Y/n)" if currently_on else "(y/N)"
+    answer = ask(f"要開機自動啟動小幫手嗎？{choices}：").strip().casefold()
+    if answer in {"y", "yes"}:
+        return True
+    if answer in {"n", "no"}:
+        return False
+    return currently_on
+
+
+def apply_autostart(
+    path: Path, *, want: bool, data: bytes, app_dir: str, encoding: str = "oem"
+) -> str:
+    """寫入或移除開機啟動檔；別人的同名檔不蓋也不刪。回傳要告訴人的話。"""
+    ours = has_our_launcher(path, app_dir, encoding)
+    taken = (_is_link(path) or path.exists()) and not ours
+    if want:
+        if taken:
+            return f"開機啟動資料夾裡已經有別的 {_LAUNCHER_NAME}，沒有覆蓋，請自己確認：{path}\n"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return "已設定開機自動啟動。\n"
+    if ours:
+        path.unlink()
+        return "已取消開機自動啟動。\n"
+    return ""
 
 
 def update_settings(file: Path, touka_folder: str) -> None:
@@ -182,11 +334,14 @@ def update_settings(file: Path, touka_folder: str) -> None:
     file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _prepare(touka_folder: str, environ: Mapping[str, str]) -> InstallPlan:
+def _source() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def _plan(touka_folder: str, environ: Mapping[str, str]) -> InstallPlan:
     check_flags(isolated=sys.flags.isolated, no_site=sys.flags.no_site)
-    source = Path(__file__).resolve().parent
     plan = plan_install(
-        source=str(source),
+        source=str(_source()),
         local_app_data=environ["LOCALAPPDATA"],
         python=str(Path(sys.executable).resolve()),
         touka_folder=touka_folder,
@@ -196,32 +351,63 @@ def _prepare(touka_folder: str, environ: Mapping[str, str]) -> InstallPlan:
         msg = "找不到 pythonw.exe"
         raise InstallRefused(msg)
     launcher_bytes(plan)
-    copy_allowed(source, Path(plan.app_dir))
     return plan
+
+
+def _console_ask() -> Callable[[str], str] | None:
+    """在主控台裡才問；被別的程式呼叫（沒有終端機）時不問，免得卡住。"""
+    return input if sys.stdin is not None and sys.stdin.isatty() else None
 
 
 def run(argv: list[str]) -> int:
     """安裝。"""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--touka-folder", required=True)
+    parser.add_argument("--touka-folder")
+    autostart = parser.add_mutually_exclusive_group()
+    autostart.add_argument("--autostart", dest="autostart", action="store_const", const=True)
+    autostart.add_argument("--no-autostart", dest="autostart", action="store_const", const=False)
     arguments = parser.parse_args(argv)
     if sys.platform != "win32":
         sys.stderr.write("小幫手只支援 Windows\n")
         return 1
     environ = os.environ  # noqa: ENV_SSOT_VIOLATION
+    ask = _console_ask()
     try:
-        plan = _prepare(arguments.touka_folder, environ)
-    except (InstallRefused, KeyError) as exc:
+        settings_file = Path(environ["LOCALAPPDATA"]) / _HELPER_FOLDER / _SETTINGS_NAME
+        startup = Path(startup_launcher(environ["APPDATA"]))
+        touka_folder = resolve_touka_folder(
+            arguments.touka_folder, current_touka_folder(settings_file), ask
+        )
+        plan = _plan(touka_folder, environ)
+        want = decide_autostart(
+            arguments.autostart, currently_on=has_our_launcher(startup, plan.app_dir), ask=ask
+        )
+        note = copy_allowed(_source(), Path(plan.app_dir))
+        update_settings(Path(plan.helper_dir) / _SETTINGS_NAME, plan.touka_folder)
+        data = launcher_bytes(plan)
+        Path(plan.launcher).write_bytes(data)
+        desktop = Path(environ["USERPROFILE"]) / "Desktop"
+        on_desktop = desktop.is_dir()
+        # 新版已經換上；桌面與開機啟動檔寫不進去（例如受控資料夾存取）只說明，不算失敗
+        if on_desktop:
+            try:
+                (desktop / _LAUNCHER_NAME).write_bytes(data)
+            except OSError as exc:
+                note += f"桌面的啟動檔寫不進去（{exc}），請直接開啟上面的啟動檔。\n"
+        try:
+            note += apply_autostart(startup, want=want, data=data, app_dir=plan.app_dir)
+        except OSError as exc:
+            note += f"開機自動啟動沒有改成功：{exc}\n"
+    except (InstallRefused, KeyError, OSError) as exc:
         sys.stderr.write(f"沒有安裝：{exc}\n")
         return 1
-    update_settings(Path(plan.helper_dir) / _SETTINGS_NAME, plan.touka_folder)
-    data = launcher_bytes(plan)
-    Path(plan.launcher).write_bytes(data)
-    desktop = Path(environ["USERPROFILE"]) / "Desktop"
-    on_desktop = desktop.is_dir()
-    if on_desktop:
-        (desktop / _LAUNCHER_NAME).write_bytes(data)
-    sys.stdout.write(finish_message(plan.launcher, on_desktop=on_desktop))
+    except EOFError:
+        sys.stderr.write("沒有安裝：沒有收到回答\n")
+        return 1
+    except KeyboardInterrupt:
+        sys.stderr.write("沒有安裝：已取消\n")
+        return 1
+    sys.stdout.write(finish_message(plan.launcher, on_desktop=on_desktop) + note)
     return 0
 
 

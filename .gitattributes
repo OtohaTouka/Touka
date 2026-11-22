@@ -13,3 +13,8 @@
 /ToukaChat/scripts/ensure-critical-native.mjs text eol=lf
 /docker-compose.ghcr.yml text eol=lf
 /tests/docker/Dockerfile.isolation-test text eol=lf
+
+# 本機小幫手：GitHub raw 給的是 LF 的 blob，一行指令與 install.ps1 的雜湊照它算（ADR-0329）。
+/ToukaLocal/**/*.py text eol=lf
+/ToukaLocal/*.ps1 text eol=lf
+/ToukaLocal/*.md text eol=lf

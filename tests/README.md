@@ -191,7 +191,8 @@ tests/
 | `unit/local_helper/test_local_helper_connection.py` | ADR-0312：協議未知欄位拒絕、只連本機、不跟隨轉址 |
 | `unit/local_helper/test_local_helper_approval_view.py` | ADR-0312：一次一個核准視窗、冷卻、自動拒絕、畫面文字消毒 |
 | `unit/local_helper/test_local_helper_service.py` | ADR-0312：工作分派、按核准才確認、確認成功才動手、取消 |
-| `unit/local_helper/test_local_helper_install.py` | ADR-0312：Windows 呼叫的純函式、設定檔、安裝規則 |
+| `unit/local_helper/test_local_helper_install.py` | ADR-0312：Windows 呼叫的純函式、設定檔、安裝規則；ADR-0329：問 Touka 資料夾、開機自動啟動、app 整個換過去 |
+| `unit/local_helper/test_local_helper_bootstrap.py` | ADR-0329：一行指令安裝的雜湊清單、README 那一行與 commit 核對、install.ps1 的安全檢查與冷卻期 |
 | `unit/local_helper/test_local_helper_real_windows.py` | ADR-0312：只在真 Windows 跑：不覆蓋、連結、隱藏屬性、完整搬移與復原 |
 | `unit/local_helper/test_local_helper_display.py` | ADR-0312：小幫手視窗跟著螢幕縮放的倍數、字型選擇、宣告縮放失敗不影響服務 |
 | `unit/test_local_protocol_parity.py` | ADR-0312：小幫手和 Touka 兩份協議相同 |

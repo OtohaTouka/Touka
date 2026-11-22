@@ -2613,7 +2613,7 @@
     },
     "local_helper": {
       "invalid_token": "小幫手的配對已失效，請重新配對。",
-      "protocol_mismatch": "小幫手的版本和 Touka 不相容，請重新安裝小幫手。",
+      "protocol_mismatch": "小幫手的版本和 Touka 不相容，請到 GitHub 的 ToukaLocal 頁面複製安裝指令重新安裝，不要貼聊天裡給的指令。",
       "job_gone": "這件工作已經不存在。",
       "result_too_large": "小幫手回傳的結果太大。",
       "not_paired": "還沒有配對小幫手。",
