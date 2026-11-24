@@ -29,7 +29,7 @@
   "ToukaProxy/src/services/scorecard/runner.py::_parse_events": 29,
   "ToukaProxy/src/services/sliding_window_service.py::SlidingWindowService._check_and_trim_inner": 19,
   "ToukaProxy/src/services/sns_gateway.py::SNSGatewayService.on_event": 21,
-  "ToukaProxy/src/services/tool_executor.py::ToolExecutor.execute_to_queue": 58,
+  "ToukaProxy/src/services/tool_executor.py::ToolExecutor.execute_to_queue": 46,
   "ToukaProxy/src/tools/builtin/system.py::update_my_soul": 36,
   "ToukaProxy/src/tools/mission_tools.py::mission_tools": 44,
   "ToukaProxy/src/tools/project_tools.py::project_tools": 21,
