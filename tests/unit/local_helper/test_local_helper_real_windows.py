@@ -12,9 +12,11 @@ if sys.platform == "win32":
     import tkinter
 
     # 視窗程式會載入 tkinter，CI 的 Linux 上不一定有，不能在收集測試時就載入
+    from touka_local import app as app_module
     from touka_local.app import ApprovalWindow, MainWindow, OpenRequestWindow, _setup_display
 
 import base64
+import uuid
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -27,9 +29,16 @@ from touka_local.fsops import RealFs
 from touka_local.grants import Environment, GrantBook
 from touka_local.open_request import STATE_NOT_OPENABLE, STATE_OPENABLE, checking
 from touka_local.operations import ApplyLimits, Operations, Plan, PlanItem
-from touka_local.service import HelperService
+from touka_local.presence import AttentionTracker
+from touka_local.service import CLOSE_BLOCKED, CLOSE_WAIT, HelperService
 from touka_local.settings import ModeSwitches, Settings, load_settings
-from touka_local.winapi import acquire_single_instance, drive_type
+from touka_local.winapi import (
+    acquire_single_instance,
+    consume_show_event,
+    create_show_event,
+    drive_type,
+    signal_show_event,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -225,9 +234,48 @@ def test_new_file_deep_in_a_folder_is_seen_for_real(real) -> None:
     assert trash.sent == []
 
 
+def _test_name(kind: str) -> str:
+    # 不用正式名稱：本機可能有真的小幫手在背景跑（ADR-0312 修訂，2026-11）
+    return f"Local\\ToukaLocalTest{kind}-{uuid.uuid4().hex}"
+
+
 def test_a_second_copy_is_refused() -> None:
-    acquire_single_instance()
-    assert acquire_single_instance() is False
+    name = _test_name("Mutex")
+    acquire_single_instance(name)
+    assert acquire_single_instance(name) is False
+
+
+def test_a_second_copy_can_call_up_the_first() -> None:
+    name = _test_name("Show")
+    handle = create_show_event(name)
+    assert handle is not None
+    try:
+        assert consume_show_event(handle) is False
+        assert signal_show_event(name) is True
+        assert signal_show_event(name) is True
+        # 自動重設：連續兩次通知只算一次
+        assert consume_show_event(handle) is True
+        assert consume_show_event(handle) is False
+    finally:
+        _winapi.CloseHandle(handle)
+
+
+def test_an_event_someone_else_made_is_not_used() -> None:
+    name = _test_name("Show")
+    squatter = create_show_event(name)
+    assert squatter is not None
+    try:
+        assert create_show_event(name) is None
+    finally:
+        _winapi.CloseHandle(squatter)
+
+
+def test_calling_up_without_a_running_helper_fails() -> None:
+    assert signal_show_event(_test_name("Show")) is False
+
+
+def test_consuming_without_an_event_is_always_false() -> None:
+    assert consume_show_event(None) is False
 
 
 def test_approval_window_shows_every_full_path() -> None:
@@ -386,8 +434,20 @@ def test_approval_window_says_which_floor_opened_it(reason: str, *, shown: bool)
         root.destroy()
 
 
-@pytest.fixture
-def main_window(real, tmp_path: Path):
+class _ShowRequests:
+    """代替命名事件：測試把「再開一次」放進來，主視窗每一輪取一次。"""
+
+    def __init__(self) -> None:
+        self.pending = 0
+
+    def __call__(self) -> bool:
+        if self.pending:
+            self.pending -= 1
+            return True
+        return False
+
+
+def _build_main_window(real, tmp_path: Path, *, show_ready: bool = True):
     operations, book, _open_dir, _trash = real
     switches = ModeSwitches(tmp_path / "helper")
     gate = ApprovalGate(clock=lambda: 0.0)
@@ -403,7 +463,9 @@ def main_window(real, tmp_path: Path):
         mode_reset=switches.reset_at,
     )
     root = tkinter.Tk()
+    # 開機啟動的樣子：建好 root 馬上收起來，第一次 update 之前
     root.withdraw()
+    requests = _ShowRequests()
     window = MainWindow(
         root,
         service=service,
@@ -414,11 +476,138 @@ def main_window(real, tmp_path: Path):
         settings_file=tmp_path / "helper" / "settings.json",
         display=DisplayScale(),
         switches=switches,
+        show_requested=requests,
+        show_ready=show_ready,
+        tracker=AttentionTracker(clock=lambda: 0.0),
     )
+    return window, switches, tmp_path / "helper", requests
+
+
+@pytest.fixture
+def main_window(real, tmp_path: Path):
+    window, switches, helper, _requests = _build_main_window(real, tmp_path)
     try:
-        yield window, switches, tmp_path / "helper"
+        yield window, switches, helper
+    finally:
+        window._root.destroy()
+
+
+@pytest.fixture
+def shown_window(real, tmp_path: Path):
+    """主視窗開著、第一輪已經跑過（還沒配對的提醒算已經提醒過）。"""
+    window, _switches, _helper, requests = _build_main_window(real, tmp_path)
+    root = window._root
+    root.deiconify()
+    window._refresh()
+    root.update()
+    try:
+        yield window, requests
     finally:
         root.destroy()
+
+
+def _press_close(window, monkeypatch: pytest.MonkeyPatch) -> None:
+    # 照使用者按右上角 × 的路徑：視窗管理員的關閉訊息綁的那個命令。
+    # × 不該問要不要結束；萬一問了就回「取消」，讓測試失敗而不是卡在對話框
+    asked: list[str] = []
+    monkeypatch.setattr(
+        app_module.messagebox, "askokcancel", lambda title, *_a, **_k: asked.append(title)
+    )
+    root = window._root
+    root.tk.call(root.protocol("WM_DELETE_WINDOW"))
+    assert asked == []
+
+
+def test_the_close_button_only_hides_the_window(shown_window, monkeypatch) -> None:
+    window, _requests = shown_window
+    _press_close(window, monkeypatch)
+    window._root.update()
+    assert window._root.state() == "withdrawn"
+    # 還沒配對的提醒剛才開著時已經算過，收起來後不會馬上又跑回來
+    window._refresh()
+    window._root.update()
+    assert window._root.state() == "withdrawn"
+
+
+def test_the_close_button_minimizes_when_the_window_cannot_be_called_up(
+    real, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window, _switches, _helper, _requests = _build_main_window(real, tmp_path, show_ready=False)
+    root = window._root
+    try:
+        root.deiconify()
+        window._refresh()
+        root.update()
+        _press_close(window, monkeypatch)
+        root.update()
+        assert root.state() == "iconic"
+    finally:
+        root.destroy()
+
+
+def test_opening_it_again_brings_the_window_back(shown_window, monkeypatch) -> None:
+    window, requests = shown_window
+    _press_close(window, monkeypatch)
+    window._root.update()
+    requests.pending = 1
+    window._refresh()
+    window._root.update()
+    assert window._root.state() == "normal"
+
+
+def test_a_new_condition_surfaces_a_hidden_window_minimized(main_window) -> None:
+    window, _switches, _helper = main_window
+    # 還沒配對：開機時藏起來的主視窗以最小化出現，不搶焦點
+    window._refresh()
+    window._root.update()
+    assert window._root.state() == "iconic"
+
+
+def test_approval_windows_show_while_the_main_window_is_hidden(main_window) -> None:
+    window, _switches, _helper = main_window
+    root = window._root
+    assert root.state() == "withdrawn"
+    pending = PendingApproval(
+        job_id="j",
+        plan=Plan(items=(), reason="r", digest="d" * 64),
+        requester="",
+        offered_at=0.0,
+        deadline=1.0,
+    )
+    approval = ApprovalWindow(
+        root, pending, on_approve=lambda: None, on_reject=lambda: None, display=DisplayScale()
+    )
+    root.update()
+    assert approval._window.winfo_ismapped()
+    # 主視窗沒有被叫出來（還沒配對的提醒最多讓它最小化）
+    assert root.state() != "normal"
+
+
+def test_quitting_still_asks_first(shown_window, monkeypatch) -> None:
+    window, _requests = shown_window
+    asked: list[str] = []
+
+    def answer(title: str, _text: str, **_kwargs: object) -> bool:
+        asked.append(title)
+        return False
+
+    monkeypatch.setattr(app_module.messagebox, "askokcancel", answer)
+    window._quit_button.invoke()
+    assert asked
+    assert window._root.winfo_exists()
+
+
+def test_a_cancelled_quit_says_why(shown_window, monkeypatch) -> None:
+    window, _requests = shown_window
+    monkeypatch.setattr(app_module.messagebox, "askokcancel", lambda *_a, **_k: True)
+    monkeypatch.setattr(window._service, "request_close", lambda: CLOSE_WAIT)
+    window._quit_button.invoke()
+    assert window._closing
+    # 等著關的時候又來一份清單：不關，而且說清楚
+    monkeypatch.setattr(window._service, "request_close", lambda: CLOSE_BLOCKED)
+    window._tick()
+    assert not window._closing
+    assert "先不關" in window._notice.cget("text")
 
 
 def test_the_switch_is_saved_when_ticked(main_window) -> None:

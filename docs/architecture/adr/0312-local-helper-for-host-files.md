@@ -6,6 +6,7 @@
 - 補註（2026-11-17）：配對的人本人可以從 Touka 設定頁請小幫手開放資料夾（[ADR-0320](0320-ask-the-local-helper-to-open-a-folder.md)），小幫手一定跳視窗由人決定；後果中「Touka 被攻破時」一點另有補註。
 - 補註（2026-11-19）：綁在這一輪的工具多了 `mission_tools` 的 `await_dispatch_result` 動作（[ADR-0323](0323-group-heartbeat-home-tool-results.md) PR 3）。
 - 補註（2026-11-22）：安裝改成一行 PowerShell 指令（[ADR-0329](0329-one-line-install-for-the-local-helper.md)）：用兩層 sha256 核對，Python 改用官方 3.14 的 zip，解在使用者資料夾；決定 10 的「不從 Touka 資料夾安裝」照舊。
+- 補註（2026-11-24）：小幫手 0.4.0 退到背景。開機啟動檔帶 `--background`，已經配對而且叫得出主視窗時不顯示主視窗；從桌面再開一次，第二個小幫手用同一登入工作階段的命名事件（`Local\ToukaLocalHelperShow`）叫出第一個的主視窗；按 × 只收起來，要結束按主視窗的「結束小幫手」（流程照舊先問）；事件不能用（建不起來或被別的程式先建）時照舊顯示主視窗、× 只最小化。需要人處理的狀況（尚未配對、版本不符、停止服務、開放請求停收、紀錄讀不懂）剛出現時，收著的主視窗以最小化浮出、不搶焦點；同一種狀況消失後 10 分鐘內再出現不再提醒，之後一直在也不再提醒（不讓 Touka 反覆觸發；打開主視窗仍看得到）。後果：背景執行時畫面上沒有任何提示，但照常服務讀取與新建；安全前提是 Touka 跑在 Docker 裡，碰不到 Windows 的命名物件，最多讓主視窗以最小化出現、不能取得焦點也不能按任何東西；同一個帳號的程式能叫出主視窗，它們本來就有使用者的全部權限。開始功能表不加入口（要動露出檢查）。純判斷在 `touka_local/presence.py`，系統呼叫在 `winapi.py`。
 - 日期：2026-11-10
 - 決策者：維護者
 - 相關：[ADR-0194](0194-mcp-remote-shelf-and-manual-remote-entry.md)（MCP 網址的安全閘）、[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md)（隔離環境與封鎖埠）、[ADR-0085](0085-ask-user-tool.md)（等人回答的做法）、[ADR-0269](0269-advertised-tool-list-enforcement.md)（只用這一輪列出的工具）

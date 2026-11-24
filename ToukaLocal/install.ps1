@@ -140,7 +140,7 @@ if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
 $arch = $env:PROCESSOR_ARCHITECTURE
 if ($env:PROCESSOR_ARCHITEW6432) { $arch = $env:PROCESSOR_ARCHITEW6432 }
 if ($arch -ne 'AMD64') { Stop-Install '小幫手目前只支援 64 位元的 x64 電腦' }
-if (Test-HelperRunning) { Stop-Install '小幫手正在執行，請先關掉小幫手再貼一次' }
+if (Test-HelperRunning) { Stop-Install '小幫手正在執行：在小幫手主視窗按「結束小幫手」（舊版直接按右上角 ×）；看不到主視窗時，從桌面開 ToukaLocal.cmd 叫出來，再貼一次' }
 
 $script:HelperDir = Join-Path $env:LOCALAPPDATA 'ToukaLocal'
 New-Item -ItemType Directory -Force -Path $script:HelperDir | Out-Null
