@@ -10,7 +10,7 @@ from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-PROTOCOL_VERSION: Final = 2
+PROTOCOL_VERSION: Final = 3
 MAX_JOB_RESULT_BYTES: Final = 1024 * 1024
 MAX_ERROR_MESSAGE_CHARS: Final = 2000
 MAX_REQUESTER_CHARS: Final = 128
@@ -19,10 +19,18 @@ MAX_OPEN_PATH_CHARS: Final = 1024
 # 資料夾名稱最多 255 字，重名時小幫手會在後面加「 2」之類
 MAX_OPEN_NAME_CHARS: Final = 300
 MAX_RESULT_CODE_CHARS: Final = 64
+# 開放名單的回報（ADR-0330）：只給配對的人在設定頁看，只放記憶體
+MAX_REPORTED_FOLDERS: Final = 64
+MAX_REPORTED_PATH_CHARS: Final = 1024
+# 小幫手回的名稱與路徑會顯示在設定頁：不收控制字元與改變顯示方向的字元（小幫手也是這一份）
+UNSAFE_TEXT_PATTERN: Final = r"[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]"
+_UNSAFE_TEXT: Final = re.compile(UNSAFE_TEXT_PATTERN)
 
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 _HEX64_PATTERN: Final = r"^[0-9a-f]{64}$"
 _NONCE_PATTERN: Final = r"^[A-Za-z0-9_-]{22}$"
+# 小幫手每次啟動產生一次（secrets.token_urlsafe(16)），和一次性號碼同樣格式
+_INSTANCE_PATTERN: Final = _NONCE_PATTERN
 _NO_CONTROL_CHARS: Final = r"^[^\x00-\x1f\x7f]+$"
 
 # request_open 只從設定頁送（ADR-0320），模型的工具合約沒有這個動作
@@ -100,11 +108,60 @@ class LocalPairingCreated(_Strict):
 
 
 class LocalHelperStatus(_Strict):
-    """設定頁顯示的狀態。"""
+    """設定頁顯示的狀態。
+
+    ``version_problem``：最近被拒絕的輪詢是哪一邊版本舊（ADR-0330）；連線中一律是 None。
+    """
 
     paired: bool
     online: bool
     helper_version: str | None = None
+    version_problem: Literal["helper_older", "touka_older"] | None = None
+
+
+def _displayable(value: str) -> str:
+    """設定頁會顯示的文字：不收控制字元、改變顯示方向的字元與單獨的代理字元。"""
+    if _UNSAFE_TEXT.search(value) is not None or any(0xD800 <= ord(c) <= 0xDFFF for c in value):
+        msg = "contains characters that cannot be shown"
+        raise ValueError(msg)
+    return value
+
+
+class LocalFolderEntry(_Strict):
+    """一個開放的資料夾（ADR-0330）。完整路徑只給配對的人看，不給模型、不寫日誌。"""
+
+    name: str = Field(min_length=1, max_length=MAX_OPEN_NAME_CHARS)
+    path: str = Field(min_length=1, max_length=MAX_REPORTED_PATH_CHARS)
+    writable: bool
+    usable: bool
+
+    @field_validator("name", "path")
+    @classmethod
+    def _shown_safely(cls, value: str) -> str:
+        return _displayable(value)
+
+
+class LocalFolderReport(_Strict):
+    """小幫手回報的開放名單（ADR-0330）。
+
+    ``instance`` 每次啟動不同；同一次啟動裡 ``revision`` 越大越新。
+    """
+
+    protocol: int
+    instance: str = Field(pattern=_INSTANCE_PATTERN)
+    revision: int = Field(ge=0)
+    exposed: bool
+    folders: list[LocalFolderEntry] = Field(max_length=MAX_REPORTED_FOLDERS)
+    omitted: int = Field(ge=0)
+
+
+class LocalFolderList(_Strict):
+    """設定頁看的開放名單。只有 ``ok`` 時才有 ``folders``。"""
+
+    state: Literal["offline", "waiting", "stale", "ok"]
+    exposed: bool = False
+    folders: list[LocalFolderEntry] | None = None
+    omitted: int = 0
 
 
 class LocalOpenRequest(_Strict):

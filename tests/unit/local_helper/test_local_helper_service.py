@@ -42,6 +42,9 @@ class _Client:
         self.results.append((job_id, payload))
         return self.deliver_answer
 
+    def report_folders(self, _payload: dict[str, Any]) -> bool:
+        return True
+
 
 def _job(action: str, args: dict[str, Any], job_id: str = "j1") -> Job:
     return Job(id=job_id, action=action, args=args, requester="soul", decide_within=540.0)

@@ -10,9 +10,12 @@ import json
 import math
 import re
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
-PROTOCOL_VERSION: Final = 2
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+PROTOCOL_VERSION: Final = 3
 MAX_JOB_RESULT_BYTES: Final = 1024 * 1024
 MAX_ERROR_MESSAGE_CHARS: Final = 2000
 MAX_CODE_CHARS: Final = 64
@@ -40,6 +43,18 @@ DECIDED_BY_OPEN_REQUEST: Final = "owner_request"
 RESULT_FIELDS: Final = frozenset({"status", "code", "message", "data"})
 
 JOB_ID: Final = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+# 開放名單回報給 Touka（ADR-0330）：只給配對的人在設定頁看，Touka 只放記憶體
+FOLDER_REPORT_FIELDS: Final = frozenset(
+    {"protocol", "instance", "revision", "exposed", "folders", "omitted"}
+)
+FOLDER_ENTRY_FIELDS: Final = frozenset({"name", "path", "writable", "usable"})
+MAX_REPORTED_FOLDERS: Final = 64
+MAX_REPORTED_PATH_CHARS: Final = 1024
+MAX_REPORTED_NAME_CHARS: Final = 300
+# Touka 不收的字元：控制字元與改變顯示方向的字元（parity 測試核對兩邊相同）
+UNSAFE_TEXT_PATTERN: Final = r"[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]"
+_UNSAFE_TEXT: Final = re.compile(UNSAFE_TEXT_PATTERN)
 
 
 class ProtocolError(Exception):
@@ -172,3 +187,41 @@ def result_payload(
             "data": None,
         }
     return payload
+
+
+def _reportable(text: str, limit: int) -> bool:
+    """Touka 收得下：長度在上限內、沒有不收的字元，也沒有單獨的代理字元（UTF-8 編不出來）。"""
+    return (
+        1 <= len(text) <= limit
+        and _UNSAFE_TEXT.search(text) is None
+        and not any(0xD800 <= ord(c) <= 0xDFFF for c in text)
+    )
+
+
+def folder_report(
+    *,
+    instance: str,
+    revision: int,
+    exposed: bool,
+    folders: Iterable[tuple[str, str, bool, bool]],
+) -> dict[str, Any]:
+    """開放名單的回報。Touka 不收的與超過上限的不送，只算個數，整份才不會被拒。"""
+    entries: list[dict[str, Any]] = []
+    omitted = 0
+    for name, path, writable, usable in folders:
+        if (
+            len(entries) >= MAX_REPORTED_FOLDERS
+            or not _reportable(name, MAX_REPORTED_NAME_CHARS)
+            or not _reportable(path, MAX_REPORTED_PATH_CHARS)
+        ):
+            omitted += 1
+            continue
+        entries.append({"name": name, "path": path, "writable": writable, "usable": usable})
+    return {
+        "protocol": PROTOCOL_VERSION,
+        "instance": instance,
+        "revision": revision,
+        "exposed": exposed,
+        "folders": entries,
+        "omitted": omitted,
+    }

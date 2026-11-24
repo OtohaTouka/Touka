@@ -94,6 +94,8 @@ ADMIN_REQUIRED: list[dict[str, str]] = [
     {"method": "get", "path": "/local-bridge/status"},
     # 從設定頁請小幫手開放資料夾（ADR-0320）
     {"method": "post", "path": "/local-bridge/open-requests"},
+    # 配對的人看開放名單（含完整路徑，ADR-0330）
+    {"method": "get", "path": "/local-bridge/folders"},
 
     # ── 舊的終端核准與事件串流（terminal.py，人類 admin，ADR-0033 修訂 2026-11-24）
     {"method": "get", "path": "/terminal/stream"},

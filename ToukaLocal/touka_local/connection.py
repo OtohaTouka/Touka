@@ -149,3 +149,7 @@ class ToukaClient:
         if JOB_ID.fullmatch(job_id) is None:
             return False
         return self._accepted(f"/jobs/{job_id}/result", payload)
+
+    def report_folders(self, payload: dict[str, Any]) -> bool:
+        """把開放名單送給 Touka，給配對的人在設定頁看（ADR-0330）。只有 200 算送到。"""
+        return self._accepted("/folder-report", payload)
