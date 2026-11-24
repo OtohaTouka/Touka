@@ -71,7 +71,8 @@ def run_router_smoke_test():
         {"path": "/ui/settings/workspace", "role": "normal", "expected_status": {200}},
         {"path": "/ui/projects/list", "role": "normal", "expected_status": {200}},
         {"path": "/ui/mission", "role": "normal", "expected_status": {200, 404}},
-        {"path": "/terminal/history", "role": "normal", "expected_status": {200}},
+        # 只給人類管理員本人（2026-11-24，外部審查第 12 項）
+        {"path": "/terminal/history", "role": "normal", "expected_status": {403}},
         {"path": "/monitor/summary", "role": "normal", "expected_status": {200}},
 
         # --- Admin client ---

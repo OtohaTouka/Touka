@@ -97,6 +97,12 @@ ADMIN_REQUIRED: list[dict[str, str]] = [
     # 配對的人看開放名單（含完整路徑，ADR-0330）
     {"method": "get", "path": "/local-bridge/folders"},
 
+    # ── 舊的終端核准與事件串流（terminal.py，人類 admin，ADR-0033 修訂 2026-11-24）
+    {"method": "get", "path": "/terminal/stream"},
+    {"method": "post", "path": "/terminal/approve/{exec_id}"},
+    {"method": "post", "path": "/terminal/reject/{exec_id}"},
+    {"method": "get", "path": "/terminal/history"},
+
     # ── 工作區設定（ui_sessions.py）─────────────────────────────────────────
     {"method": "post", "path": "/ui/settings/workspace"},
 ]

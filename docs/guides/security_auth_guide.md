@@ -167,7 +167,7 @@ ABAC／HITL 即時決策。`auth_level` 不儲存在 `permissions.json`：
 | `require_privileged` | Owner／Debugger／admin | `AUTH_PERMISSION_DENIED` | `_require_mcp_role`、`_require_editor_role`、`_require_models_mgmt`、`_require_connections_role` |
 | `require_owner_or_admin` | Owner／admin | `AUTH_PERMISSION_DENIED` | `_require_creation_role`、`_require_bots_role` |
 | `require_admin_authority` | admin | `AUTH_ADMIN_REQUIRED` | `require_admin`、`_require_admin_role`、`_require_config_role` |
-| `require_admin_human` | 人類 admin（不含代打） | `AUTH_ADMIN_REQUIRED` | MCP OAuth 管理端點 |
+| `require_admin_human` | 人類 admin（不含代打） | `AUTH_ADMIN_REQUIRED` | MCP OAuth 管理、Hook 設定、本機小幫手、舊的終端核准與事件串流（`/terminal/*`）等 |
 | `verify_heartbeat_token()` | service JWT 或 HEARTBEAT_TOKEN | — | `/heartbeat/awaken` |
 
 掛在 `Depends` 的閘會在 body 驗證前執行（錯誤 body 也回 403）；在函式內呼叫的閘則在 body 驗證後執行（錯誤 body 回 422）。兩種形式不可任意互換。
@@ -182,7 +182,6 @@ ABAC／HITL 即時決策。`auth_level` 不儲存在 `permissions.json`：
 ### 6.3 公開端點白名單
 以下端點合法豁免（`endpoint_auth_allowlist.py`）：
 - `GET /`、`GET /health`（health check）
-- `GET /terminal/stream`（SSE read-only broadcast）
 - 等約 20 個公開服務探測端點
 
 ---

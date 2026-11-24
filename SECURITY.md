@@ -194,6 +194,12 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### 一般使用者能核准別人的技能安裝、看到所有代理人的指令（2026-11-24，外部審查第 12 項，ADR-0033 修訂）
+
+| 弱點 | 修正與驗證 |
+|---|---|
+| 技能安裝、能力部署與沒人在場的終端指令，用的是較舊的 `/terminal/approve`、`/terminal/reject`。兩個端點只看 `is_privileged()`（Owner／Debugger／admin），沒看是不是真人、也沒看這筆是誰的；沒帶 Origin 也放行。多人部署時，管理員把靈魂指派給一般使用者後，那位使用者自己組 API 請求、帶 `X-Agent-ID` 代打自己的靈魂（解析成 Owner），就能核准或拒絕全系統任何人的待核准項目，包括管理員的技能安裝。`/terminal/stream`、`/terminal/history` 任何登入的人都看得到所有代理人的指令與輸出。單人部署打不到；代理人自己拿不到能通過驗證的權杖，沒有自己核准自己的路徑（中等，多人部署） | 四個端點改用 `Depends(require_admin_human)`，只收人類管理員本人（admin 代打、靈魂權杖、DebugAgent、首次安裝前的本機開發卡都 403 `AUTH_ADMIN_REQUIRED`；遠端沒帶權杖照舊 401）；核准與拒絕改用 `require_trusted_origin`，一定要帶信任的 Origin；身分先驗，沒權限的人問不出哪些編號在等核准；log 只記核准人與編號，不記附帶的環境變數。四筆登記進 Guard #24 的 admin 名單。`tests/unit/test_terminal_approval_human_security.py`：人類管理員本人帶信任 Origin 可核准、可拒絕；admin 代打、一般使用者代打成 Owner、Debugger、本機開發卡、一般人類、沒有身分各打一次都 403，等待的核准沒被放行；沒帶或不信任的 Origin 403；不存在的編號對沒權限的人也是 403；串流與歷史只給人類管理員本人。新的工具核准端點 `/v1/tools/approve` 本來就只收人類，不受影響 |
+
 ### SNS 外人問得出靈魂的任務看板（2026-11-24，外部審查小修第 11 項，ADR-0276 修訂）
 
 | 弱點 | 修正與驗證 |
@@ -639,7 +645,7 @@ dep1 順帶修好一個既有錯誤：被隔離的 MCP 工具（標頭政策）�
 | **C5** | `ToukaProxy/src/tools/terminal.py` | Shell 指令注入 | 🔴 Critical | 偵測鏈式 metachar（`; \| && $(...)`）；SafeAuto 下自動升級為 CONFIRM |
 | **C6** | `ToukaProxy/src/tools/builtin/evolution.py` | 演化沙箱程式碼注入 | 🔴 Critical | 提取 `_build_jail_code()`；`tool_name` 改用 `json.dumps()` 轉義 |
 | **C7** | `ToukaProxy/src/services/sns_gateway.py` | Webhook 無驗簽框架 | 🔴 Critical | 新增 `SNSIncomingEvent.is_verified` 欄位與 `_warn_if_unverified()` 警告。2026-11-19（ADR-0324）：Discord（gateway）與 Telegram（long polling）是用 bot token 建立、平台驗證過的連線，建事件時標 `is_verified=True`；測試要求每個 `SNSIncomingEvent(...)` 字面寫出 `is_verified=`。之後加 webhook 型 adapter 必須驗簽才可設 True |
-| **C8** | `ToukaProxy/src/routers/terminal.py` | 終端機審核端點無驗證 | 🔴 Critical | `approve` / `reject` 端點加入 `Depends(get_verified_identity)` 與角色檢查 |
+| **C8** | `ToukaProxy/src/routers/terminal.py` | 終端機審核端點無驗證 | 🔴 Critical | `approve` / `reject` 端點加入 `Depends(get_verified_identity)` 與角色檢查（2026-11-24 收緊成只收人類管理員本人，見外部審查第 12 項） |
 | **C9** | `ToukaHeartbeat/awaken.py` | 排程端點無驗證 | 🔴 Critical | `GET/POST/DELETE /v1/schedules` 加入 `verify_schedule_token()` Bearer Token 驗證 |
 | **H1** | `ToukaProxy/src/routers/auth.py` | Cookie 缺 Secure 旗標 | 🟠 High | 新增 `SECURE_COOKIES` 設定；生產環境啟用 HttpOnly + Secure；抽出 `_set_refresh_cookie()` SSOT helper |
 | **H2** | `ToukaProxy/src/routers/auth.py` | 認證端點無速率限制 | 🟠 High | 新增 `RateLimiter`（IP 滑動視窗）；`/auth/login` 失敗計數，超限回 429；成功後重置 |
@@ -673,7 +679,7 @@ dep1 順帶修好一個既有錯誤：被隔離的 MCP 工具（標頭政策）�
 |----|------|------|--------|---------|
 | **P1** | `ToukaProxy/src/main.py:235` | 路徑穿越（Sovereign Output） | 🔴 Critical | `str(...).startswith()` → `Path.is_relative_to()`；與 `routers/editor.py` 保持一致 |
 | **P2** | `ToukaChat/src/components/artifacts/ArtifactView.tsx` | Mermaid XSS | 🔴 Critical | `securityLevel:'strict'`；`dangerouslySetInnerHTML` 改為 `DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } })`；`dompurify ^3.4.5` 安裝 |
-| **P3** | `ToukaProxy/src/routers/terminal.py` | `/terminal/stream` SSE 無認證 | 🔴 Critical | 加入 `Depends(get_verified_identity)`；從 `endpoint_auth_allowlist.py` 移除 |
+| **P3** | `ToukaProxy/src/routers/terminal.py` | `/terminal/stream` SSE 無認證 | 🔴 Critical | 加入 `Depends(get_verified_identity)`；從 `endpoint_auth_allowlist.py` 移除（2026-11-24 收緊成只給人類管理員本人，見外部審查第 12 項） |
 | **P4** | `ToukaChat/src/lib/connections.ts` | Access Token 存 localStorage | 🔴 Critical | 移除所有 `touka_auth_token` localStorage 操作；改為模組級 `let _accessToken: string \| null = null`；export `setAccessToken/getAccessToken/clearAccessToken`；`AuthContext.tsx` 同步使用 in-memory 函式 |
 | **P5** | `ToukaProxy/src/utils/async_db.py` | `append_message_to_session` TOCTOU | 🔴 Critical | 模組級 `_session_locks: dict[str, asyncio.Lock]`；`append_message_to_session` 在鎖內執行 |
 | **P6** | `ToukaProxy/src/routers/auth.py` | `/auth/register` 與 `/auth/refresh` 無速率限制 | 🟠 High | 新增 `register_rate_limiter` + `refresh_rate_limiter`（IP 滑動視窗，複用 `RateLimiter`） |

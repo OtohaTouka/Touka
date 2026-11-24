@@ -7048,7 +7048,7 @@ export interface paths {
         };
         /**
          * Terminal Stream
-         * @description SSE 串流：推送所有 bash 事件給前端。
+         * @description SSE 串流：推送所有代理人的 bash 事件，只給人類管理員本人（外部審查第 12 項）。
          */
         get: operations["terminal_stream_terminal_stream_get"];
         put?: never;
@@ -7072,8 +7072,8 @@ export interface paths {
          * Approve Command
          * @description 批准審核請求，可附帶 Payload (如環境變數)。
          *
-         *     C8 fix: requires a verified identity with Owner/Debugger/admin role.
-         *     M1 fix: validates Origin header to prevent CSRF from untrusted origins.
+         *     C8 fix（2026-11-24 收緊）: only a human admin, not an impersonated soul or agent token.
+         *     M1 fix（2026-11-24 收緊）: the Origin header is required and must be trusted.
          */
         post: operations["approve_command_terminal_approve__exec_id__post"];
         delete?: never;
@@ -7095,8 +7095,8 @@ export interface paths {
          * Reject Command
          * @description 拒絕危險指令執行。
          *
-         *     C8 fix: requires a verified identity with Owner/Debugger/admin role.
-         *     M1 fix: validates Origin header to prevent CSRF from untrusted origins.
+         *     C8 fix（2026-11-24 收緊）: only a human admin, not an impersonated soul or agent token.
+         *     M1 fix（2026-11-24 收緊）: the Origin header is required and must be trusted.
          *     N5 fix: serialized under _approval_lock.
          */
         post: operations["reject_command_terminal_reject__exec_id__post"];
@@ -7115,7 +7115,7 @@ export interface paths {
         };
         /**
          * Get History
-         * @description 取得最近執行歷史（需認證）.
+         * @description 取得最近執行歷史：所有代理人的指令與輸出，只給人類管理員本人.
          */
         get: operations["get_history_terminal_history_get"];
         put?: never;

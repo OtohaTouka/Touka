@@ -62,7 +62,8 @@ def verify_origin(request: Any) -> None:
 def require_trusted_origin(request: Any) -> None:
     """比 ``verify_origin`` 嚴：一定要帶 Origin，而且是信任的來源（ADR-0320）。
 
-    只給從設定頁發動、會讓本機小幫手跳視窗的端點用。不是瀏覽器的程式可以自己帶 Origin，
+    給從設定頁發動、會讓本機小幫手跳視窗的端點，以及舊的 ``/terminal/approve|reject``
+    （2026-11-24）用。不是瀏覽器的程式可以自己帶 Origin，
     所以這只是多一層防護；真正的關卡是人類管理員身分加上比對配對的人。
     """
     try:
