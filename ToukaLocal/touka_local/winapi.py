@@ -35,6 +35,11 @@ EXPECTED_STRUCTURE_SIZE: Final = 56
 _DRIVE_KINDS: Final = {2: "removable", 3: "fixed", 4: "remote", 5: "cdrom", 6: "ramdisk"}
 _ERROR_ALREADY_EXISTS: Final = 183
 _MUTEX_NAME: Final = "Local\\ToukaLocalHelper"
+# 第二個小幫手用它叫出第一個的主視窗（ADR-0312 修訂，2026-11）；同一個登入工作階段才看得到
+SHOW_EVENT_NAME: Final = "Local\\ToukaLocalHelperShow"
+EVENT_MODIFY_STATE: Final = 0x0002
+WAIT_OBJECT_0: Final = 0
+ASFW_ANY: Final = 0xFFFFFFFF
 
 
 class SHFILEOPSTRUCTW(ctypes.Structure):
@@ -149,10 +154,75 @@ def enable_dpi_awareness() -> bool:
     return True
 
 
-def acquire_single_instance() -> bool:
+def acquire_single_instance(name: str = _MUTEX_NAME) -> bool:
     """同一個帳號只能開一個小幫手。把 handle 留到行程結束。"""
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.CreateMutexW.argtypes = (wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR)
     kernel32.CreateMutexW.restype = wintypes.HANDLE
-    handle = kernel32.CreateMutexW(None, False, _MUTEX_NAME)
+    handle = kernel32.CreateMutexW(None, False, name)
     return bool(handle) and ctypes.get_last_error() != _ERROR_ALREADY_EXISTS
+
+
+def _event_kernel32() -> Any:
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateEventW.argtypes = (
+        wintypes.LPVOID,
+        wintypes.BOOL,
+        wintypes.BOOL,
+        wintypes.LPCWSTR,
+    )
+    kernel32.CreateEventW.restype = wintypes.HANDLE
+    kernel32.OpenEventW.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR)
+    kernel32.OpenEventW.restype = wintypes.HANDLE
+    kernel32.SetEvent.argtypes = (wintypes.HANDLE,)
+    kernel32.SetEvent.restype = wintypes.BOOL
+    kernel32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    return kernel32
+
+
+def create_show_event(name: str = SHOW_EVENT_NAME) -> int | None:
+    """第一個小幫手建立「叫出主視窗」的事件，handle 留到行程結束。
+
+    已經有同名的事件就不是自己的（別的程式先建了），不用它：回 None，主視窗照舊顯示。
+    """
+    if sys.platform != "win32":
+        return None
+    kernel32 = _event_kernel32()
+    # 自動重設：連續幾次通知只會叫出一次
+    handle = kernel32.CreateEventW(None, False, False, name)
+    if not handle:
+        return None
+    if ctypes.get_last_error() == _ERROR_ALREADY_EXISTS:
+        kernel32.CloseHandle(handle)
+        return None
+    return int(handle)
+
+
+def signal_show_event(name: str = SHOW_EVENT_NAME) -> bool:
+    """第二個小幫手請第一個叫出主視窗；打不開事件（例如舊版在跑）回 False。"""
+    if sys.platform != "win32":
+        return False
+    kernel32 = _event_kernel32()
+    handle = kernel32.OpenEventW(EVENT_MODIFY_STATE, False, name)
+    if not handle:
+        return False
+    try:
+        # 打開事件之後才讓出前景，第一個小幫手才能把主視窗帶到最前面
+        user32 = ctypes.WinDLL("user32")
+        user32.AllowSetForegroundWindow.argtypes = (wintypes.DWORD,)
+        user32.AllowSetForegroundWindow.restype = wintypes.BOOL
+        user32.AllowSetForegroundWindow(ASFW_ANY)
+        return bool(kernel32.SetEvent(handle))
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def consume_show_event(handle: int | None) -> bool:
+    """有沒有人請小幫手叫出主視窗；不會等。"""
+    if handle is None or sys.platform != "win32":
+        return False
+    kernel32 = _event_kernel32()
+    return kernel32.WaitForSingleObject(handle, 0) == WAIT_OBJECT_0

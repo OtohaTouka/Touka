@@ -69,7 +69,7 @@ _REFUSALS: Final = {
     ),
     "journal_unreadable": "小幫手有紀錄檔讀不懂，請看主視窗的說明",
     # 開放請求（ADR-0320）
-    "wrong_window": "視窗和等待中的請求對不上，請關掉重開小幫手的視窗",
+    "wrong_window": "視窗和等待中的請求對不上，請在主視窗按「結束小幫手」再重新開啟",
     "unreadable": "讀不到這個位置（可能沒有權限）",
     "internal": "檢查這個位置時出了問題，細節在紀錄檔",
     "io_error": "開放名單存不進去，沒有開放",
@@ -94,7 +94,16 @@ _OPENED: Final = "已開放「{name}」。"
 _OPEN_FAILED: Final = "核准了，但沒有開放：{reason}"
 _OPEN_PAUSED: Final = (
     "從 Touka 送來的開放請求連續 3 次沒有核准，暫停接收，約 {minutes} 分鐘後恢復。"
-    "可以按「現在恢復」，或重開小幫手。"
+    "可以按「現在恢復」，或按「結束小幫手」再重新開啟。"
+)
+# 主視窗常駐的說明：按 × 收起來還是縮到工作列，看叫不叫得出來
+_CLOSE_HINT_HIDE: Final = (
+    "按右上角 × 只會收起來，小幫手會在背景繼續服務；要完全結束請按「結束小幫手」。"
+    "收起來之後，從桌面的 ToukaLocal.cmd 再開一次就會叫出這個視窗；"
+    "桌面上找不到的話，用 %LOCALAPPDATA%\\ToukaLocal 裡的那一份。"
+)
+_CLOSE_HINT_MINIMIZE: Final = (
+    "按右上角 × 會縮到工作列，小幫手會在背景繼續服務；要完全結束請按「結束小幫手」。"
 )
 _JOURNAL_WARNING: Final = "。這批的紀錄沒有寫完整，有些搬移可能無法復原"
 
@@ -329,6 +338,11 @@ def open_outcome_text(code: str, name: str | None) -> str:
     if code == "opened":
         return _OPENED.format(name=display_safe(name or ""))
     return _OPEN_FAILED.format(reason=refusal_text(code))
+
+
+def close_hint_text(*, show_ready: bool) -> str:
+    """主視窗常駐的說明；叫不出主視窗時 × 只縮到工作列，不能叫人再開一次。"""
+    return _CLOSE_HINT_HIDE if show_ready else _CLOSE_HINT_MINIMIZE
 
 
 def open_paused_text(remaining_seconds: float) -> str:

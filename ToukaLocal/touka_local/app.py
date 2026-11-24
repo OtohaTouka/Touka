@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import logging.handlers
 import os
+import sys
 import threading
 import time
 import tkinter as tk
@@ -26,6 +27,19 @@ from touka_local.errors import Refused
 from touka_local.fsops import RealFs
 from touka_local.grants import GrantBook
 from touka_local.operations import Operations
+from touka_local.presence import (
+    ALREADY_OPEN,
+    HIDE,
+    SHOW,
+    SURFACE,
+    AttentionTracker,
+    attention_reasons,
+    close_button_action,
+    second_instance,
+    visible_at_start,
+    wants_background,
+    window_action,
+)
 from touka_local.service import (
     CLOSE_BLOCKED,
     CLOSE_NOW,
@@ -66,6 +80,7 @@ from touka_local.view import (
     approval_title,
     approval_window_kind,
     clean_reason,
+    close_hint_text,
     connection_text,
     display_safe,
     mode_status_text,
@@ -99,6 +114,8 @@ _FRAME_PADDING: Final = 12
 _NAMED_FONTS: Final = ("TkDefaultFont", "TkTextFont", "TkHeadingFont", "TkMenuFont")
 _CLOSE_CONFIRM_TITLE: Final = "結束小幫手"
 _CLOSE_CONFIRM_TEXT: Final = "結束之後，靈魂就不能用你電腦上的檔案。確定要結束嗎？"
+_QUIT_LABEL: Final = "結束小幫手"
+_CLOSE_CANCELLED: Final = "有一份清單在等你決定，小幫手先不關。"
 _PATHS_PANEL_LINES: Final = 6
 _OPEN_WINDOW_SIZE: Final = (640, 380)
 _OPEN_WRAP: Final = 600
@@ -400,6 +417,9 @@ class MainWindow:
         settings_file: Path,
         display: DisplayScale,
         switches: ModeSwitches,
+        show_requested: Callable[[], bool],
+        show_ready: bool,
+        tracker: AttentionTracker,
     ) -> None:
         self._root = root
         self._display = display
@@ -410,14 +430,19 @@ class MainWindow:
         self._settings = settings
         self._settings_file = settings_file
         self._switches = switches
+        self._show_requested = show_requested
+        self._show_ready = show_ready
+        self._tracker = tracker
         self._approval: ApprovalWindow | OpenRequestWindow | None = None
         self._pause_shown = False
         self._last_batches = 0.0
         self._last_hint = 0.0
         self._closing = False
+        # 「紀錄讀不懂」要掃全部紀錄，跟著常駐提示一起算，不每一輪算
+        self._records_readable = True
 
         root.title("Touka 本機小幫手")
-        root.protocol("WM_DELETE_WINDOW", self._close)
+        root.protocol("WM_DELETE_WINDOW", self._close_button)
         width, height = _MAIN_WINDOW_SIZE
         root.geometry(f"{display.px(width)}x{display.px(height)}")
         frame = ttk.Frame(root, padding=display.px(_FRAME_PADDING))
@@ -445,10 +470,17 @@ class MainWindow:
         self._port = tk.StringVar(value=str(self._settings.port))
         ttk.Entry(pairing, textvariable=self._port, width=7).pack(side="left", padx=4)
         ttk.Button(pairing, text="儲存", command=self._save_pairing).pack(side="left")
+        self._quit_button = ttk.Button(pairing, text=_QUIT_LABEL, command=self._close)
+        self._quit_button.pack(side="right")
         self._stop = ttk.Button(
             pairing, text="停止目前這批", command=self._service.stop_running, state="disabled"
         )
-        self._stop.pack(side="right")
+        self._stop.pack(side="right", padx=4)
+        ttk.Label(
+            frame,
+            text=close_hint_text(show_ready=self._show_ready),
+            wraplength=self._display.px(_MAIN_WRAP),
+        ).pack(anchor="w", pady=(0, 6))
 
     def _build_mode(self, frame: ttk.Frame) -> None:
         row = ttk.Frame(frame)
@@ -685,7 +717,15 @@ class MainWindow:
         if selected is not None and table.exists(selected):
             table.selection_set(selected)
 
+    def _close_button(self) -> None:
+        """按 ×：收起來，小幫手繼續服務；叫不出來時只最小化。"""
+        if close_button_action(show_ready=self._show_ready) == HIDE:
+            self._root.withdraw()
+        else:
+            self._root.iconify()
+
     def _close(self) -> None:
+        """「結束小幫手」：真的結束。"""
         if self._service.close_blocked():
             self._say("有一份清單在等你決定，請先核准或拒絕。")
             return
@@ -710,11 +750,15 @@ class MainWindow:
                 self._root.destroy()
             else:
                 # 等著關閉的時候又來了一份清單：人要先決定，決定完不該自己關掉
-                self._closing = self._closing and decision != CLOSE_BLOCKED
+                if decision == CLOSE_BLOCKED:
+                    self._closing = False
+                    self._say(_CLOSE_CANCELLED)
                 self._root.after(_REFRESH_MS, self._tick)
 
     def _refresh(self) -> None:
         self._service.tick()
+        # 叫出主視窗排在最前面：這一輪後面哪一段出錯，收著的主視窗也叫得出來
+        self._place_window()
         self._status.configure(text=f"Touka：{connection_text(self._service.state)}")
         self._stop.configure(state="normal" if self._service.running else "disabled")
         self._sync_approval()
@@ -743,9 +787,31 @@ class MainWindow:
             )
         ]
         history = self._operations.history(self._operations.wall_time())
+        self._records_readable = history.readable
         if not history.readable:
             hints.append(unreadable_records_text(history.unreadable))
         self._mode_hint.configure(text="\n".join(hint for hint in hints if hint))
+
+    def _place_window(self) -> None:
+        """有人再開一次小幫手就叫出主視窗；收著時出現新狀況就最小化浮出，不搶焦點。"""
+        reasons = attention_reasons(
+            state=self._service.state,
+            open_paused=self._service.open_paused_until is not None,
+            records_readable=self._records_readable,
+        )
+        # 每一輪都要問：主視窗開著時出現的狀況也算提醒過
+        attention = self._tracker.check(reasons)
+        action = window_action(
+            show_requested=self._show_requested(),
+            attention=attention,
+            withdrawn=self._root.state() == "withdrawn",
+        )
+        if action == SHOW:
+            self._root.deiconify()
+            self._root.lift()
+            self._root.focus_force()
+        elif action == SURFACE:
+            self._root.iconify()
 
     def _refresh_grants_status(self) -> None:
         selected = self._selected(self._grant_table)
@@ -849,11 +915,29 @@ def _make_client(settings: Settings) -> ToukaClient | None:
         return None
 
 
+def _show_requests(show_event: int | None) -> Callable[[], bool]:
+    """主視窗每一輪問一次：有沒有人再開了一次小幫手。"""
+    return lambda: winapi.consume_show_event(show_event)
+
+
+def _prepare_main_window(root: tk.Tk, *, background: bool, paired: bool, show_ready: bool) -> None:
+    """主視窗建好就馬上決定要不要收起來，在排版之前，才不會閃一下。"""
+    if not show_ready:
+        # 失效不沉默：之後才查得到為什麼主視窗一直顯示、× 只縮到工作列
+        logger.warning("the show event is unavailable; the main window stays visible")
+    if not visible_at_start(background=background, paired=paired, show_ready=show_ready):
+        root.withdraw()
+
+
 def main() -> int:
-    """啟動小幫手。"""
+    """啟動小幫手。開機啟動檔帶 ``--background``：已經配對時不顯示主視窗。"""
+    background = wants_background(sys.argv[1:])
     if not winapi.acquire_single_instance():
-        messagebox.showinfo("Touka 本機小幫手", "小幫手已經開著了。")
-        return 1
+        if second_instance(background=background, signal=winapi.signal_show_event) == ALREADY_OPEN:
+            messagebox.showinfo("Touka 本機小幫手", "小幫手已經開著了。")
+            return 1
+        return 0
+    show_event = winapi.create_show_event()
     environ = os.environ  # noqa: ENV_SSOT_VIOLATION
     settings_file = Path(environ["LOCALAPPDATA"]) / HELPER_FOLDER_NAME / "settings.json"
     settings = load_settings(settings_file)
@@ -877,8 +961,9 @@ def main() -> int:
     )
     gate = ApprovalGate(clock=time.monotonic)
     switches = ModeSwitches(helper_dir)
+    client = _make_client(settings)
     service = HelperService(
-        client=_make_client(settings),
+        client=client,
         operations=operations,
         gate=gate,
         grants=grants,
@@ -893,6 +978,10 @@ def main() -> int:
     # 要在建立任何視窗之前宣告，否則 Windows 會把整個視窗當圖片放大
     winapi.enable_dpi_awareness()
     root = tk.Tk()
+    show_ready = show_event is not None
+    _prepare_main_window(
+        root, background=background, paired=client is not None, show_ready=show_ready
+    )
     root.report_callback_exception = _log_window_error
     MainWindow(
         root,
@@ -904,6 +993,9 @@ def main() -> int:
         settings_file=settings_file,
         display=_setup_display(root),
         switches=switches,
+        show_requested=_show_requests(show_event),
+        show_ready=show_ready,
+        tracker=AttentionTracker(clock=time.monotonic),
     )
     root.mainloop()
     stop.set()
