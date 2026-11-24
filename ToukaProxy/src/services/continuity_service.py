@@ -37,8 +37,6 @@ from memory_server.utils.legacy_time import to_epoch_ms
 from src.adapters.content_normalize import append_to_last_user
 from src.handlers.adapters.retry import KNOWN_ERROR_TYPES
 from src.models.heartbeat_schedule import HeartbeatSchedule
-from src.models.identity import AgentIdentity
-from src.services.agent_service import agent_service
 from src.services.continuity_events import HeartbeatEnd, HeartbeatSkip, safe_ref
 from src.services.continuity_lines import (
     CONVERSATION_LABEL,
@@ -68,6 +66,7 @@ from src.utils.time_utils import (
 )
 
 if TYPE_CHECKING:
+    from src.models.identity import AgentIdentity
     from src.utils.continuity_events_db import TimelineSnapshot
 
 logger = logging.getLogger(__name__)
@@ -549,17 +548,10 @@ def _ago(now_s: float, then_s: float | None) -> str:
     return f"{format_elapsed(elapsed_seconds(now_s, then_s, 's'))} ago" if then_s else "unknown"
 
 
-def _board_identity(identity: Any, soul: AgentIdentity) -> AgentIdentity:
-    """和 ToolLayer 讀任務看板用同一個身分：ctx 的身分，沒有才依 agent 註冊角色建。"""
-    if isinstance(identity, AgentIdentity):
-        return identity
-    agent_info = agent_service.identify_agent(soul.agent_id) or {"role": "Base"}
-    return AgentIdentity.for_role(soul.agent_id, agent_info.get("role", "Base"), capabilities=[])
-
-
-async def _mission_line(identity: Any, soul: AgentIdentity, now_s: float) -> str:
+async def _mission_line(identity: AgentIdentity, now_s: float) -> str:
+    """和 ToolLayer 讀任務看板用同一個身分（ctx 的身分）。沒有身分的只有 SNS，SNS 不讀看板。"""
     try:
-        mission = await MissionManager().get_current_mission(_board_identity(identity, soul))
+        mission = await MissionManager().get_current_mission(identity)
     except Exception:
         logger.exception("continuity: reading mission board failed")
         return f"- {MISSION_LABEL}: unknown (read failed)"
@@ -591,7 +583,8 @@ async def build_continuity_block(
 
     無痕只放現在時間，不讀事件、不讀任務、不留紀錄。心跳不放「這段對話上一輪」、不更新記憶體
     紀錄（家對話和人類共用 session id）。``now_s`` 由呼叫端傳入時用同一個時間（心跳的時間前綴）。
-    SNS 觸發的請求（外人）不加其他對話的動態與最近結束的子代理（ADR-0319）。
+    SNS 觸發的請求（外人）不加其他對話的動態與最近結束的子代理（ADR-0319），也不帶任務看板與
+    最近完成的任務（ADR-0276 2026-11-24 修訂）。
     """
     now_s = get_current_epoch() if now_s is None else now_s
     lines = [HEADER, current_time_line(now_s)]
@@ -623,8 +616,9 @@ async def build_continuity_block(
                 lines.append(earlier)
         lines.append(_human_line(now_s, timeline))
         lines.append(_run_line(now_s, timeline, heartbeat=heartbeat))
-        lines.append(_recent_line(now_s, timeline))
-        lines.append(await _mission_line(identity, soul, now_s))
+        if not sns:  # 外人觸發的回合不帶看板與最近完成的任務（照無痕；ToolLayer 也不放看板）
+            lines.append(_recent_line(now_s, timeline))
+            lines.append(await _mission_line(identity, now_s))
         running = running_subagents_line(soul, session_id, now_s)
         if running is not None:
             lines.append(running)

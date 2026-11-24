@@ -1,6 +1,6 @@
 # ADR-0086: 無痕模式（Incognito，零殘留對話）
 
-**狀態 (Status):** ✅ 已接受
+**狀態 (Status):** ✅ 已接受（2026-11-24 修訂：無痕回合不自動帶任務看板，見文末）
 **日期 (Date):** 2026-06-13
 **決策者 (Deciders):** 維護者
 
@@ -53,3 +53,9 @@ localStorage、關閉即丟、視覺明顯標示。維護者決定：**完全失
 2. [x] 前端 syncSession 收口防線＋旗標流＋connections body＋匯出過濾。
 3. [x] UI：LeftSidebar 無痕入口＋SessionItem 標籤。
 4. [x] 契約同步（openapi/api.ts）＋ `hax_basics` 守衛擴充＋全量驗證。
+
+## 修訂（2026-11-24，外部審查小修第 1、10 項）
+
+- **任務看板不自動放進提示**：`<continuity>` 在無痕時本來就只放時間（ADR-0257、0267），但 ToolLayer 照樣讀任務看板、注入 `<mission_awareness>`，兩邊不一致。改成無痕時不讀看板、不注入。無痕不停用工具（見上面「不在範圍」），AI 自己用 `mission_tools` 查看仍然可以。
+- **記憶工具的無痕判斷看同一個變數**：ToolLayer 判斷無痕一律看 ctx 旗標或請求本身（`incognito`、`ui_persistence.mode`），記憶工具不再只看 ctx。所有入口本來都會把旗標帶進 ctx，行為不變，只是避免以後漏掉。
+- 測試：`tests/unit/test_ext_review_fixes.py`。

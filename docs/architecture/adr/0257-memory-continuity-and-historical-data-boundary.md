@@ -1,6 +1,6 @@
 # ADR-0257：記憶系統第一批段 6：現在時間區塊（continuity v0）與歷史資料界線
 
-- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第一批計畫；本 ADR 是段 6 的 PR，S2 現在時間區塊與 S1 歷史資料界線都照一般驗收）〔ADR-0267 修訂 S2 決策 3（上一輪的來源順序）與決策 4（心跳也注入）〕〔ADR-0285 修訂 S1「內文先中和」：前情摘要與家對話也中和其他 prompt 區塊 tag〕〔[ADR-0325](0325-mission-board-system-folder.md) 修訂：看板在 `data/missions`，取路徑不再建 `missions/`〕
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第一批計畫；本 ADR 是段 6 的 PR，S2 現在時間區塊與 S1 歷史資料界線都照一般驗收）〔ADR-0267 修訂 S2 決策 3（上一輪的來源順序）與決策 4（心跳也注入）〕〔ADR-0285 修訂 S1「內文先中和」：前情摘要與家對話也中和其他 prompt 區塊 tag〕〔[ADR-0325](0325-mission-board-system-folder.md) 修訂：看板在 `data/missions`，取路徑不再建 `missions/`〕〔[ADR-0086](0086-incognito-mode.md) 2026-11-24 修訂：無痕時 ToolLayer 也不讀看板、不放 `<mission_awareness>`，和本 ADR 的「無痕不讀任務看板」一致〕
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaProxy（新 `services/continuity_service.py`、`services/prompt_blocks.py`、`services/context_snapshot_service.py`、`middleware/layers/soul.py`、`adapters/openai_to_claude.py` 的斷點 2、`services/soul_service.py`）；ToukaMemory（新 `utils/historical_data.py`、`services/manager.py`、`tools/recall.py`）；SECURITY.md 一列
@@ -30,7 +30,7 @@ S1（歷史資料界線）：
   - 開頭一句（`HEADER`）：這段由系統附加、不是使用者寫的；只講事實；每次請求重新產生、不會被存下。
   - 現在時間：`get_current_epoch()`，用 `format_epoch_to_taipei` 呈現台北時間。
   - 距這個對話上一輪多久（見決策 3）。
-  - 任務看板：只補 `<mission_awareness>` 沒有的時間，也就是看板多久前更新、進行中（DOING）的 task id 各自多久前更新，再加一句「細節在 `<mission_awareness>`」；不重複大目標與 task 描述。讀取經 `MissionManager().get_current_mission`，唯讀；身分和 ToolLayer 相同（ctx 的身分，沒有時依 agent 註冊角色建）；「有進行中的看板」的條件也和 ToolLayer 相同（有看板而且 `status != "DONE"`），沒有就寫「no active mission」。
+  - 任務看板：只補 `<mission_awareness>` 沒有的時間，也就是看板多久前更新、進行中（DOING）的 task id 各自多久前更新，再加一句「細節在 `<mission_awareness>`」；不重複大目標與 task 描述。讀取經 `MissionManager().get_current_mission`，唯讀；身分和 ToolLayer 相同（ctx 的身分；〔2026-11-24 修訂：沒有身分的只有 SNS，SNS 回合不讀看板，原本「沒有時依 agent 註冊角色建」的退路刪掉，見 ADR-0276 修訂〕）；「有進行中的看板」的條件也和 ToolLayer 相同（有看板而且 `status != "DONE"`），沒有就寫「no active mission」。
 
 #### 2. 位置：附在這次請求最後一則 user 訊息尾端，不放 system
 
