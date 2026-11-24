@@ -6615,6 +6615,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/local-bridge/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Folders
+         * @description 配對的人本人看小幫手開放了哪些資料夾（ADR-0330）。以小幫手主視窗為準。
+         */
+        get: operations["list_folders_v1_local_bridge_folders_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/local-bridge/open-requests": {
         parameters: {
             query?: never;
@@ -6649,6 +6669,26 @@ export interface paths {
          * @description 小幫手來拿下一件工作。
          */
         post: operations["poll_v1_local_bridge_poll_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-bridge/folder-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report Folders
+         * @description 小幫手回報開放名單（ADR-0330）。只放記憶體，內容不寫日誌；較舊的照樣回成功、不存。
+         */
+        post: operations["report_folders_v1_local_bridge_folder_report_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6739,6 +6779,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/local-bridge/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Folders
+         * @description 配對的人本人看小幫手開放了哪些資料夾（ADR-0330）。以小幫手主視窗為準。
+         */
+        get: operations["list_folders_local_bridge_folders_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/local-bridge/open-requests": {
         parameters: {
             query?: never;
@@ -6773,6 +6833,26 @@ export interface paths {
          * @description 小幫手來拿下一件工作。
          */
         post: operations["poll_local_bridge_poll_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/local-bridge/folder-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report Folders
+         * @description 小幫手回報開放名單（ADR-0330）。只放記憶體，內容不寫日誌；較舊的照樣回成功、不存。
+         */
+        post: operations["report_folders_local_bridge_folder_report_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8840,8 +8920,67 @@ export interface components {
             signature: string;
         };
         /**
+         * LocalFolderEntry
+         * @description 一個開放的資料夾（ADR-0330）。完整路徑只給配對的人看，不給模型、不寫日誌。
+         */
+        LocalFolderEntry: {
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+            /** Writable */
+            writable: boolean;
+            /** Usable */
+            usable: boolean;
+        };
+        /**
+         * LocalFolderList
+         * @description 設定頁看的開放名單。只有 ``ok`` 時才有 ``folders``。
+         */
+        LocalFolderList: {
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "offline" | "waiting" | "stale" | "ok";
+            /**
+             * Exposed
+             * @default false
+             */
+            exposed: boolean;
+            /** Folders */
+            folders?: components["schemas"]["LocalFolderEntry"][] | null;
+            /**
+             * Omitted
+             * @default 0
+             */
+            omitted: number;
+        };
+        /**
+         * LocalFolderReport
+         * @description 小幫手回報的開放名單（ADR-0330）。
+         *
+         *     ``instance`` 每次啟動不同；同一次啟動裡 ``revision`` 越大越新。
+         */
+        LocalFolderReport: {
+            /** Protocol */
+            protocol: number;
+            /** Instance */
+            instance: string;
+            /** Revision */
+            revision: number;
+            /** Exposed */
+            exposed: boolean;
+            /** Folders */
+            folders: components["schemas"]["LocalFolderEntry"][];
+            /** Omitted */
+            omitted: number;
+        };
+        /**
          * LocalHelperStatus
          * @description 設定頁顯示的狀態。
+         *
+         *     ``version_problem``：最近被拒絕的輪詢是哪一邊版本舊（ADR-0330）；連線中一律是 None。
          */
         LocalHelperStatus: {
             /** Paired */
@@ -8850,6 +8989,8 @@ export interface components {
             online: boolean;
             /** Helper Version */
             helper_version?: string | null;
+            /** Version Problem */
+            version_problem?: ("helper_older" | "touka_older") | null;
         };
         /**
          * LocalJob
@@ -22507,6 +22648,26 @@ export interface operations {
             };
         };
     };
+    list_folders_v1_local_bridge_folders_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalFolderList"];
+                };
+            };
+        };
+    };
     request_open_v1_local_bridge_open_requests_post: {
         parameters: {
             query?: never;
@@ -22562,6 +22723,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LocalPollResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    report_folders_v1_local_bridge_folder_report_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-touka-local-token"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalFolderReport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalJobAck"];
                 };
             };
             /** @description Validation Error */
@@ -22705,6 +22901,26 @@ export interface operations {
             };
         };
     };
+    list_folders_local_bridge_folders_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalFolderList"];
+                };
+            };
+        };
+    };
     request_open_local_bridge_open_requests_post: {
         parameters: {
             query?: never;
@@ -22760,6 +22976,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LocalPollResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    report_folders_local_bridge_folder_report_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-touka-local-token"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalFolderReport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalJobAck"];
                 };
             };
             /** @description Validation Error */

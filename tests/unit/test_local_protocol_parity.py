@@ -10,12 +10,18 @@ from typing import get_args
 from src.models.local_bridge import (
     MAX_ERROR_MESSAGE_CHARS,
     MAX_JOB_RESULT_BYTES,
+    MAX_OPEN_NAME_CHARS,
     MAX_OPEN_PATH_CHARS,
+    MAX_REPORTED_FOLDERS,
+    MAX_REPORTED_PATH_CHARS,
     MAX_REQUESTER_CHARS,
     PROTOCOL_VERSION,
+    UNSAFE_TEXT_PATTERN,
     DecidedByMode,
     LocalAction,
     LocalDecision,
+    LocalFolderEntry,
+    LocalFolderReport,
     LocalJob,
     LocalJobResult,
     LocalPollRequest,
@@ -128,3 +134,14 @@ def test_open_request_constants_match() -> None:
     assert _constants("protocol.py")["DECIDED_BY_OPEN_REQUEST"] == DECIDED_BY_OPEN_REQUEST
     assert _constants("signing.py")["ACT_REQUEST_OPEN"] == ACT_REQUEST_OPEN
     assert _constants("paths.py")["MAX_REQUEST_PATH_CHARS"] == MAX_OPEN_PATH_CHARS
+
+
+def test_folder_report_matches() -> None:
+    """開放名單的回報（ADR-0330）：欄位、上限與不收的字元兩邊相同，小幫手先過濾，整份才不會被拒。"""
+    helper = _constants("protocol.py")
+    assert helper["FOLDER_REPORT_FIELDS"] == frozenset(LocalFolderReport.model_fields)
+    assert helper["FOLDER_ENTRY_FIELDS"] == frozenset(LocalFolderEntry.model_fields)
+    assert helper["MAX_REPORTED_FOLDERS"] == MAX_REPORTED_FOLDERS
+    assert helper["MAX_REPORTED_PATH_CHARS"] == MAX_REPORTED_PATH_CHARS
+    assert helper["MAX_REPORTED_NAME_CHARS"] == MAX_OPEN_NAME_CHARS
+    assert helper["UNSAFE_TEXT_PATTERN"] == UNSAFE_TEXT_PATTERN

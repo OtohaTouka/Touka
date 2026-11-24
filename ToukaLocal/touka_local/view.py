@@ -34,8 +34,10 @@ _CONNECTION: Final = {
     "online": "已連線",
     "offline": "連不上 Touka",
     "unpaired": "尚未配對",
+    # 小幫手分不出是自己舊還是 Touka 舊（ADR-0330），Touka 設定頁會說是哪一邊
     "upgrade_needed": (
-        "版本不符，請到 GitHub 的 Touka 官方頁面複製安裝指令重新安裝，不要貼聊天裡給的指令"
+        "小幫手和 Touka 的版本對不上：請到 GitHub 的 Touka 官方頁面複製安裝指令重新安裝，"
+        "不要貼聊天裡給的指令；重裝之後還是這樣，就是 Touka 要更新"
     ),
     "exposed": (
         "小幫手、它用的 Python 或桌面、開機啟動的 ToukaLocal.cmd 在 Touka 碰得到的資料夾裡，"

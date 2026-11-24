@@ -15895,6 +15895,33 @@
         ]
       }
     },
+    "/v1/local-bridge/folders": {
+      "get": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "List Folders",
+        "description": "配對的人本人看小幫手開放了哪些資料夾（ADR-0330）。以小幫手主視窗為準。",
+        "operationId": "list_folders_v1_local_bridge_folders_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalFolderList"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/v1/local-bridge/open-requests": {
       "post": {
         "tags": [
@@ -15979,6 +16006,60 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/LocalPollResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/local-bridge/folder-report": {
+      "post": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Report Folders",
+        "description": "小幫手回報開放名單（ADR-0330）。只放記憶體，內容不寫日誌；較舊的照樣回成功、不存。",
+        "operationId": "report_folders_v1_local_bridge_folder_report_post",
+        "parameters": [
+          {
+            "name": "x-touka-local-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Touka-Local-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalFolderReport"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalJobAck"
                 }
               }
             }
@@ -16191,6 +16272,33 @@
         ]
       }
     },
+    "/local-bridge/folders": {
+      "get": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "List Folders",
+        "description": "配對的人本人看小幫手開放了哪些資料夾（ADR-0330）。以小幫手主視窗為準。",
+        "operationId": "list_folders_local_bridge_folders_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalFolderList"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/local-bridge/open-requests": {
       "post": {
         "tags": [
@@ -16275,6 +16383,60 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/LocalPollResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-bridge/folder-report": {
+      "post": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Report Folders",
+        "description": "小幫手回報開放名單（ADR-0330）。只放記憶體，內容不寫日誌；較舊的照樣回成功、不存。",
+        "operationId": "report_folders_local_bridge_folder_report_post",
+        "parameters": [
+          {
+            "name": "x-touka-local-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Touka-Local-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalFolderReport"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalJobAck"
                 }
               }
             }
@@ -20843,6 +21005,132 @@
         "title": "LocalDecision",
         "description": "照模式做的決定和 Touka 蓋的章（ADR-0317），或開放請求的章（ADR-0320）。\n\n由通道填，模型的參數碰不到。"
       },
+      "LocalFolderEntry": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Path"
+          },
+          "writable": {
+            "type": "boolean",
+            "title": "Writable"
+          },
+          "usable": {
+            "type": "boolean",
+            "title": "Usable"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "path",
+          "writable",
+          "usable"
+        ],
+        "title": "LocalFolderEntry",
+        "description": "一個開放的資料夾（ADR-0330）。完整路徑只給配對的人看，不給模型、不寫日誌。"
+      },
+      "LocalFolderList": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "offline",
+              "waiting",
+              "stale",
+              "ok"
+            ],
+            "title": "State"
+          },
+          "exposed": {
+            "type": "boolean",
+            "title": "Exposed",
+            "default": false
+          },
+          "folders": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/LocalFolderEntry"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folders"
+          },
+          "omitted": {
+            "type": "integer",
+            "title": "Omitted",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "LocalFolderList",
+        "description": "設定頁看的開放名單。只有 ``ok`` 時才有 ``folders``。"
+      },
+      "LocalFolderReport": {
+        "properties": {
+          "protocol": {
+            "type": "integer",
+            "title": "Protocol"
+          },
+          "instance": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{22}$",
+            "title": "Instance"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision"
+          },
+          "exposed": {
+            "type": "boolean",
+            "title": "Exposed"
+          },
+          "folders": {
+            "items": {
+              "$ref": "#/components/schemas/LocalFolderEntry"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "title": "Folders"
+          },
+          "omitted": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Omitted"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "protocol",
+          "instance",
+          "revision",
+          "exposed",
+          "folders",
+          "omitted"
+        ],
+        "title": "LocalFolderReport",
+        "description": "小幫手回報的開放名單（ADR-0330）。\n\n``instance`` 每次啟動不同；同一次啟動裡 ``revision`` 越大越新。"
+      },
       "LocalHelperStatus": {
         "properties": {
           "paired": {
@@ -20863,6 +21151,21 @@
               }
             ],
             "title": "Helper Version"
+          },
+          "version_problem": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "helper_older",
+                  "touka_older"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Problem"
           }
         },
         "additionalProperties": false,
@@ -20872,7 +21175,7 @@
           "online"
         ],
         "title": "LocalHelperStatus",
-        "description": "設定頁顯示的狀態。"
+        "description": "設定頁顯示的狀態。\n\n``version_problem``：最近被拒絕的輪詢是哪一邊版本舊（ADR-0330）；連線中一律是 None。"
       },
       "LocalJob": {
         "properties": {

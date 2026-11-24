@@ -1384,7 +1384,22 @@
         "denied": "You are not allowed to send this.",
         "invalid_path": "The path has characters that cannot be used, or is too long.",
         "failed": "No result came back. If the helper showed a window, decide there; otherwise try again."
-      }
+      },
+      "status_helper_older": "Paired, but the helper is too old: copy the install line from the ToukaLocal page on GitHub and reinstall",
+      "status_touka_older": "Paired, but Touka is older than the helper: update Touka",
+      "folders_heading": "Open folders",
+      "folders_help": "The helper's main window is what counts. To change a permission or remove a folder, use the helper's main window: open ToukaLocal.cmd from the desktop (or %LOCALAPPDATA%\\ToukaLocal) to bring it up.",
+      "folders_denied": "Only the person who created the pairing code can see the open folders.",
+      "folders_failed": "Could not read the open folders. Try again later.",
+      "folders_offline": "The helper is not connected, so the open folders can't be shown.",
+      "folders_waiting": "Waiting for the helper to report its open folders.",
+      "folders_stale": "The helper has not reported for a while, so the open folders can't be shown.",
+      "folders_exposed": "For safety, the helper has stopped working. See its main window for the reason.",
+      "folders_empty": "No folders are open yet.",
+      "folders_read_only": "View only",
+      "folders_writable": "Can change",
+      "folders_paused": "Paused",
+      "folders_omitted": "{{count}} more not listed; see the helper's main window."
     }
   },
   "sidebar": {

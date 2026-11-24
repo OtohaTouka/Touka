@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Final, Protocol
 from touka_local.connection import AuthLost, ConnectionLost, ProtocolMismatch
 from touka_local.errors import Refused
 from touka_local.floors import plan_entries, window_reason
+from touka_local.folder_report import FolderReporter
 from touka_local.open_request import (
     OPEN_DECISION_SECONDS,
     REASON_INTERNAL,
@@ -28,7 +29,12 @@ from touka_local.open_request import (
     verify_open_request,
 )
 from touka_local.operations import ApplyLimits, Plan
-from touka_local.protocol import DECIDED_BY_HELPER_WINDOW, ProtocolError, result_payload
+from touka_local.protocol import (
+    DECIDED_BY_HELPER_WINDOW,
+    ProtocolError,
+    folder_report,
+    result_payload,
+)
 from touka_local.signing import decision_signature_ok, text_fingerprint
 from touka_local.view import preview_text
 
@@ -142,6 +148,9 @@ class Client(Protocol):
     def result(self, job_id: str, payload: dict[str, Any]) -> bool:
         """回報結果。"""
 
+    def report_folders(self, payload: dict[str, Any]) -> bool:
+        """回報開放名單（ADR-0330）。"""
+
 
 @dataclass
 class _Running:
@@ -232,6 +241,9 @@ class HelperService:
         self._open_nonces: list[str] = []
         self._open_pause = OpenPause()
         self.state = STATE_STARTING if client is not None else STATE_UNPAIRED
+        # 開放名單的回報（ADR-0330）：每次啟動一個新的編號，Touka 靠它知道修改次數從頭算
+        self._instance = secrets.token_urlsafe(16)
+        self._reporter = FolderReporter(clock=clock)
         self.notice = ""
         self.last_report: dict[str, Any] | None = None
         # 最近一次開放請求核准後的結果：(代碼, 名稱)，主視窗顯示用；不含 Touka 送來的路徑
@@ -264,6 +276,7 @@ class HelperService:
         with self._lock:
             self._previews.clear()
         self._client = client
+        self._reporter.connection_lost()
         self.state = STATE_STARTING if client is not None else STATE_UNPAIRED
 
     # --- 輪詢 ---
@@ -284,18 +297,42 @@ class HelperService:
         except AuthLost:
             self.state = STATE_UNPAIRED
             self._abandon_work()
+            self._reporter.connection_lost()
             return False
         except (ProtocolMismatch, ProtocolError):
             self.state = STATE_UPGRADE_NEEDED
+            self._reporter.connection_lost()
             return False
         except ConnectionLost:
             self.state = STATE_OFFLINE
+            self._reporter.connection_lost()
             return False
         except Exception:
             logger.exception("polling failed")
             self.state = STATE_OFFLINE
+            self._reporter.connection_lost()
             return False
+        self._report_folders(client)
         return True
+
+    def _report_folders(self, client: Client) -> None:
+        """輪詢成功之後，該送的時候把開放名單送給 Touka（ADR-0330）。送不出去不影響輪詢。"""
+        exposed = self.state == STATE_EXPOSED
+        if not self._reporter.due(self._grants.revision, exposed=exposed):
+            return
+        revision, entries = self._grants.snapshot()
+        payload = folder_report(
+            instance=self._instance,
+            revision=revision,
+            exposed=exposed,
+            folders=[(g.name, g.path, g.writable, usable) for g, usable in entries],
+        )
+        try:
+            ok = client.report_folders(payload)
+        except Exception:
+            logger.exception("reporting the open folders failed")
+            ok = False
+        self._reporter.record(revision, exposed=exposed, ok=ok)
 
     def _handle(self, response: PollResponse) -> None:
         self._grants.set_mount_roots(response.host_mount_roots)

@@ -22,7 +22,10 @@ from src.models.local_bridge import (
     MAX_OPEN_NAME_CHARS,
     MAX_REQUESTER_CHARS,
     MAX_RESULT_CODE_CHARS,
+    PROTOCOL_VERSION,
+    UNSAFE_TEXT_PATTERN,
     LocalDecision,
+    LocalFolderList,
     LocalJob,
     LocalJobResult,
     LocalOpenResult,
@@ -37,6 +40,8 @@ from src.utils.time_utils import get_monotonic_ms
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from src.models.local_bridge import LocalFolderEntry, LocalFolderReport
 
 MAX_PENDING_JOBS: Final = 8
 MAX_CANCELLED_IDS: Final = 32
@@ -54,6 +59,11 @@ EXECUTION_WAIT_SECONDS: Final = 330.0
 POLL_HOLD_SECONDS: Final = 5.0
 ONLINE_WINDOW_SECONDS: Final = 20.0
 CHECK_INTERVAL_SECONDS: Final = 1.0
+# 開放名單（ADR-0330）：小幫手名單沒變也每 30 秒送一次，超過這麼久沒有新的就當作沒有
+FOLDER_REPORT_MAX_AGE_SECONDS: Final = 75.0
+# 記下被拒絕的輪詢帶的版本號，只收這個範圍
+_MIN_NOTED_PROTOCOL: Final = 1
+_MAX_NOTED_PROTOCOL: Final = 99
 
 CODE_OFFLINE: Final = "helper_offline"
 CODE_BUSY: Final = "helper_busy"
@@ -78,7 +88,7 @@ CODE_UNKNOWN: Final = "unknown"
 _OPENED_FIELDS: Final = frozenset({"name", "writable"})
 # 小幫手回的代碼與名稱會顯示在設定頁：代碼只收小寫英數與底線，名稱不收控制字元與改變顯示方向的字元
 _RESULT_CODE: Final = re.compile(rf"[a-z0-9_]{{1,{MAX_RESULT_CODE_CHARS}}}")
-_UNSAFE_NAME_CHAR: Final = re.compile(r"[\x00-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+_UNSAFE_NAME_CHAR: Final = re.compile(UNSAFE_TEXT_PATTERN)
 
 
 # Windows 磁碟在 Git Bash、WSL、Docker Desktop 裡的寫法
@@ -151,6 +161,19 @@ class _Job:
         return self.confirmed or (self.sent and self.action in _MUTATING_WITHOUT_CONFIRM)
 
 
+@dataclass(frozen=True)
+class _FolderReport:
+    """小幫手最近一次回報的開放名單，只在記憶體。"""
+
+    generation: int
+    instance: str
+    revision: int
+    exposed: bool
+    folders: tuple[LocalFolderEntry, ...]
+    omitted: int
+    received_at: float
+
+
 class LocalBridge:
     """一次只服務一個小幫手；後來的輪詢取代先前的。"""
 
@@ -170,6 +193,9 @@ class LocalBridge:
         self._poll_seq = 0
         self._last_poll: float | None = None
         self._helper_version: str | None = None
+        # 開放名單與版本不符（ADR-0330），都只在記憶體；換配對時清掉
+        self._report: _FolderReport | None = None
+        self._mismatch: tuple[float, int] | None = None
 
     @property
     def online(self) -> bool:
@@ -182,6 +208,56 @@ class LocalBridge:
     def helper_version(self) -> str | None:
         """上線中的小幫手版本。"""
         return self._helper_version if self.online else None
+
+    @property
+    def version_problem(self) -> str | None:
+        """最近被拒絕的輪詢是哪一邊版本舊；連線中、或超過上線期限就不算。"""
+        mismatch = self._mismatch
+        if self.online or mismatch is None:
+            return None
+        noted_at, protocol = mismatch
+        if self._clock() - noted_at > ONLINE_WINDOW_SECONDS:
+            return None
+        return "helper_older" if protocol < PROTOCOL_VERSION else "touka_older"
+
+    def note_mismatch(self, protocol: int) -> None:
+        """權杖對、版本不同的輪詢。呼叫端要先驗過權杖，別人留不下紀錄。"""
+        if protocol != PROTOCOL_VERSION and _MIN_NOTED_PROTOCOL <= protocol <= _MAX_NOTED_PROTOCOL:
+            self._mismatch = (self._clock(), protocol)
+
+    def accept_report(self, generation: int, report: LocalFolderReport) -> None:
+        """收下小幫手回報的開放名單。別的配對的、同一次啟動裡較舊的都不收。"""
+        if generation != self._generation:
+            return
+        current = self._report
+        if (
+            current is not None
+            and current.instance == report.instance
+            and report.revision < current.revision
+        ):
+            return
+        self._report = _FolderReport(
+            generation=generation,
+            instance=report.instance,
+            revision=report.revision,
+            exposed=report.exposed,
+            folders=tuple(report.folders),
+            omitted=report.omitted,
+            received_at=self._clock(),
+        )
+
+    def folder_list(self) -> LocalFolderList:
+        """設定頁看的開放名單：離線、還沒回報、太久沒回報都不給清單。"""
+        if not self.online:
+            return LocalFolderList(state="offline")
+        report = self._report
+        if report is None or report.generation != self._generation:
+            return LocalFolderList(state="waiting")
+        if self._clock() - report.received_at > FOLDER_REPORT_MAX_AGE_SECONDS:
+            return LocalFolderList(state="stale")
+        return LocalFolderList(
+            state="ok", exposed=report.exposed, folders=list(report.folders), omitted=report.omitted
+        )
 
     def _notify(self) -> None:
         for waiter in self._waiters:
@@ -206,6 +282,8 @@ class LocalBridge:
         self._poll_seq += 1
         self._last_poll = None
         self._helper_version = None
+        self._report = None
+        self._mismatch = None
         for job in self._jobs.values():
             job.result = _failure(CODE_RESULT_UNKNOWN if job.may_have_run else CODE_PAIRING_CHANGED)
         self._jobs.clear()

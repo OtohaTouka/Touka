@@ -23,6 +23,8 @@ export type LocalHelperStatus = components['schemas']['LocalHelperStatus'];
 export type LocalPairingCreated = components['schemas']['LocalPairingCreated'];
 export type LocalOpenRequest = components['schemas']['LocalOpenRequest'];
 export type LocalOpenResult = components['schemas']['LocalOpenResult'];
+export type LocalFolderList = components['schemas']['LocalFolderList'];
+export type LocalFolderEntry = components['schemas']['LocalFolderEntry'];
 
 // ADR-0292：Hook 設定頁
 export type HooksConfig = components['schemas']['HooksConfig-Input'];

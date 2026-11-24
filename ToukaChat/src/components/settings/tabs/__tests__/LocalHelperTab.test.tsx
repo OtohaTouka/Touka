@@ -3,10 +3,15 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
 import '@/lib/i18n';
 
+type Status = {
+    paired: boolean;
+    online: boolean;
+    helper_version: string | null;
+    version_problem?: 'helper_older' | 'touka_older' | null;
+};
+
 const helper = {
-    status: { paired: false, online: false, helper_version: null } as
-        | { paired: boolean; online: boolean; helper_version: string | null }
-        | null,
+    status: { paired: false, online: false, helper_version: null } as Status | null,
     failed: false,
     code: null as string | null,
     busy: false,
@@ -14,6 +19,10 @@ const helper = {
     revokePairing: vi.fn(async () => true),
 };
 vi.mock('@/hooks/settings/useLocalHelper', () => ({ useLocalHelper: () => helper }));
+// 開放名單（ADR-0330）有自己的測試；這裡不讓它去讀
+vi.mock('@/hooks/settings/useLocalHelperFolders', () => ({
+    useLocalHelperFolders: () => ({ kind: 'loading' }),
+}));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { toast } from 'sonner';
@@ -50,6 +59,16 @@ describe('LocalHelperTab（ADR-0312）', () => {
         helper.status = { paired: true, online: false, helper_version: null };
         render(<LocalHelperTab />);
         expect(screen.getByText('已配對，小幫手沒有開著')).toBeDefined();
+    });
+
+    it.each([
+        ['helper_older', '已配對，小幫手版本太舊：請到 GitHub 的 ToukaLocal 頁面複製安裝指令重新安裝'],
+        ['touka_older', '已配對，Touka 比小幫手舊：請更新 Touka'],
+    ] as const)('版本不符（%s）時說要更新哪一邊，不說沒有開著（ADR-0330）', (problem, text) => {
+        helper.status = { paired: true, online: false, helper_version: null, version_problem: problem };
+        render(<LocalHelperTab />);
+        expect(screen.getByText(text)).toBeDefined();
+        expect(screen.queryByText('已配對，小幫手沒有開著')).toBeNull();
     });
 
     it('已連線時顯示版本', () => {
