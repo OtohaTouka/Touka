@@ -3,8 +3,7 @@
 
 ruff、pyrefly 每條規則的數量必須和基準完全相等。變多要修；變少要在同一個 PR 重拍基準，
 讓改善留在差異裡、之後不會被悄悄用掉。vulture 例外，只有多出來才紅（ADR-0298）。
-complexity 記的是每個超過上限 15 的函式的複雜度（ADR-0331）：新超標或變複雜要拆，
-變簡單、改名或搬檔要重拍；兩個方向都紅，訊息分開。
+complexity 記每個超過 15 的函式（ADR-0331），兩個方向都紅：變多要拆，變少要重拍。
 測試（`tests/lint/test_ruff_ratchet.py`、`tests/lint/test_pyrefly_ratchet.py`、
 `tests/lint/test_vulture_ratchet.py`、`tests/lint/test_complexity_ratchet.py`）和重拍都用
 這裡唯一一份收集指令，兩邊不會各算各的。只用標準函式庫。
@@ -63,10 +62,12 @@ PYREFLY_LOG_PREFIX = "INFO "
 # 函式複雜度（ruff C901）上限；超過的才記進基準（ADR-0331）。
 MAX_COMPLEXITY = 15
 COMPLEXITY_BASELINE = PROJECT_ROOT / "tests" / "lint" / "complexity_baseline.json"
-# --isolated 不讀 ruff.toml（per-file-ignores 關不掉），--ignore-noqa 讓 noqa 壓不掉。
+# --isolated 不讀 ruff.toml（per-file-ignores 關不掉），--ignore-noqa 讓 noqa 壓不掉；
+# 不看 .gitignore、清掉預設排除（dist、venv…）、加掃 .pyw，檔案藏不起來。
 COMPLEXITY_ARGS = (
-    "ruff", "check", "--isolated", "--ignore-noqa", "--no-cache",
+    "ruff", "check", "--isolated", "--ignore-noqa", "--no-cache", "--no-respect-gitignore",
     "--select", "C901", "--config", f"lint.mccabe.max-complexity={MAX_COMPLEXITY}",
+    "--config", "exclude=[]", "--config", 'extend-include=["*.pyw"]',
     "--output-format", "json",
 )  # fmt: skip
 COMPLEXITY_CODE = "C901"
@@ -83,9 +84,7 @@ def _only_info_logs(stderr: str) -> bool:
     return all(line.startswith(PYREFLY_LOG_PREFIX) for line in lines)
 
 
-def _run_tool_module(
-    args: list[str], cwd: Path | None = None
-) -> subprocess.CompletedProcess[str]:
+def _run_tool_module(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     """在 repo 根目錄（或指定資料夾）用目前的直譯器跑檢查工具模組，不經 shell。"""
     return subprocess.run(  # noqa: S603 - fixed tool module argv, no shell
         [sys.executable, "-m", *args],
@@ -225,12 +224,11 @@ def parse_complexity(result: subprocess.CompletedProcess[str], root: Path) -> Co
         path = Path(item["filename"])
         if path not in names:
             names[path] = _definitions(path)
-        qualname = _qualname(names[path], message["name"], item["location"]["row"], path)
-        key = f"{path.relative_to(root).as_posix()}::{qualname}"
-        numbered, serial = key, 2
-        while numbered in found:  # 同檔同完整名稱（if／else 各定義一次）依行號加序號
-            numbered, serial = f"{key}#{serial}", serial + 1
-        found[numbered] = int(message["score"])
+        qualname, start = _qualname(names[path], message["name"], item["location"]["row"], path)
+        # 同完整名稱的定義（property、if／else 兩邊）照檔內順序編號，互換才會紅。
+        serial = sorted(begin for other, begin, _ in names[path] if other == qualname).index(start)
+        key = f"{path.resolve().relative_to(root.resolve()).as_posix()}::{qualname}"
+        found[f"{key}#{serial + 1}" if serial else key] = int(message["score"])
     return found
 
 
@@ -252,10 +250,12 @@ def _definitions(path: Path) -> list[tuple[str, int, int]]:
     return found
 
 
-def _qualname(definitions: list[tuple[str, int, int]], name: str, row: int, path: Path) -> str:
-    """把 ruff 回報的短名稱與行號換成完整名稱；要恰好對到一個 def，否則丟錯。"""
+def _qualname(
+    definitions: list[tuple[str, int, int]], name: str, row: int, path: Path
+) -> tuple[str, int]:
+    """把 ruff 回報的短名稱與行號換成 (完整名稱, def 起始行)；要恰好對到一個 def，否則丟錯。"""
     matches = [
-        qualname
+        (qualname, start)
         for qualname, start, body in definitions
         if qualname.rsplit(".", 1)[-1] == name and start <= row <= body
     ]
@@ -291,6 +291,9 @@ def _complexity_main(current: Counter[str], baseline_path: Path, *, update: bool
         )
         raise RuntimeError(message)
     if update:
+        for problem in compare_complexity(current, baseline):
+            if "要拆" in problem:  # --update 照單全收，至少讓跑的人看到收了什麼
+                print(f"收進基準（只有改名或搬檔可以，要在 PR 說明列出）：{problem}")
         write_baseline(baseline_path, current)
         print(f"complexity: baseline updated, {len(current)} functions over {MAX_COMPLEXITY}")
         return 0

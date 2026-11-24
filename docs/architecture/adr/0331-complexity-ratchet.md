@@ -22,12 +22,12 @@
    - 「變簡單，請跑 --update」「不見了（改名、搬檔或拆掉），請跑 --update」：在同一個 PR 跑 `python scripts/lint_ratchet.py complexity --update`，改善才留在差異裡，之後不會被悄悄用掉（同 ADR-0278 §1）。
    - 不放進 `ONE_WAY_TOOLS`：數字只跟著函式自己的分支變，沒有 vulture 那種「別處改了、這裡消失」的雜訊。
 3. **審查規則**：`--update` 會照單全收，所以基準檔的差異要人看。只接受兩種：數字變小或消失；改名或搬檔、數字沒變大，而且在 PR 說明逐項列出。其他新增或變大的一律退回去拆。
-4. **壓不掉**：收集固定用 `--isolated --ignore-noqa`（`COMPLEXITY_ARGS` 整組由測試釘住）。`--isolated` 不讀 `ruff.toml`，per-file-ignores 關不掉；`--ignore-noqa` 讓 def 行的 `# noqa: C901`、檔頭的 `# ruff: noqa` 都壓不掉。參數裡不能有 `--ignore`、`--exclude`、`--extend-exclude`、`--per-file-ignores`。
+4. **壓不掉、藏不起來**：收集固定用 `--isolated --ignore-noqa --no-respect-gitignore`，再清掉預設排除、加掃 `.pyw`（`COMPLEXITY_ARGS` 整組由測試釘住）。`--isolated` 不讀 `ruff.toml`，per-file-ignores 關不掉；`--ignore-noqa` 讓 def 行的 `# noqa: C901`、檔頭的 `# ruff: noqa` 都壓不掉；後三個讓列進 `.gitignore`、放在 `dist/`、`venv/` 這類預設排除的資料夾、存成 `.pyw` 的檔案照樣被掃（DEV-B 實測這幾種原本都會漏掉；本機產品資料夾裡沒追蹤的雜檔也會被掃，只會誤紅、不會漏）。參數裡不能有 `--ignore`、`--exclude`、`--extend-exclude`、`--per-file-ignores`。
 5. **看不懂就丟錯，不當成 0 筆**：
    - 收集前逐一確認五個資料夾都在：ruff 碰到不存在的資料夾只在 stderr 印一行，結束碼不變。
    - stderr 有任何輸出、結束碼不是 0 或 1、輸出不是 JSON、代號不是 C901（含 `invalid-syntax`）、訊息格式認不得、訊息裡的上限不是 15、結束碼和結果數量矛盾，都丟錯。資料夾預檢和 stderr 檢查是故意重疊的兩層。
    - 「基準不是空的，結果卻一筆都沒有」：檢查和 `--update` 兩條路都丟錯，收集壞掉時才不會被一次 `--update` 寫成空基準、等於關掉檢查。真的全部拆完時，手動把基準改成 `{}`，並在 PR 說明。
-6. **完整名稱**：ruff 只報短名稱與行號。用標準函式庫 `ast` 找出那個 def 的完整名稱（例如 `ToolLayer.process`、`outer.<locals>.inner`、`factory.<locals>.Inner.method`，和 Python 的 `__qualname__` 一致）：名稱相同，而且 def 的起始行 ≤ 回報行 ≤ 本體第一行（多行裝飾器、`async \` 換行都對得到）。必須恰好對到一個，否則丟錯，不退回短名稱、也不略過。同檔同完整名稱（例如 `if`／`else` 兩邊各定義一次）依行號加 `#2`、`#3`；現在 0 組。
+6. **完整名稱**：ruff 只報短名稱與行號。用標準函式庫 `ast` 找出那個 def 的完整名稱（例如 `ToolLayer.process`、`outer.<locals>.inner`、`factory.<locals>.Inner.method`，和 Python 的 `__qualname__` 一致）：名稱相同，而且 def 的起始行 ≤ 回報行 ≤ 本體第一行（多行裝飾器、`async \` 換行都對得到）。必須恰好對到一個，否則丟錯，不退回短名稱、也不略過。同檔同完整名稱（property 的 getter／setter、`if`／`else` 兩邊各定義一次）依在檔內的順序加 `#2`、`#3`，不管有沒有超標，兩個互換時才會紅；現在 0 組。路徑先解析符號連結再比對。
 7. **在 CI 的 pytest 裡跑**：`tests/lint/test_complexity_ratchet.py`。不改 CI 設定、不加套件。CI 完整測試要 36～40 分鐘才會紅，本機跑這道不到一秒，`CONTRIBUTING.md` 與測試交班寫「推送前先跑」。
 
 ## 後果
@@ -42,7 +42,7 @@
 - 只看函式，不看模組層級的程式碼與類別本體。
 - 前端（TypeScript）沒有對應的檢查，要的話另列候選。
 - 改名或搬檔時會變成「舊的不見、新的超標」，只能靠審查確認數字沒變大。
-- 只算分支數，不代表函式長度或可讀性；長而沒有分支的函式不會紅。
+- 只算分支數，不代表函式長度或可讀性；長而沒有分支的函式不會紅。條件運算式（`a if c else b`）與 `and`／`or` 不算分支：把 if 鏈改寫成這些寫法數字會下降，函式卻沒變簡單，審查要留意。
 
 ## 撤回
 

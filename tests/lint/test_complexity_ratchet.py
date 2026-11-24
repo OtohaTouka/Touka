@@ -58,11 +58,20 @@ def _mini_project(root: Path) -> None:
         "def silenced(x):  # noqa: C901\n" + _branches(15, 4) + "\n\n"
         "if FLAG:\n    def twin(x):\n" + _branches(15, 8)
         + "else:\n    def twin(x):\n" + _branches(15, 8)
+        # 只有 setter 超標：照在檔內的順序它是第二個，互換 getter、setter 才會紅。
+        + "\n\nclass Prop:\n    @property\n    def value(self):\n        return 1\n\n"
+        "    @value.setter\n    def value(self, x):\n" + _branches(15, 8)
     )
-    (root / "pkg" / "sub").mkdir(parents=True)
-    (root / "pkg" / "a.py").write_text(source, encoding="utf-8")
     deep = "def deep(x):\n" + _branches(15, 4)
-    (root / "pkg" / "sub" / "b.py").write_text(deep, encoding="utf-8")
+    for folder in ("sub", "dist"):
+        (root / "pkg" / folder).mkdir(parents=True)
+    (root / "pkg" / "a.py").write_text(source, encoding="utf-8")
+    # 藏檔的各種寫法：預設排除的資料夾、.pyw、.gitignore、檔頭 noqa，都要掃到。
+    for name in ("sub/b.py", "dist/built.py", "gui.pyw", "hidden.py"):
+        (root / "pkg" / name).write_text(deep, encoding="utf-8")
+    (root / "pkg" / "quiet.py").write_text("# ruff: noqa\n" + deep, encoding="utf-8")
+    (root / ".git").mkdir()  # 有 .git 時 ruff 預設會照 .gitignore 跳過
+    (root / ".gitignore").write_text("pkg/hidden.py\n", encoding="utf-8")
     # 小專案自帶的設定想把 C901 關掉；--isolated 不讀它。
     (root / "ruff.toml").write_text(
         '[lint.per-file-ignores]\n"pkg/**/*.py" = ["C901"]\n', encoding="utf-8"
@@ -94,8 +103,10 @@ def test_complexity_matches_the_baseline() -> None:
 def test_the_limit_and_the_ruff_arguments_are_pinned() -> None:
     assert MAX_COMPLEXITY == 15
     assert COMPLEXITY_ARGS == (
-        "ruff", "check", "--isolated", "--ignore-noqa", "--no-cache", "--select", "C901",
-        "--config", "lint.mccabe.max-complexity=15", "--output-format", "json",
+        "ruff", "check", "--isolated", "--ignore-noqa", "--no-cache", "--no-respect-gitignore",
+        "--select", "C901", "--config", "lint.mccabe.max-complexity=15",
+        "--config", "exclude=[]", "--config", 'extend-include=["*.pyw"]',
+        "--output-format", "json",
     )
     for loophole in ("--ignore", "--exclude", "--extend-exclude", "--per-file-ignores"):
         assert loophole not in COMPLEXITY_ARGS
@@ -135,7 +146,12 @@ def test_real_ruff_on_a_mini_project(tmp_path: Path) -> None:
         "pkg/a.py::silenced": 16,  # def 行的 noqa 壓不掉
         "pkg/a.py::twin": 16,
         "pkg/a.py::twin#2": 16,
+        "pkg/a.py::Prop.value#2": 16,
         "pkg/sub/b.py::deep": 16,  # 路徑一律用 /
+        "pkg/dist/built.py::deep": 16,
+        "pkg/gui.pyw::deep": 16,
+        "pkg/hidden.py::deep": 16,
+        "pkg/quiet.py::deep": 16,
     })
 
 
