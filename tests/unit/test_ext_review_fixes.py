@@ -53,6 +53,7 @@ from tests.support.hook_wiring import (
     group,
     install_hooks,
     run_tool,
+    until,
     use_reviewer,
 )
 
@@ -239,13 +240,24 @@ async def test_sns_round_lists_no_tools_even_when_base_is_widened(
 
 
 async def test_sns_round_tool_list_matches_execution_grants(base_grants_everything: None) -> None:
-    """列工具的身分和執行時（System → 寫死的空授權）一樣空：列出的每個工具執行時都授權。"""
+    """列工具的身分和執行時（System → 寫死的空授權）一樣空：列出的每個工具執行時都授權。
+
+    對照組：同樣的設定下用 Base 身分列，會列出工具（也就是舊的退路會看得到、用不了）。
+    """
     request = _request()
     ctx = _layer_ctx(None, sns_source=True)
     with patch(_MISSION_MGR, new=AsyncMock(return_value=None)):
         await ToolLayer().process(request, ctx)
     execution = permission_service.resolve_grants(None).tools
     assert all(execution.allows(name) for name in _names(request))
+
+    base_request = _request()
+    base = AgentIdentity.for_role("SnsProbeSoul", "Base", capabilities=[])
+    with patch(_MISSION_MGR, new=AsyncMock(return_value=None)):
+        await ToolLayer().process(base_request, _layer_ctx(base, sns_source=True))
+    listed_for_base = _names(base_request)
+    assert listed_for_base
+    assert not any(execution.allows(name) for name in listed_for_base)
 
 
 # ── 第 3 項：MCP 呼叫不改 AI 自己的參數 ────────────────────────────────────────────────
@@ -481,6 +493,34 @@ async def test_unlisted_tool_is_still_refused_before_the_argument_check(
     async with asyncio.timeout(WAIT_S):
         result = await executor.execute_to_queue("write", {}, "req", ctx, queue)
     assert tool_errors.extract_field(result, "reason") == "not_advertised"
+
+
+async def test_policy_denial_still_comes_before_the_argument_check(
+    monkeypatch: pytest.MonkeyPatch, hooks: HookSetup
+) -> None:
+    hooks.configure({"PermissionDenied": [group()]})
+    executor = executor_with(monkeypatch, {"write": Recorder()})
+    monkeypatch.setattr(
+        permission_service,
+        "evaluate_policy",
+        lambda _ctx: PolicyDecision(effect="DENY", reason="test-deny"),
+    )
+    result, events = await run_tool(executor, "write", {}, mode="Manual")
+    assert tool_errors.extract_error_class(result) == tool_errors.PERMISSION_DENIED
+    assert tool_errors.extract_field(result, "reason") == "test-deny"
+    assert _failed_notices(events, "write") == []
+    await until(lambda: "PermissionDenied" in hooks.http.events())
+
+
+async def test_role_grant_still_comes_before_the_argument_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor = executor_with(monkeypatch, {"write": Recorder()})
+    no_role = AgentIdentity(agent_id="ExtReviewNoRole")  # 沒有角色：原生工具一個都沒授權
+    result, _events = await run_tool(
+        executor, "write", {}, mode="Manual", extra={"identity": no_role}
+    )
+    assert tool_errors.extract_field(result, "reason") == "native_tool_rbac"
 
 
 async def test_call_missing_only_some_arguments_is_checked_after_approval(

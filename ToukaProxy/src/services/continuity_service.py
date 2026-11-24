@@ -548,7 +548,7 @@ def _ago(now_s: float, then_s: float | None) -> str:
     return f"{format_elapsed(elapsed_seconds(now_s, then_s, 's'))} ago" if then_s else "unknown"
 
 
-async def _mission_line(identity: Any, now_s: float) -> str:
+async def _mission_line(identity: AgentIdentity, now_s: float) -> str:
     """和 ToolLayer 讀任務看板用同一個身分（ctx 的身分）。沒有身分的只有 SNS，SNS 不讀看板。"""
     try:
         mission = await MissionManager().get_current_mission(identity)
