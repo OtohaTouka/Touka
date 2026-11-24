@@ -81,6 +81,7 @@ _NOT_SETTINGS: dict[str, set[str]] = {
     "本機小幫手的配對與通道（配對是連線憑證，不是設定值，ADR-0312）": {
         "local_bridge.create_pairing", "local_bridge.delete_pairing", "local_bridge.poll",
         "local_bridge.confirm_job", "local_bridge.submit_result",
+        "local_bridge.report_folders",  # 小幫手回報開放名單，只放記憶體（ADR-0330）
     },
     "請小幫手開放資料夾（人在小幫手視窗核准，改的是小幫手的名單，不是 Touka 設定，ADR-0320）": {
         "local_bridge.request_open",
