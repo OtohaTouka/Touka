@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from src.models.identity import AgentIdentity
@@ -19,11 +19,12 @@ from src.services.tool_executor import ToolExecutor
 from src.utils.tool_events import TOOL_ERROR
 from src.utils.tool_step_collector import ToolStepCollector
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 _SOUL = AgentIdentity.for_role(agent_id="ErrTextProbe", role="Owner", is_human=False)
 _KEY = "sk-" + "Q7rT2mX9" * 4
 _TOKEN = "eyJhbGciOiJIUzI1NiJ9" + "Zk3pW8qL" * 3  # 40 字以上、只有英數：通用機密樣式
-_LINUX_PATH = "/home/owner/private/projects/secret-plan/config.yaml"
-_WINDOWS_PATH = "C:\\Users\\Owner\\Documents\\secret-plan\\notes.txt"
 _WAIT_S = 5.0
 
 
@@ -73,11 +74,13 @@ def _everything_shown(result: str, events: list[dict[str, Any]]) -> list[str]:
 
 @pytest.mark.parametrize("for_model", [True, False])
 async def test_exception_text_is_sanitized_everywhere_it_goes(
-    monkeypatch: pytest.MonkeyPatch, for_model: bool
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, for_model: bool
 ) -> None:
+    # 這台機器真的本機絕對路徑（Windows 上是磁碟代號開頭，CI 的 Linux 上是 / 開頭），兩種寫法
+    secret_file = tmp_path / "secret-plan" / "config.yaml"
     message = (
-        f"upstream said Authorization: Bearer {_KEY} while reading {_LINUX_PATH} "
-        f"and {_WINDOWS_PATH}"
+        f"upstream said Authorization: Bearer {_KEY} while reading {secret_file} "
+        f"and {secret_file.as_posix()}"
     )
     result, events = await _run(monkeypatch, message, for_model=for_model)
     assert any(e.get("type") == TOOL_ERROR for e in events)
@@ -85,7 +88,7 @@ async def test_exception_text_is_sanitized_everywhere_it_goes(
         assert _KEY not in shown
         assert _KEY[:12] not in shown
         assert "secret-plan" not in shown
-        assert "/home/owner" not in shown
+        assert tmp_path.name not in shown
     # 錯誤類別與可讀的原因仍然看得到
     assert "RuntimeError" in result
 
