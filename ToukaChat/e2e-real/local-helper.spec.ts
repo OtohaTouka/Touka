@@ -154,6 +154,6 @@ test("設定頁請小幫手開放資料夾：小幫手沒有開放時照實顯�
     data: { status: "refused", code: "not_opened", message: "The user did not open that folder." },
   });
   expect(answer.status()).toBe(200);
-  await expect(page.getByText("小幫手沒有開放這個資料夾，原因寫在小幫手的視窗。")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("小幫手沒有開放這個資料夾：可能是你按了拒絕、這個位置不能開放，或它和已經開放的資料夾重疊（包括同一個資料夾已經開放）。原因寫在小幫手的視窗。")).toBeVisible({ timeout: 15_000 });
   await shot(page, info, "open-refused");
 });
