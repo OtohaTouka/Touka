@@ -735,11 +735,12 @@ async def test_recent_completions_leave_out_anything_older_than_seven_days(
 async def test_full_block_stays_small(clock: dict[str, float]) -> None:
     sid = _sid()
     await _seed(sid, _tree(("u1", "user", "hi", None)))
-    # 較早幾輪那一行最長的樣子：長間隔在清單之前，列滿而且每一輪都隔了一天以上
+    # 較早幾輪那一行最長的樣子：清單列滿，最近一次長間隔在清單更早之前（補在行尾）
     await _event("user_turn", at=_ms(NOW - 30 * DAY), subject="m0", session_id=sid)
+    await _event("user_turn", at=_ms(NOW - 12 * DAY), subject="m1", session_id=sid)
     for index in range(cs.EARLIER_TURNS_SHOWN):
-        at = NOW - (12 - 2 * index) * DAY
-        await _event("user_turn", at=_ms(at), subject=f"m{index + 1}", session_id=sid)
+        at = NOW - 12 * DAY + (index + 1) * 600
+        await _event("user_turn", at=_ms(at), subject=f"m{index + 2}", session_id=sid)
     await _event(
         "heartbeat_finished",
         at=_ms(NOW - 3600),
@@ -753,8 +754,10 @@ async def test_full_block_stays_small(clock: dict[str, float]) -> None:
             subject=f"m/T{index}",
             metadata={"task_id": f"T{index}"},
         )
-    # 較早幾輪那一行最長約 350 字（11/24 加），其他行不變
-    assert len(await _v1(sid)) <= 1550
+    block = await _v1(sid)
+    assert _BREAK_NOTE_PREFIX in block  # 真的測到補在行尾的那種
+    # 較早幾輪那一行最長約 300 字（11/24 加），其他行不變
+    assert len(block) <= 1550
 
 
 async def test_model_written_task_ids_are_only_shown_hashed(clock: dict[str, float]) -> None:
@@ -819,6 +822,9 @@ async def test_two_homes_or_a_failed_read_do_not_break_the_block(
 # --------------------------------------------------------------------------- #
 # 這段對話較早幾輪的時間：看得到之前隔了多久，不會把對的時間判斷收回
 # --------------------------------------------------------------------------- #
+
+
+_BREAK_NOTE_PREFIX = cs.EARLIER_BREAK_NOTE.split("{", 1)[0]
 
 
 def _earlier_line(block: str) -> str | None:
@@ -913,7 +919,7 @@ async def test_a_long_break_that_left_the_list_is_still_shown(clock: dict[str, f
 
 
 async def test_the_oldest_listed_turn_shows_the_break_before_it(clock: dict[str, float]) -> None:
-    """最舊那一輪前面隔了很久：清單裡標不出來，也補在同一行."""
+    """最舊那一輪前面就是最近一次長間隔：直接標在它後面，不另外補在行尾."""
     sid = _sid()
     old = NOW - 9 * DAY
     back = NOW - 600
@@ -924,10 +930,10 @@ async def test_the_oldest_listed_turn_shows_the_break_before_it(clock: dict[str,
 
     line = _earlier_line(await _v1(sid))
 
-    assert line is not None
-    assert line.endswith(
-        cs.EARLIER_BREAK_NOTE.format(gap=cs.format_elapsed(back - old), at=_minute(back))
-        + f" {cs.ACTIVITY_RECORD}"
+    rest = "; ".join(_minute(at) for at in times[1:])
+    gap = cs.format_elapsed(back - old)
+    assert line == (
+        f"- {cs.EARLIER_TURNS_LABEL}: {_minute(back)} (+{gap}); {rest} {cs.ACTIVITY_RECORD}"
     )
 
 
@@ -942,7 +948,7 @@ async def test_a_break_already_marked_in_the_list_is_not_repeated(
 
     line = _earlier_line(await _v1(sid))
 
-    assert line is not None and "latest longer break" not in line
+    assert line is not None and _BREAK_NOTE_PREFIX not in line
     assert f"(+{cs.format_elapsed(later - first)})" in line
 
 
