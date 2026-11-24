@@ -62,6 +62,7 @@ from src.utils.mcp_request_identity import mcp_request_context as build_mcp_requ
 from src.utils.mcp_request_identity import user_scoped_mcp_allowed
 from src.utils.presence import blocked_call_suggestion, is_human_present
 from src.utils.progress_events import repair_event
+from src.utils.secret_text import sanitize_error_text
 from src.utils.time_utils import (
     get_current_epoch,
     get_monotonic_ms,
@@ -1240,8 +1241,9 @@ class ToolExecutor:
         except Exception as e:
             logger.exception("Error executing tool %s", name)
             model_text = None  # 例外時回傳的是錯誤，不是先前算好的那份
-            # P5b：把真正的錯誤類別＋訊息（截斷）帶到前端，取代籠統 "Execution failed"
-            detail = f"{type(e).__name__}: {str(e)[:200]}"
+            # P5b：把真正的錯誤類別＋訊息帶到前端，取代籠統 "Execution failed"。先遮金鑰與
+            # 本機路徑再截短（禁令 23）：先截的話，跨過截斷處的機密只剩半段、遮不到
+            detail = sanitize_error_text(f"{type(e).__name__}: {e}")
             await queue.put(tool_error_event(call_id=call_id, message=f"工具執行失敗：{detail}"))
             await queue.put(tool_exception_notice(name, detail))
             result_text = approval_flow.with_approval_note(
