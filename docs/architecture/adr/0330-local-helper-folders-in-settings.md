@@ -1,9 +1,10 @@
 # ADR-0330：設定頁看得到本機小幫手開放的資料夾，並能縮小範圍
 
-- 狀態：🚧 部分實作（2a：協議第 3 版、小幫手回報開放名單、配對的人在設定頁看清單、版本不符時說清楚是哪一邊；2b 還沒做：拿掉與改成只能讀、已開放的直接回、包住上一層的說明，協議第 4 版）。一頁計畫由維護者核准（2026-11-24，總覽板第 103 項），細節設計審三輪。
+- 狀態：✅ 已實作（2a：協議第 3 版、小幫手回報開放名單、配對的人在設定頁看清單、版本不符時說清楚是哪一邊；2b：協議第 4 版、設定頁拿掉與改成只能讀、已開放的直接回、包住上一層的說明）。一頁計畫由維護者核准（2026-11-24，總覽板第 103 項），細節設計審三輪；2b 由維護者 2026-11-25 核准（總覽板第 105 項）。
 - 日期：2026-11-24
 - 決策者：維護者
 - 相關：[ADR-0312](0312-local-helper-for-host-files.md)（本機小幫手第一版；本 ADR 修訂它的決定 3）、[ADR-0317](0317-local-helper-follows-touka-approval-mode.md)（配對鑰匙與蓋章；2b 修訂它的決定 1、2）、[ADR-0320](0320-ask-the-local-helper-to-open-a-folder.md)（開放請求；本 ADR 修訂它的決定 2、3 與「不採用」最後兩條）
+- 影響範圍（2b）：`ToukaLocal/touka_local/`（`revoke.py` 為新檔；`protocol.py`、`signing.py`、`grants.py`、`open_request.py`、`operations.py`、`service.py`、`view.py`、`app.py`）、`ToukaLocal/install.py`、`ToukaProxy/src/models/local_bridge.py`、`src/utils/local_bridge_signing.py`、`src/services/local_bridge.py`、`src/routers/local_bridge.py`、`scripts/endpoint_auth_admin_required.py`、`ToukaChat` 設定頁（`useLocalFolderRevoke`、`LocalHelperFolderRow` 為新檔；`LocalHelperFolders`、`useLocalHelperFolders`、`LocalHelperOpenFolder`、兩份翻譯）
 - 影響範圍（2a）：`ToukaLocal/touka_local/`（`folder_report.py` 為新檔；`protocol.py`、`grants.py`、`connection.py`、`service.py`、`view.py`）、`ToukaLocal/install.py`、`ToukaProxy/src/models/local_bridge.py`、`src/services/local_bridge.py`、`src/routers/local_bridge.py`、`scripts/endpoint_auth_admin_required.py`、`config/errors.json.example`（`LOCAL_HELPER_PROTOCOL_MISMATCH` 訊息）與重產的 `ToukaChat/src/lib/error_codes.ts`、`ToukaChat` 設定頁（`useLocalHelperFolders`、`LocalHelperFolders` 為新檔；`LocalHelperTab`、兩份翻譯）
 
 ## 背景
@@ -37,11 +38,17 @@
 - 回應帶 `Cache-Control: no-store`。不放進 `/status`：其他管理員也看得到 `/status`。端點與服務都不把清單內容寫進日誌（測試釘住）。
 - 設定頁（`LocalHelperFolders`）：配對了、小幫手開著時顯示；每筆有名稱、完整路徑（可以選取複製）、「只能看」或「可以改」、暫停中的標記；被看見時警告；寫明以小幫手主視窗為準，並說怎麼叫出主視窗（從桌面或 `%LOCALAPPDATA%\ToukaLocal` 開 `ToukaLocal.cmd`）。每 10 秒更新；不是配對的人看到一句說明，之後不再重複讀。清單只放在記憶體，不存進瀏覽器。
 
-### 4. 2b 預定（細節設計已審，還沒實作）
+### 4. 2b：拿掉、改成只能讀；已開放的直接回；包住上一層的說明（協議第 4 版、小幫手 0.6.0）
 
-- **拿掉、改成只能讀**：`POST /local-bridge/folders/revoke`，參數 `{name, path, change}`（`change` 只能是 `remove` 或 `read_only`），配對本人、信任的 Origin。Touka 送一件 `revoke` 工作，用配對鑰匙蓋章：`act` 是 `revoke`、`by` 是 `owner_request`、另帶 `change`，`digest` 是路徑的指紋、`shown` 是名稱的指紋（都是 ASCII，三方算得出同一個值）。小幫手驗章後，名稱與路徑都對上才縮小，沒有任何路徑能放大範圍；不跳視窗、不算停收；寫紀錄檔（只寫名稱）並在主視窗說明。成功時 Touka 同步改記憶體裡的清單與修改次數，晚到的舊回報不會把清單蓋回去。
-- **已開放的直接回**：開放請求的路徑等於或在某個開放資料夾裡面（只比路徑文字，含暫停中的；多出來的那幾段有受保護的名稱或系統資料夾就不算），小幫手不跳視窗，直接回 `already_open` 與目前權限。
-- **包住已開放資料夾的上一層**：照舊跳視窗，是「不能開放」那種，視窗與設定頁都寫包住了哪些（只比路徑文字，不讀磁碟）；要開放上一層，至少要先拿掉它們。
+- **拿掉、改成只能讀**：`POST /local-bridge/folders/revoke`，參數 `{name, path, change}`（`change` 只能是 `remove` 或 `read_only`；名稱、路徑照回報的上限與不收的字元），人類管理員而且是配對本人、信任的 Origin，登記在 `endpoint_auth_admin_required.py`。
+  - Touka 送一件 `revoke` 工作，用配對鑰匙蓋章：`act` 是 `revoke`、`by` 是 `owner_request`、另帶 `change`，`digest` 是路徑的指紋、`shown` 是名稱的指紋（都是 ASCII；Touka、小幫手與 e2e 用同一組固定測資核對）。和開放請求、清單的章不能互用。等 30 秒；交出去就可能已經做了，之後的逾時、離線、換配對一律是「不確定有沒有改」。
+  - 小幫手（`touka_local/revoke.py`）驗章：欄位正好三個、型別、長度、單獨的代理字元、章與兩個指紋，一次性號碼只能用一次（和開放請求共用一份）。再由 `GrantBook.shrink` 在名單的鎖裡找名稱（不分大小寫）與路徑都對上的那一筆，找不到回 `not_found`；拿掉，或改成只能讀（已經只能讀就不寫檔）。沒有任何輸入能讓資料夾變成可以改或讓名單變多。不跳視窗、不算停收；被看見時和其他工作一樣回 `helper_exposed`。紀錄檔只寫名稱，主視窗說「Touka 設定頁拿掉了『X』」或「…改成只能看」。
+  - 成功時回名稱與 `removed` 或 `writable`，另帶存檔後的 `instance` 與 `revision`：Touka 同步改記憶體裡的清單、修改次數取較大的，縮小之前就在路上的舊回報晚到會被丟掉；`instance` 不同（小幫手剛重開）就清掉清單，回到「正在等小幫手回報」。小幫手回的錯誤代碼只認 `not_found`、`helper_exposed`、`bad_signature`、`needs_new_pairing`、`io_error`，其他與格式不對的一律說「不確定有沒有改」（`bad_result`）。
+  - 設定頁（`LocalHelperFolders`、`LocalHelperFolderRow`）：可以改的有「改成只能讀」，每一列都有「拿掉」，按了先確認；被看見時沒有按鈕；成功後馬上重讀清單。加回或改回可以改仍要到主視窗。
+  - 主視窗「復原」遇到那個資料夾已經拿掉、只能讀或暫停中的搬移，另外算（`grant_gone`），並說先加回、改回可以改（或接回隨身碟）再按一次。
+- **已開放的直接回**：開放請求的路徑等於或在某個開放資料夾裡面（只比路徑文字，含暫停中的；只有手改名單才會重疊，那時選最深的；多出來的那幾段有受保護的名稱或系統資料夾就不算，照舊跳視窗），小幫手不跳視窗、不算停收，直接回 `already_open` 與名稱、權限、`usable`（讀那個資料夾本身與它的上層，和 `list` 相同，不在服務的鎖裡讀）。停收與驗章、一次性號碼照舊在前面。設定頁說「已經在開放的『X』裡面」，並提醒裡面的 Git 專案、連結與受保護的名稱仍然用不了。
+- **包住已開放資料夾的上一層**：照舊跳視窗，是「不能開放」那種（原因 `contains_open`），視窗寫包住了哪些、要開放這一層至少要先拿掉它們。只比路徑文字，不讀磁碟。人按「知道了」或時間到後，回報 `not_opened`／`no_decision` 時帶 `{contains: [...]}`（最多 64 個名稱）；設定頁說「沒有開放：這一層包住了已經開放的…」。沒有包住的請求照舊不帶資料。
+- 這兩種回覆只看名單字串，名單本來就給配對本人看；探不出名單以外的位置。其他位置仍一律跳視窗、只回 `not_opened`。
 
 ## 後果
 
@@ -49,7 +56,8 @@
 - 被攻破的 Touka 多知道開放資料夾在電腦上的位置（它本來就能用工具讀這些資料夾的內容）。它可以不理會或亂顯示回報，影響只在設定頁；小幫手照自己的名單做事，名單仍在使用者電腦上、Touka 換不掉（2b 之後能縮小，見下）。
 - 假冒小幫手的程式要有小幫手權杖才能回報；最壞是設定頁顯示錯的清單。
 - 已接受的風險：Touka 沒開時佔住同一個埠的程式（ADR-0312 已接受它拿得到權杖）現在也會收到完整路徑清單。
-- 2b 之後：被攻破的 Touka 有鑰匙，可以把名單全部拿掉或改成只能讀，小幫手少做事；被拿掉的資料夾在主視窗「復原」會跳過，要先加回（同名）或改回可以改才能復原。拿到鑰匙檔的人可以在 Touka 沒開時默默清空名單。
+- 2b：被攻破的 Touka 有鑰匙，可以把名單全部拿掉或改成只能讀，小幫手少做事；被拿掉的資料夾在主視窗「復原」會跳過（另外計數並說明），要先加回（同名）或改回可以改才能復原。拿到鑰匙檔的人可以在 Touka 沒開時默默清空名單。
+- 單獨的代理字元在縮小名單的參數驗證就擋下、不會送出；但 FastAPI 預設的 422 回應編不出這個字元，實際回的是 500（所有端點都一樣，既有行為）。
 
 ## 不採用
 

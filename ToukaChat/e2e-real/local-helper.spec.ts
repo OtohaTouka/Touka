@@ -5,8 +5,8 @@ import { loginInBrowser, openSideMenu, shot } from "./lib/ui";
 
 const POLL_URL = `${API_ORIGIN}/v1/local-bridge/poll`;
 const WRONG_TOKEN = "e2e-not-the-real-pairing-code";
-// 協議第 3 版（ADR-0330；第 2 版起配對碼是「權杖.鑰匙」，小幫手只拿權杖輪詢，鑰匙留著驗章）
-const PROTOCOL = 3;
+// 協議第 4 版（ADR-0330 2b；第 2 版起配對碼是「權杖.鑰匙」，小幫手只拿權杖輪詢，鑰匙留著驗章）
+const PROTOCOL = 4;
 
 async function openLocalHelperTab(page: Page): Promise<void> {
   await openSideMenu(page);
@@ -154,7 +154,7 @@ test("設定頁請小幫手開放資料夾：小幫手沒有開放時照實顯�
     data: { status: "refused", code: "not_opened", message: "The user did not open that folder." },
   });
   expect(answer.status()).toBe(200);
-  await expect(page.getByText("小幫手沒有開放這個資料夾：可能是你按了拒絕、這個位置不能開放，或它和已經開放的資料夾重疊（包括同一個資料夾已經開放）。原因寫在小幫手的視窗。")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("小幫手沒有開放這個資料夾：可能是你按了拒絕、這個位置不能開放，或它和已經開放的資料夾重疊。原因寫在小幫手的視窗。")).toBeVisible({ timeout: 15_000 });
   await shot(page, info, "open-refused");
 });
 
@@ -188,4 +188,70 @@ test("設定頁看到小幫手開放的資料夾（完整路徑、權限、暫�
   await expect(page.getByText("可以改", { exact: true })).toBeVisible();
   await expect(page.getByText("暫停中", { exact: true })).toBeVisible();
   await shot(page, info, "folders");
+});
+
+// ADR-0330 2b：設定頁把開放的資料夾改成只能讀。測試扮小幫手，用配對碼裡的鑰匙驗 Touka 蓋的章。
+const DRAFTS_PATH = "Z:\\E2E\\草稿";
+// 三方共用的固定測資（Touka、小幫手的 pytest 也核對同一個值）
+const REVOKE_VECTOR = "b38e5a7a63d367c30c4232b0da227b7e2c8c0abf28a687e8f297619b96ac9c59";
+
+/** 縮小名單的章：和 Touka、小幫手相同；路徑與名稱的指紋、改法都綁進去。 */
+function revokeStamp(key: Buffer, jobId: string, nonce: string, name: string, path: string, change: string): string {
+  const message = JSON.stringify({
+    act: "revoke",
+    by: "owner_request",
+    change,
+    digest: fingerprint(path),
+    job: jobId,
+    nonce,
+    shown: fingerprint(name),
+    v: 2,
+  });
+  return createHmac("sha256", key).update(message, "ascii").digest("hex");
+}
+
+test("設定頁把開放的資料夾改成只能讀：帶配對鑰匙的章，清單跟著改", async ({ page, request }, info) => {
+  const fixedKey = Buffer.from(Array.from({ length: 32 }, (_, index) => index));
+  expect(revokeStamp(fixedKey, "job-1", "A".repeat(22), "家 2026", "相片/家 2026", "read_only")).toBe(REVOKE_VECTOR);
+
+  const { token, key } = await pairAndConnect(page, request);
+  const instance = "e2e-".padEnd(22, "b");
+  const report = await request.post(REPORT_URL, {
+    headers: { "X-Touka-Local-Token": token },
+    data: {
+      protocol: PROTOCOL,
+      instance,
+      revision: 0,
+      exposed: false,
+      folders: [{ name: "草稿", path: DRAFTS_PATH, writable: true, usable: true }],
+      omitted: 0,
+    },
+  });
+  expect(report.status()).toBe(200);
+  expect((await pollAsHelper(request, token)).status()).toBe(200);
+  await expect(page.getByText(DRAFTS_PATH)).toBeVisible({ timeout: 15_000 });
+
+  await page.getByRole("button", { name: "把「草稿」改成只能讀" }).click();
+  await expect(page.getByText(/確定把「草稿」改成只能讀/)).toBeVisible();
+  await shot(page, info, "revoke-confirm");
+  await page.getByRole("button", { name: "確定", exact: true }).click();
+
+  const job = await nextJob(request, token);
+  expect(job.action).toBe("revoke");
+  expect(job.args).toEqual({ name: "草稿", path: DRAFTS_PATH, change: "read_only" });
+  expect(job.decision.decided_by).toBe("owner_request");
+  expect(job.decision.digest).toBe(fingerprint(DRAFTS_PATH));
+  expect(job.decision.shown).toBe(fingerprint("草稿"));
+  expect(job.decision.signature).toBe(revokeStamp(key, job.id, job.decision.nonce, "草稿", DRAFTS_PATH, "read_only"));
+
+  const answer = await request.post(RESULT_URL(job.id), {
+    headers: { "X-Touka-Local-Token": token },
+    data: { status: "ok", data: { name: "草稿", writable: false, instance, revision: 1 } },
+  });
+  expect(answer.status()).toBe(200);
+  await expect(page.getByText("已把「草稿」改成只能看。")).toBeVisible({ timeout: 15_000 });
+  expect((await pollAsHelper(request, token)).status()).toBe(200);
+  await expect(page.getByText("只能看", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("可以改", { exact: true })).toHaveCount(0);
+  await shot(page, info, "revoke-done");
 });

@@ -27,8 +27,9 @@ async function requestFolders(): Promise<LocalHelperFolders> {
 /**
  * 小幫手回報的開放名單（ADR-0330）：完整路徑只給配對的人，只放在這個 hook 的記憶體，
  * 不寫進瀏覽器儲存。不是配對的人就停止讀取，不每 10 秒記一次錯。
+ * ``refresh`` 變了就馬上再讀一次（拿掉或改成只能讀之後，ADR-0330 2b）。
  */
-export function useLocalHelperFolders(enabled: boolean): LocalHelperFolders {
+export function useLocalHelperFolders(enabled: boolean, refresh = 0): LocalHelperFolders {
     const [folders, setFolders] = useState<LocalHelperFolders>({ kind: 'loading' });
 
     useEffect(() => {
@@ -48,7 +49,7 @@ export function useLocalHelperFolders(enabled: boolean): LocalHelperFolders {
             active = false;
             clearInterval(timer);
         };
-    }, [enabled]);
+    }, [enabled, refresh]);
 
     return folders;
 }

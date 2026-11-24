@@ -92,6 +92,7 @@ from touka_local.view import (
     report_text,
     requester_text,
     row_values,
+    undo_result_text,
     unreadable_records_text,
     window_reason_text,
 )
@@ -346,7 +347,7 @@ class OpenRequestWindow:
         else:
             ttk.Label(
                 frame,
-                text=open_reason_text(request.reason),
+                text=open_reason_text(request.reason, request.contains),
                 foreground=_WARNING_COLOR,
                 wraplength=wrap,
             ).pack(anchor="w", pady=(4, 8))
@@ -671,13 +672,7 @@ class MainWindow:
         except Refused as exc:
             self._say(refusal_text(exc.code))
             return
-        warning = (
-            "這次的紀錄沒有存好，同一批請不要再按復原。" if result.get("journal_incomplete") else ""
-        )
-        self._say(
-            f"復原了 {result['restored']} 項，跳過 {result['skipped']} 項（沒有搬過或檔案變動過）。"
-            f"丟到回收桶的 {result['not_undoable']} 項請從回收桶還原。{warning}"
-        )
+        self._say(undo_result_text(result))
         self._refresh_batches()
 
     # --- 更新畫面 ---

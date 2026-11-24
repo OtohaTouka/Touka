@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, Final
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-PROTOCOL_VERSION: Final = 3
+PROTOCOL_VERSION: Final = 4
 MAX_JOB_RESULT_BYTES: Final = 1024 * 1024
 MAX_ERROR_MESSAGE_CHARS: Final = 2000
 MAX_CODE_CHARS: Final = 64
@@ -29,6 +29,7 @@ ACTIONS: Final = (
     "propose",
     "preview",
     "request_open",
+    "revoke",
 )
 RESULT_STATUSES: Final = ("ok", "refused", "error")
 POLL_REQUEST_FIELDS: Final = frozenset({"protocol", "helper_version"})
@@ -49,6 +50,8 @@ FOLDER_REPORT_FIELDS: Final = frozenset(
     {"protocol", "instance", "revision", "exposed", "folders", "omitted"}
 )
 FOLDER_ENTRY_FIELDS: Final = frozenset({"name", "path", "writable", "usable"})
+# 設定頁縮小名單（ADR-0330 2b）：拿掉或改成只能讀，規則在 revoke.py
+REVOKE_FIELDS: Final = frozenset({"name", "path", "change"})
 MAX_REPORTED_FOLDERS: Final = 64
 MAX_REPORTED_PATH_CHARS: Final = 1024
 MAX_REPORTED_NAME_CHARS: Final = 300

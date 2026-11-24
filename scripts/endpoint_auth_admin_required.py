@@ -96,6 +96,8 @@ ADMIN_REQUIRED: list[dict[str, str]] = [
     {"method": "post", "path": "/local-bridge/open-requests"},
     # 配對的人看開放名單（含完整路徑，ADR-0330）
     {"method": "get", "path": "/local-bridge/folders"},
+    # 配對的人在設定頁拿掉或改成只能讀（ADR-0330 2b）
+    {"method": "post", "path": "/local-bridge/folders/revoke"},
 
     # ── 舊的終端核准與事件串流（terminal.py，人類 admin，ADR-0033 修訂 2026-11-24）
     {"method": "get", "path": "/terminal/stream"},

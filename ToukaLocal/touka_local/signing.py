@@ -23,6 +23,7 @@ SIGNATURE_VERSION: Final = 2
 DECISION_KEY_BYTES: Final = 32
 ACT_PROPOSE: Final = "propose"
 ACT_REQUEST_OPEN: Final = "request_open"
+ACT_REVOKE: Final = "revoke"
 
 _NONCE: Final = re.compile(r"[A-Za-z0-9_-]{22}")
 _HEX64: Final = re.compile(r"[0-9a-f]{64}")
@@ -77,6 +78,22 @@ def sign_open_request(key: bytes, *, job_id: str, nonce: str, path: str) -> str:
     )
 
 
+def sign_revoke(key: bytes, *, job_id: str, nonce: str, name: str, path: str, change: str) -> str:
+    """設定頁縮小名單的章（ADR-0330 2b），和 Touka 相同的算法。路徑與名稱的指紋、改法都綁進去。"""
+    return _sign(
+        key,
+        {
+            "act": ACT_REVOKE,
+            "by": DECIDED_BY_OPEN_REQUEST,
+            "change": change,
+            "digest": text_fingerprint(path),
+            "job": job_id,
+            "nonce": nonce,
+            "shown": text_fingerprint(name),
+        },
+    )
+
+
 def _well_formed(key: bytes | None, decision: Decision) -> bool:
     return (
         key is not None
@@ -118,6 +135,27 @@ def open_request_signature_ok(
         return False
     assert key is not None  # _well_formed 已確認
     expected = sign_open_request(key, job_id=job_id, nonce=decision.nonce, path=path)
+    return hmac.compare_digest(expected, decision.signature)
+
+
+def revoke_signature_ok(
+    key: bytes | None, job_id: str, name: str, path: str, change: str, decision: Decision
+) -> bool:
+    """縮小名單的章：鑰匙、格式、路徑與名稱的指紋都對、章是蓋在這件工作與這個改法上的。
+
+    名稱與路徑要先確認沒有單獨的代理字元（算不出指紋）。
+    """
+    if (
+        not _well_formed(key, decision)
+        or decision.decided_by != DECIDED_BY_OPEN_REQUEST
+        or decision.digest != text_fingerprint(path)
+        or decision.shown != text_fingerprint(name)
+    ):
+        return False
+    assert key is not None  # _well_formed 已確認
+    expected = sign_revoke(
+        key, job_id=job_id, nonce=decision.nonce, name=name, path=path, change=change
+    )
     return hmac.compare_digest(expected, decision.signature)
 
 

@@ -15922,6 +15922,53 @@
         ]
       }
     },
+    "/v1/local-bridge/folders/revoke": {
+      "post": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Revoke Folder",
+        "description": "配對的人本人請小幫手把開放的資料夾拿掉或改成只能讀（ADR-0330 2b）。\n\n只能縮小；小幫手驗章後直接做、不跳視窗。成功時設定頁的清單跟著改。內容不寫日誌。",
+        "operationId": "revoke_folder_v1_local_bridge_folders_revoke_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalRevokeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalRevokeResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/v1/local-bridge/open-requests": {
       "post": {
         "tags": [
@@ -16287,6 +16334,53 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/LocalFolderList"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/local-bridge/folders/revoke": {
+      "post": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Revoke Folder",
+        "description": "配對的人本人請小幫手把開放的資料夾拿掉或改成只能讀（ADR-0330 2b）。\n\n只能縮小；小幫手驗章後直接做、不跳視窗。成功時設定頁的清單跟著改。內容不寫日誌。",
+        "operationId": "revoke_folder_local_bridge_folders_revoke_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalRevokeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalRevokeResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -21192,7 +21286,8 @@
               "create_file",
               "propose",
               "preview",
-              "request_open"
+              "request_open",
+              "revoke"
             ],
             "title": "Action"
           },
@@ -21326,6 +21421,7 @@
             "type": "string",
             "enum": [
               "opened",
+              "already_open",
               "refused",
               "error"
             ],
@@ -21365,6 +21461,32 @@
               }
             ],
             "title": "Writable"
+          },
+          "usable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usable"
+          },
+          "contains": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contains"
           }
         },
         "additionalProperties": false,
@@ -21373,7 +21495,7 @@
           "status"
         ],
         "title": "LocalOpenResult",
-        "description": "開放請求的結果。``opened`` 才有名稱與權限；其他只有代碼，前端照代碼顯示。"
+        "description": "開放請求的結果。``opened`` 才有名稱與權限；其他只有代碼，前端照代碼顯示。\n\n``already_open``：請求的位置已經在開放的資料夾裡（名稱、權限、``usable`` 是不是暫停中）。\n``contains``：沒有開放、因為這一層包住了已經開放的這幾個（ADR-0330 2b）。"
       },
       "LocalPairingCreated": {
         "properties": {
@@ -21443,6 +21565,104 @@
         "type": "object",
         "title": "LocalPollResponse",
         "description": "下一件工作、已經不用做的工作編號、主機上已經掛進容器的路徑。"
+      },
+      "LocalRevokeRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Path"
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "remove",
+              "read_only"
+            ],
+            "title": "Change"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "path",
+          "change"
+        ],
+        "title": "LocalRevokeRequest",
+        "description": "設定頁請小幫手把一個開放的資料夾拿掉或改成只能讀（ADR-0330 2b）。\n\n名稱與路徑照小幫手回報的那一筆送回去；小幫手兩個都對上同一筆才改。"
+      },
+      "LocalRevokeResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "error"
+            ],
+            "title": "Status"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "removed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Removed"
+          },
+          "writable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Writable"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "LocalRevokeResult",
+        "description": "縮小名單的結果。\n\n``done`` 才有名稱，拿掉的帶 ``removed``、改成只能讀的帶 ``writable``；``error`` 只有代碼，\n前端照代碼說有沒有改。"
       },
       "LoginRequest": {
         "properties": {

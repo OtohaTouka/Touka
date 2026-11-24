@@ -10,7 +10,7 @@ from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-PROTOCOL_VERSION: Final = 3
+PROTOCOL_VERSION: Final = 4
 MAX_JOB_RESULT_BYTES: Final = 1024 * 1024
 MAX_ERROR_MESSAGE_CHARS: Final = 2000
 MAX_REQUESTER_CHARS: Final = 128
@@ -22,6 +22,8 @@ MAX_RESULT_CODE_CHARS: Final = 64
 # 開放名單的回報（ADR-0330）：只給配對的人在設定頁看，只放記憶體
 MAX_REPORTED_FOLDERS: Final = 64
 MAX_REPORTED_PATH_CHARS: Final = 1024
+# 請求的位置包住了已開放的資料夾時，小幫手回報包住了哪些（ADR-0330 2b）
+MAX_CONTAINED_NAMES: Final = 64
 # 小幫手回的名稱與路徑會顯示在設定頁：不收控制字元與改變顯示方向的字元（小幫手也是這一份）
 UNSAFE_TEXT_PATTERN: Final = r"[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]"
 _UNSAFE_TEXT: Final = re.compile(UNSAFE_TEXT_PATTERN)
@@ -33,10 +35,12 @@ _NONCE_PATTERN: Final = r"^[A-Za-z0-9_-]{22}$"
 _INSTANCE_PATTERN: Final = _NONCE_PATTERN
 _NO_CONTROL_CHARS: Final = r"^[^\x00-\x1f\x7f]+$"
 
-# request_open 只從設定頁送（ADR-0320），模型的工具合約沒有這個動作
+# request_open、revoke 只從設定頁送（ADR-0320、ADR-0330），模型的工具合約沒有這兩個動作
 LocalAction = Literal[
-    "list", "read", "create_folder", "create_file", "propose", "preview", "request_open"
+    "list", "read", "create_folder", "create_file", "propose", "preview", "request_open", "revoke"
 ]
+# 設定頁縮小名單只有這兩種改法（ADR-0330 2b）：拿掉、改成只能讀；沒有讓名單變大的
+RevokeChange = Literal["remove", "read_only"]
 # 照模式的決定只有這三種；在小幫手視窗按的由小幫手自己記（ADR-0317）
 DecidedByMode = Literal["user_card", "auto_review", "yolo"]
 # 開放請求的章（ADR-0320）：只證明是 Touka 送的，小幫手一定跳視窗
@@ -171,11 +175,47 @@ class LocalOpenRequest(_Strict):
 
 
 class LocalOpenResult(_Strict):
-    """開放請求的結果。``opened`` 才有名稱與權限；其他只有代碼，前端照代碼顯示。"""
+    """開放請求的結果。``opened`` 才有名稱與權限；其他只有代碼，前端照代碼顯示。
 
-    status: Literal["opened", "refused", "error"]
+    ``already_open``：請求的位置已經在開放的資料夾裡（名稱、權限、``usable`` 是不是暫停中）。
+    ``contains``：沒有開放、因為這一層包住了已經開放的這幾個（ADR-0330 2b）。
+    """
+
+    status: Literal["opened", "already_open", "refused", "error"]
     code: str | None = Field(default=None, max_length=MAX_RESULT_CODE_CHARS)
     name: str | None = Field(default=None, max_length=MAX_OPEN_NAME_CHARS)
+    writable: bool | None = None
+    usable: bool | None = None
+    contains: list[str] | None = Field(default=None, max_length=MAX_CONTAINED_NAMES)
+
+
+class LocalRevokeRequest(_Strict):
+    """設定頁請小幫手把一個開放的資料夾拿掉或改成只能讀（ADR-0330 2b）。
+
+    名稱與路徑照小幫手回報的那一筆送回去；小幫手兩個都對上同一筆才改。
+    """
+
+    name: str = Field(min_length=1, max_length=MAX_OPEN_NAME_CHARS)
+    path: str = Field(min_length=1, max_length=MAX_REPORTED_PATH_CHARS)
+    change: RevokeChange
+
+    @field_validator("name", "path")
+    @classmethod
+    def _shown_safely(cls, value: str) -> str:
+        return _displayable(value)
+
+
+class LocalRevokeResult(_Strict):
+    """縮小名單的結果。
+
+    ``done`` 才有名稱，拿掉的帶 ``removed``、改成只能讀的帶 ``writable``；``error`` 只有代碼，
+    前端照代碼說有沒有改。
+    """
+
+    status: Literal["done", "error"]
+    code: str | None = Field(default=None, max_length=MAX_RESULT_CODE_CHARS)
+    name: str | None = Field(default=None, max_length=MAX_OPEN_NAME_CHARS)
+    removed: bool | None = None
     writable: bool | None = None
 
 

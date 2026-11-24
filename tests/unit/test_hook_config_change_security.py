@@ -85,6 +85,8 @@ _NOT_SETTINGS: dict[str, set[str]] = {
     },
     "請小幫手開放資料夾（人在小幫手視窗核准，改的是小幫手的名單，不是 Touka 設定，ADR-0320）": {
         "local_bridge.request_open",
+        # 設定頁縮小名單：改的也是小幫手的名單，只能縮小（ADR-0330 2b）
+        "local_bridge.revoke_folder",
     },
     "MCP OAuth 的連線與憑證（有自己的稽核紀錄，這批不接，ADR-0292 差別表）": {
         "mcp_oauth.start_mcp_oauth", "mcp_oauth.disconnect_mcp_oauth",

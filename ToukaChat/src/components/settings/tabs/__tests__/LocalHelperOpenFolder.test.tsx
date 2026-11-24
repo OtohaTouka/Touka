@@ -4,7 +4,17 @@ import React from 'react';
 import '@/lib/i18n';
 
 type Outcome =
-    | { kind: 'result'; result: { status: string; code: string | null; name: string | null; writable: boolean | null } }
+    | {
+          kind: 'result';
+          result: {
+              status: string;
+              code: string | null;
+              name: string | null;
+              writable: boolean | null;
+              usable?: boolean | null;
+              contains?: string[] | null;
+          };
+      }
     | { kind: 'denied'; code: string | null }
     | { kind: 'invalid' }
     | { kind: 'failed' }
@@ -83,7 +93,15 @@ describe('LocalHelperOpenFolder（ADR-0320）', () => {
             { kind: 'result', result: { status: 'opened', code: null, name: '相片', writable: true } },
             '已開放「相片」（可以改）。',
         ],
-        [refused('not_opened'), '小幫手沒有開放這個資料夾：可能是你按了拒絕、這個位置不能開放，或它和已經開放的資料夾重疊（包括同一個資料夾已經開放）。原因寫在小幫手的視窗。'],
+        [refused('not_opened'), '小幫手沒有開放這個資料夾：可能是你按了拒絕、這個位置不能開放，或它和已經開放的資料夾重疊。原因寫在小幫手的視窗。'],
+        [
+            { kind: 'result', result: { status: 'refused', code: 'not_opened', name: null, writable: null, contains: ['A', 'B'] } },
+            '沒有開放：這一層包住了已經開放的「A」、「B」。要開放這一層，先在上面的清單或小幫手主視窗拿掉它們。',
+        ],
+        [
+            { kind: 'result', result: { status: 'refused', code: 'no_decision', name: null, writable: null, contains: ['A'] } },
+            '沒有開放：這一層包住了已經開放的「A」。要開放這一層，先在上面的清單或小幫手主視窗拿掉它們。',
+        ],
         [refused('no_decision'), '2 分鐘內沒有在小幫手的視窗決定，沒有開放。'],
         [refused('not_openable'), '核准後還是沒辦法開放，原因寫在小幫手的視窗。'],
         [refused('open_paused'), '小幫手暫停接收開放請求，約 10 分鐘後再試，或在小幫手主視窗按「現在恢復」。'],
@@ -131,5 +149,19 @@ describe('LocalHelperOpenFolder（ADR-0320）', () => {
         request.outcome = outcome;
         render(<LocalHelperOpenFolder status={ONLINE} />);
         expect(screen.getByText(text)).toBeDefined();
+    });
+
+    it.each([
+        [true, true, '已經在開放的「相片」裡面（可以改），小幫手沒有跳視窗。'],
+        [false, true, '已經在開放的「相片」裡面（只能看），小幫手沒有跳視窗。'],
+        [false, false, '已經在開放的「相片」裡面（只能看，暫停中），小幫手沒有跳視窗。'],
+    ])('已經開放：可以改 %s、可以用 %s（ADR-0330 2b）', (writable, usable, text) => {
+        request.outcome = {
+            kind: 'result',
+            result: { status: 'already_open', code: null, name: '相片', writable, usable },
+        } as Outcome;
+        render(<LocalHelperOpenFolder status={ONLINE} />);
+        expect(screen.getByText(text)).toBeDefined();
+        expect(screen.getByText('裡面的 Git 專案、連結與受保護的名稱仍然用不了。')).toBeDefined();
     });
 });

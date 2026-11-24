@@ -2,7 +2,7 @@
 
 - 配對、解除、狀態：只給人類管理員（admin 代打不算）。
 - 請小幫手開放資料夾：只給配對的人本人，一定要帶信任的 Origin（ADR-0320）。
-- 看開放名單（含完整路徑）：只給配對的人本人（ADR-0330）。
+- 看開放名單（含完整路徑）、拿掉或改成只能讀：只給配對的人本人（ADR-0330）。
 - 輪詢、確認、回報結果、回報開放名單：只給帶權杖的小幫手。
   權杖只代表這條通道，不會變成任何身分（禁令 16）。
 """
@@ -28,16 +28,21 @@ from src.models.local_bridge import (
     LocalPairingRecord,
     LocalPollRequest,
     LocalPollResponse,
+    LocalRevokeRequest,
+    LocalRevokeResult,
 )
 from src.services.authorization_gateway import require_admin_human
 from src.services.local_bridge import (
     ACTION_REQUEST_OPEN,
+    ACTION_REVOKE,
     CODE_NEEDS_NEW_PAIRING,
     POLL_HOLD_SECONDS,
     get_local_bridge,
     host_mount_roots,
     open_request_signer,
     open_result_from,
+    revoke_result_from,
+    revoke_signer,
 )
 from src.services.local_bridge_pairing import get_local_pairing_store
 from src.utils.csrf_guard import require_trusted_origin, verify_origin
@@ -123,6 +128,34 @@ async def list_folders(
     _pairing_of(admin)
     response.headers["Cache-Control"] = _NO_STORE
     return get_local_bridge().folder_list()
+
+
+@router.post("/folders/revoke", response_model=LocalRevokeResult)
+async def revoke_folder(
+    body: LocalRevokeRequest,
+    request: Request,
+    admin: Annotated[AgentIdentity, Depends(_require_admin_human)],
+) -> LocalRevokeResult:
+    """配對的人本人請小幫手把開放的資料夾拿掉或改成只能讀（ADR-0330 2b）。
+
+    只能縮小；小幫手驗章後直接做、不跳視窗。成功時設定頁的清單跟著改。內容不寫日誌。
+    """
+    require_trusted_origin(request)
+    record = _pairing_of(admin)
+    key = decision_key_from_hex(record.decision_key)
+    if key is None:
+        return LocalRevokeResult(status="error", code=CODE_NEEDS_NEW_PAIRING)
+    bridge = get_local_bridge()
+    result = await bridge.submit(
+        ACTION_REVOKE,
+        body.model_dump(),
+        admin.agent_id,
+        signer=revoke_signer(key, body.name, body.path, body.change),
+    )
+    revoked, stamp = revoke_result_from(result)
+    if stamp is not None:
+        bridge.apply_revoke(record.generation, body, stamp)
+    return revoked
 
 
 @router.post("/open-requests", response_model=LocalOpenResult)

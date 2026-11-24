@@ -60,6 +60,16 @@ describe('useLocalHelperFolders（ADR-0330）', () => {
         expect(mockFetch.mock.calls.length).toBe(calls);
     });
 
+    it('拿掉或改成只能讀之後（重讀編號變了）馬上再讀一次（ADR-0330 2b）', async () => {
+        mockFetch.mockImplementation(() => reply(LISTED));
+        const { rerender } = renderHook(({ refresh }) => useLocalHelperFolders(true, refresh), {
+            initialProps: { refresh: 0 },
+        });
+        await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+        rerender({ refresh: 1 });
+        await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+    });
+
     it('讀不到時標失敗', async () => {
         mockFetch.mockImplementation(() => Promise.reject(new Error('down')));
         const { result } = renderHook(() => useLocalHelperFolders(true));

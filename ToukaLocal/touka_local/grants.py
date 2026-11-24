@@ -22,6 +22,7 @@ from touka_local.paths import (
     related,
     same_path,
 )
+from touka_local.revoke import CHANGE_REMOVE, REVOKE_CHANGES
 from touka_local.rules import GIT_FOLDER, is_protected_name
 
 if TYPE_CHECKING:
@@ -30,7 +31,8 @@ if TYPE_CHECKING:
 
     from touka_local.fsops import Fs
 
-_SYSTEM_FOLDERS: Final = frozenset({"$recycle.bin", "system volume information", "appdata"})
+# 系統資料夾的名稱（不分大小寫）；開放請求判斷「已經開放」時也用這一份（ADR-0330 2b）
+SYSTEM_FOLDER_NAMES: Final = frozenset({"$recycle.bin", "system volume information", "appdata"})
 _ONEDRIVE_PREFIX: Final = "onedrive"
 _DRIVE_FIXED: Final = "fixed"
 
@@ -179,6 +181,34 @@ class GrantBook:
             self._commit([*self._grants, grant])
             return grant
 
+    def shrink(self, name: str, path: str, change: str) -> tuple[Grant, int]:
+        """Touka 設定頁縮小名單（ADR-0330 2b）：名稱（不分大小寫）和路徑都對上同一筆才改。
+
+        只能拿掉或改成只能讀，沒有任何輸入能讓資料夾變成可以改或讓名單變多；已經只能讀的
+        不寫檔。回傳那一筆（改之前的）和改完的修改次數。
+        """
+        if change not in REVOKE_CHANGES:
+            raise Refused("bad_request")
+        key = name.casefold()
+        with self._lock:
+            found = next(
+                (g for g in self._grants if g.name.casefold() == key and same_path(g.path, path)),
+                None,
+            )
+            if found is None:
+                raise Refused("not_found")
+            if change == CHANGE_REMOVE:
+                self._commit([g for g in self._grants if g is not found])
+            elif found.writable:
+                self._commit(
+                    [Grant(g.name, g.path, False) if g is found else g for g in self._grants]
+                )
+            return found, self._revision
+
+    def is_usable(self, grant: Grant) -> bool:
+        """這一筆現在能不能用（讀磁碟：它本身與每一層上層）。"""
+        return self._is_usable(grant)
+
     def remove(self, name: str) -> None:
         """從名單拿掉。"""
         key = name.casefold()
@@ -269,7 +299,7 @@ class GrantBook:
         for part in parts_of(path)[1:]:
             if is_protected_name(part):
                 raise Refused("protected")
-            if part.casefold() in _SYSTEM_FOLDERS:
+            if part.casefold() in SYSTEM_FOLDER_NAMES:
                 raise Refused("system_folder")
         if same_path(path, anchor_of(path)):
             raise Refused("blocked")
