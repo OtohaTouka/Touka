@@ -121,9 +121,9 @@
 - 審批卡事件 `tool_approval_request` 多選填欄位 `hook_reason`：PreToolUse hook 要求確認時才有（沒有理由時是空字串）；這種卡不送審查員，無人在場直接拒絕。
 - 工具結果：PreToolUse hook 擋下時回 `permission_denied`（`reason: "hook_denied"`、`hook_reason`）；工具在等 PreToolUse hook 時這個對話被停止，hook 跑完後不執行，回 `permission_denied`（`reason: "stopped_by_user"`）；hook 的補充說明以 `hook_output` 鍵（JSON 結果，標 `trust: "untrusted"`）或 `<hook_output>` 區塊（文字結果）接在工具結果後面。
 - 模型失敗：OpenAI 相容 API 回 200 但內容讀不懂或不是物件時，這一輪是一般的模型失敗（`RoundError`），UI 串流以 `generation: "error"` 結束。結束前多送一則 `touka_progress`（`kind: generation_failure`，帶 `error_type`；人類 admin 另帶消毒過的廠商原文 `detail`），串流結束事件的欄位不動。
-- 工具結果（續）：PermissionRequest hook 拒絕時回同樣的 `permission_denied`（`reason: "hook_denied"`、`hook_reason`），沒有 `tool_approval_request`；等這個 hook 時被停止回 `reason: "stopped_by_user"`。內建工具缺 schema 列的必要參數時回 `validation_error`（`param` 是第一個缺的），沒有 `tool_start`，和 hook 設定無關。
+- 工具結果（續）：PermissionRequest hook 拒絕時回同樣的 `permission_denied`（`reason: "hook_denied"`、`hook_reason`），沒有 `tool_approval_request`；等這個 hook 時被停止回 `reason: "stopped_by_user"`。內建工具缺 schema 列的必要參數時回 `validation_error`（`param` 是第一個缺的），沒有 `tool_start`，和 hook 設定無關。一定要參數的工具完全沒帶參數時，在 PreToolUse 與審批之前就回 `validation_error`：不跳卡、不觸發工具類 hook，另送一則 `tool_failed` 小提示（2026-11-24）。
 - 事件內容（共同欄位 `session_id`、`agent_id`、`incognito`，有模式時多 `permission_mode`）：
-  - PostToolUseFailure：`tool_name`、`tool_input`、`tool_use_id`、`error`（先遮憑證與路徑）；工具真的開始跑之後失敗才有（結構化錯誤、MCP 回錯誤、丟例外、終端結束碼不是 0、舊工具結果開頭是 `Error:`／`❌`；內容裡出現這些字不算，走 PostToolUse）。
+  - PostToolUseFailure：`tool_name`、`tool_input`、`tool_use_id`、`error`（先遮憑證與路徑）；工具真的開始跑之後失敗才有（結構化錯誤、MCP 回錯誤、丟例外、終端結束碼不是 0、其他沒有結構的結果〔含沒標 `isError` 的 MCP〕開頭是 `Error:`／`❌`；內容裡出現這些字不算，走 PostToolUse）。`tool_result` 事件的 `status` 從 2026-11-24 起用同一條規則。
   - PermissionRequest：`tool_name`、`tool_input`（沒有 `tool_use_id`）。回應只認 `hookSpecificOutput.decision.behavior: "deny"`（`message` 當理由）。
   - PermissionDenied：`tool_name`、`tool_input`、`tool_use_id`、`reason`（固定代碼）。
   - Notification：`notification_type`（`permission_prompt`、`agent_needs_input`、`elicitation_dialog`、`isolation_level`）、`message`；`isolation_level` 的 `session_id` 是 null。

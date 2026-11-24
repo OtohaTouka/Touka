@@ -5,6 +5,7 @@
 - 後續延伸：[ADR-0277](0277-chat-conversation-search.md) 已實作聊天搜尋，沿用本 ADR 的建立標記、精確歸屬及家檢查；marker 不作逐則作者證明。
 - 影響範圍：ToukaProxy 的 `utils/session_scope.py`、`utils/async_db.py`、心跳／UI／聊天路由、dispatcher、SNS gateway、滑動視窗、技能與 MCP 啟用工具及啟動 context 注入；Chat 錯誤碼與兩語翻譯；沙盒安全測試。
 - 修訂：修訂 [ADR-0132](0132-session-owner-attribution.md) 的對話寫入授權與人類身分透傳、修訂 [ADR-0231](0231-session-persistence-outcomes-and-revisions.md) 的條件提交與 UI 串流准入、修訂 [ADR-0245](0245-model-layer-stage-2a.md) 的對話綁定與 SNS 目標邊界。人類歸屬欄、持久化結果型別及靈魂驅動權繼續沿用。
+- 修訂：2026-11-24 外部審查小修第 7 項：SNS 回合（ctx 沒有身分）ToolLayer 列工具改用沒有角色的身分 `AgentIdentity(agent_id=...)`，和執行時（System 角色 → `resolve_grants(None)` 寫死的空授權）同一套。原本列工具用靈魂加 Base 角色，Base 是管理員可以改的設定：出貨值下兩邊都是零工具，管理員放寬 Base 後 AI 會看得到工具、每次呼叫卻都被拒。`<harness_context>` 的角色寫 Base。身分照舊不寫回 ctx：寫回會讓外人觸發的回合拿到靈魂擁有者的權限。測試：`tests/unit/test_ext_review_fixes.py`。
 - 相關：ADR-0035／0092（回合後剪裁）、ADR-0230（排程交易與憑證）、ADR-0260（家對話外送欄位）。
 - 後續修訂：[ADR-0327](0327-sns-reach-only-the-bot-owners-souls.md)（2026-11-21）修訂 §4：「`@別名` 群聊仍交給 `ToukaGroup`」之後，群聊成員也照 §4 的同一條規則（`utils/sns_reach.sns_may_reach`）；Telegram `/switch` 已拿掉。
 

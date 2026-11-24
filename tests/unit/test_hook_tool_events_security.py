@@ -237,35 +237,37 @@ async def test_failure_hook_error_hides_json_and_url_credentials(monkeypatch, ho
 
 
 @pytest.mark.parametrize(
-    ("name", "text", "from_mcp", "failed"),
+    ("name", "text", "failed"),
     [
-        ("read", _FAILURE, False, True),
-        ("read", tool_errors.build_tool_error(tool_errors.PERMISSION_DENIED, "no"), False, False),
-        ("read", '{"ok": true, "text": "Error: a word"}', False, False),
+        ("read", _FAILURE, True),
+        ("read", tool_errors.build_tool_error(tool_errors.PERMISSION_DENIED, "no"), False),
+        ("read", '{"ok": true, "text": "Error: a word"}', False),
         # 舊工具的慣例：開頭就是錯誤；內容裡才出現不算
-        ("read", "Error: boom", False, True),
-        ("read", "  ❌ boom", False, True),
-        ("read", "line one\nError: only a word in the output", False, False),
-        ("read", "a table with ❌ in it", False, False),
-        # MCP 的失敗只看 isError（已經轉成結構化錯誤），文字怎麼寫都不算
-        ("srv__demo", "Error: text from a tool that succeeded", True, False),
-        ("srv__demo", _FAILURE, True, True),
+        ("read", "Error: boom", True),
+        ("read", "  ❌ boom", True),
+        ("read", "line one\nError: only a word in the output", False),
+        ("read", "a table with ❌ in it", False),
+        # MCP 標了 isError 的已經轉成結構化錯誤；沒標的和其他工具一樣看開頭（外部審查 11/24
+        # 第 4 項，畫面與 hook 同一條規則）
+        ("srv__demo", _FAILURE, True),
+        ("srv__demo", "❌ 錯誤：生成失敗", True),
+        ("srv__demo", "3 results; the second mentions Error: retry", False),
         # 終端看結束碼，輸出怎麼寫都不算
-        ("execute_command", "[EXIT_CODE: 1]\nall good", False, True),
-        ("execute_command", "[EXIT_CODE: -9]\n", False, True),
-        ("execute_command", "[EXIT_CODE: 0]\nError: found by grep", False, False),
-        ("get_command_result", "[EXIT_CODE: 2]\n", False, True),
-        ("execute_command", "Error: could not start", False, True),
+        ("execute_command", "[EXIT_CODE: 1]\nall good", True),
+        ("execute_command", "[EXIT_CODE: -9]\n", True),
+        ("execute_command", "[EXIT_CODE: 0]\nError: found by grep", False),
+        ("get_command_result", "[EXIT_CODE: 2]\n", True),
+        ("execute_command", "Error: could not start", True),
         # 真的終端結果：指令文字排在結束碼前面，指令或輸出裡的同樣字串都不算
-        ("execute_command", _terminal_result("pytest -q", 1, "all good"), False, True),
-        ("execute_command", _terminal_result("grep x", 0, "Error: found"), False, False),
-        ("execute_command", _terminal_result("echo '[EXIT_CODE: 1]'", 0), False, False),
-        ("execute_command", _terminal_result("echo '[EXIT_CODE: 0]'; false", 1), False, True),
-        ("execute_command", _terminal_result("cat log", 0, "```\n[EXIT_CODE: 1]"), False, False),
+        ("execute_command", _terminal_result("pytest -q", 1, "all good"), True),
+        ("execute_command", _terminal_result("grep x", 0, "Error: found"), False),
+        ("execute_command", _terminal_result("echo '[EXIT_CODE: 1]'", 0), False),
+        ("execute_command", _terminal_result("echo '[EXIT_CODE: 0]'; false", 1), True),
+        ("execute_command", _terminal_result("cat log", 0, "```\n[EXIT_CODE: 1]"), False),
     ],
 )
-def test_what_counts_as_a_tool_failure(name, text, from_mcp, failed):
-    assert _counts_as_tool_failure(name, text, from_mcp=from_mcp) is failed
+def test_what_counts_as_a_tool_failure(name, text, failed):
+    assert _counts_as_tool_failure(name, text) is failed
 
 
 @pytest.mark.parametrize(
@@ -359,10 +361,12 @@ async def test_arguments_rejected_before_the_tool_runs_are_not_failures(monkeypa
 
 
 async def test_an_mcp_result_that_is_not_an_error_fires_post_tool_use(monkeypatch, hooks):
+    # 中段出現 Error: 不算失敗；開頭就是 Error:／❌ 的和其他工具一樣算失敗（外部審查 11/24 第 4 項，
+    # 見 test_ext_review_fixes.py）
     hooks.configure({"PostToolUse": [group()], "PostToolUseFailure": [group()]})
     fine = McpCompleteOutcome(
         source_protocol_version=UNKNOWN_PROTOCOL_VERSION,
-        content=[{"type": "text", "text": "Error: only text from the server"}],
+        content=[{"type": "text", "text": "the server quoted: Error: only text"}],
         is_error=False,
     )
     executor = _mcp_executor(monkeypatch, _FakeMcp(fine))

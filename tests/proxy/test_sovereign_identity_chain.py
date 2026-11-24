@@ -1,11 +1,27 @@
 """Sovereign identity chain integration test."""
 
+import asyncio
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.models.identity import AgentIdentity
 from src.services.agent_service import agent_service
 from src.services.tool_executor import ToolExecutor
+
+
+async def _run(
+    executor: ToolExecutor, name: str, args: dict[str, Any], ctx: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """跑現行的入口 ``execute_to_queue`` 並收齊事件（舊的 ``execute()`` 外部審查 11/24 刪掉）。"""
+    queue: asyncio.Queue = asyncio.Queue()
+    await executor.execute_to_queue(name, args, "req_123", ctx, queue)
+    events = []
+    while not queue.empty():
+        event = queue.get_nowait()
+        if event is not None:
+            events.append(event)
+    return events
 
 
 @pytest.mark.asyncio
@@ -60,11 +76,7 @@ async def test_sovereign_identity_elevation_and_isolation():
 
     with patch.object(agent_service, "identify_agent", side_effect=mock_identify):
         # 執行 A: 驗證權限提升
-        results = []
-        async for event in executor.execute(
-            "update_my_soul", {"persona": "new"}, "req_123", ctx
-        ):
-            results.append(event)
+        results = await _run(executor, "update_my_soul", {"persona": "new"}, ctx)
 
         # 斷言：執行成功 (因為 Alice 是 Owner)
         last_result = next(
@@ -79,13 +91,7 @@ async def test_sovereign_identity_elevation_and_isolation():
         vault_mock = mock_tool_reg["vault_tools"]
         vault_mock.reset_mock()
 
-        async for _event in executor.execute(
-            "vault_tools",
-            {"vault": "personal", "action": "list"},
-            "req_123",
-            ctx,
-        ):
-            pass
+        await _run(executor, "vault_tools", {"vault": "personal", "action": "list"}, ctx)
 
         # 驗證 vault_tools 被呼叫且收到正確的 identity
         assert vault_mock.called, "vault_tools was not called"

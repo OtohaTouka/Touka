@@ -23,6 +23,7 @@
   普通動態 handler 仍受普通 PaC/HITL，不擴張成本次全量 typed 遷移。
 - 順序為 verified identity → 原 RoleGrants/MCP grant → 可信分類與 PaC → HITL →
   選定公開輸入驗證 → 可信 context 注入 → 已解析 handler。grant 仍按呼叫名稱核對，canonical alias 不擴大 grant。
+  〔2026-11-24 例外（外部審查小修第 5 項）：一定要參數的工具（`CRITICAL_TOOLS`）完全沒帶參數時，在原 grant、清單核對與 PaC 拒絕之後、hook 與 HITL 之前就回 `validation_error`；有帶參數、只是少了必填的，照上面的順序在批准之後才驗證。見 ADR-0292 決定 16。〕
 - 在等待批准前保存實際勝出來源與 callable；builtin 優先於 Memory，plugin 次之。
   等待期間 registry 被替換，也只執行該次已批准的 callable。MCP 同一 invocation 使用原已解析 server/tool。
   真終端 command 仍受既有黑白名單與 terminal 內部安全檢查。
