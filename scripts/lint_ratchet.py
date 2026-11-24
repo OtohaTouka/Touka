@@ -293,7 +293,7 @@ def _complexity_main(current: Counter[str], baseline_path: Path, *, update: bool
     if update:
         for problem in compare_complexity(current, baseline):
             if "要拆" in problem:  # --update 照單全收，至少讓跑的人看到收了什麼
-                print(f"收進基準（只有改名或搬檔可以，要在 PR 說明列出）：{problem}")
+                print(f"收進基準（只收改名或搬檔、數字沒變大的，PR 說明要列出）：{problem}")
         write_baseline(baseline_path, current)
         print(f"complexity: baseline updated, {len(current)} functions over {MAX_COMPLEXITY}")
         return 0

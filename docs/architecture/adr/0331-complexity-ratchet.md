@@ -27,7 +27,7 @@
    - 收集前逐一確認五個資料夾都在：ruff 碰到不存在的資料夾只在 stderr 印一行，結束碼不變。
    - stderr 有任何輸出、結束碼不是 0 或 1、輸出不是 JSON、代號不是 C901（含 `invalid-syntax`）、訊息格式認不得、訊息裡的上限不是 15、結束碼和結果數量矛盾，都丟錯。資料夾預檢和 stderr 檢查是故意重疊的兩層。
    - 「基準不是空的，結果卻一筆都沒有」：檢查和 `--update` 兩條路都丟錯，收集壞掉時才不會被一次 `--update` 寫成空基準、等於關掉檢查。真的全部拆完時，手動把基準改成 `{}`，並在 PR 說明。
-6. **完整名稱**：ruff 只報短名稱與行號。用標準函式庫 `ast` 找出那個 def 的完整名稱（例如 `ToolLayer.process`、`outer.<locals>.inner`、`factory.<locals>.Inner.method`，和 Python 的 `__qualname__` 一致）：名稱相同，而且 def 的起始行 ≤ 回報行 ≤ 本體第一行（多行裝飾器、`async \` 換行都對得到）。必須恰好對到一個，否則丟錯，不退回短名稱、也不略過。同檔同完整名稱（property 的 getter／setter、`if`／`else` 兩邊各定義一次）依在檔內的順序加 `#2`、`#3`，不管有沒有超標，兩個互換時才會紅；現在 0 組。路徑先解析符號連結再比對。
+6. **完整名稱**：ruff 只報短名稱與行號。用標準函式庫 `ast` 找出那個 def 的完整名稱（例如 `ToolLayer.process`、`outer.<locals>.inner`、`factory.<locals>.Inner.method`，和 Python 的 `__qualname__` 一致）：名稱相同，而且 def 的起始行 ≤ 回報行 ≤ 本體第一行（多行裝飾器、`async \` 換行都對得到）。必須恰好對到一個，否則丟錯，不退回短名稱、也不略過。同檔同完整名稱（property 的 getter／setter、`if`／`else` 兩邊各定義一次）依在檔內的順序加 `#2`、`#3`，不管有沒有超標，兩個互換時才會紅；現在 0 組。副作用：在凍結的函式上方加 `@overload` 存根或其他同名定義，它的鍵會變成 `#2`，要當成改名重拍。路徑先解析符號連結再比對。
 7. **在 CI 的 pytest 裡跑**：`tests/lint/test_complexity_ratchet.py`。不改 CI 設定、不加套件。CI 完整測試要 36～40 分鐘才會紅，本機跑這道不到一秒，`CONTRIBUTING.md` 與測試交班寫「推送前先跑」。
 
 ## 後果

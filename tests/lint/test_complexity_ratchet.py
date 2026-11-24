@@ -2,7 +2,7 @@
 
 五個產品資料夾裡，ruff C901 算出超過上限 15 的函式記在 `tests/lint/complexity_baseline.json`。
 新超標或變複雜要拆；變簡單、改名或搬檔要在同一個 PR 跑 `--update`，改動才看得到。
-收集用 `--isolated --ignore-noqa`，`ruff.toml` 的 per-file-ignores 與 `# noqa` 都壓不掉。
+收集的參數讓 `ruff.toml` 的 per-file-ignores、`# noqa`、`.gitignore`、預設排除與 `.pyw` 都藏不住。
 """
 
 from __future__ import annotations
