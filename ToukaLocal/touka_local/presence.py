@@ -49,11 +49,14 @@ def visible_at_start(*, background: bool, paired: bool, show_ready: bool) -> boo
     return not (background and paired and show_ready)
 
 
-def second_instance_action(*, background: bool, signalled: bool) -> str:
-    """已經有一個小幫手在跑時，這一個怎麼結束。"""
+def second_instance(*, background: bool, signal: Callable[[], bool]) -> str:
+    """已經有一個小幫手在跑時，這一個怎麼結束。
+
+    自己打開的才通知第一個叫出主視窗；開機啟動的連通知都不發，安靜結束。
+    """
     if background:
         return QUIET
-    return SHOWN if signalled else ALREADY_OPEN
+    return SHOWN if signal() else ALREADY_OPEN
 
 
 def attention_reasons(*, state: str, open_paused: bool, records_readable: bool) -> frozenset[str]:

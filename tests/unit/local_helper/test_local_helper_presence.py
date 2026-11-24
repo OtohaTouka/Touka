@@ -23,7 +23,7 @@ from touka_local.presence import (
     AttentionTracker,
     attention_reasons,
     close_button_action,
-    second_instance_action,
+    second_instance,
     visible_at_start,
     wants_background,
     window_action,
@@ -36,6 +36,7 @@ from touka_local.service import (
     STATE_UNPAIRED,
     STATE_UPGRADE_NEEDED,
 )
+from touka_local.view import close_hint_text, open_paused_text
 
 
 class _Clock:
@@ -76,19 +77,34 @@ def test_the_main_window_hides_only_when_it_can_be_shown_again(
     )
 
 
+class _Signal:
+    """代替通知第一個小幫手的系統呼叫：記下有沒有被叫到。"""
+
+    def __init__(self, *, result: bool) -> None:
+        self.result = result
+        self.calls = 0
+
+    def __call__(self) -> bool:
+        self.calls += 1
+        return self.result
+
+
 @pytest.mark.parametrize(
-    ("background", "signalled", "expected"),
+    ("background", "signalled", "expected", "calls"),
     [
-        (True, False, QUIET),
-        (True, True, QUIET),
-        (False, True, SHOWN),
-        (False, False, ALREADY_OPEN),
+        (True, False, QUIET, 0),
+        (True, True, QUIET, 0),
+        (False, True, SHOWN, 1),
+        (False, False, ALREADY_OPEN, 1),
     ],
 )
 def test_a_second_copy_shows_the_first_or_says_it_is_open(
-    background: bool, signalled: bool, expected: str
+    background: bool, signalled: bool, expected: str, calls: int
 ) -> None:
-    assert second_instance_action(background=background, signalled=signalled) == expected
+    signal = _Signal(result=signalled)
+    assert second_instance(background=background, signal=signal) == expected
+    # 開機啟動檔又被執行時連通知都不發，不然收著的主視窗會被叫出來
+    assert signal.calls == calls
 
 
 # --- 需要人處理的狀況 ---
@@ -207,3 +223,27 @@ def test_the_close_button_never_strands_the_helper(show_ready: bool, expected: s
 
 def test_the_cooldown_is_ten_minutes() -> None:
     assert presence.ATTENTION_COOLDOWN_SECONDS == 600
+
+
+# --- 主視窗上的說明 ---
+
+
+def test_the_close_hint_says_what_the_x_does() -> None:
+    hidden = close_hint_text(show_ready=True)
+    assert "收起來" in hidden
+    assert "桌面" in hidden
+    # 桌面上找不到啟動檔時的備用入口
+    assert r"%LOCALAPPDATA%\ToukaLocal" in hidden
+    minimized = close_hint_text(show_ready=False)
+    assert "工作列" in minimized
+    # 叫不出來時不能叫人「再開一次就會叫出來」
+    assert "叫出" not in minimized
+    for text in (hidden, minimized):
+        assert "結束小幫手" in text
+
+
+def test_the_paused_notice_does_not_say_open_it_again() -> None:
+    # 0.4.0 起再開一次只會叫出同一個，不會解除停收
+    text = open_paused_text(600)
+    assert "重開小幫手" not in text
+    assert "結束小幫手" in text

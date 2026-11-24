@@ -16,6 +16,7 @@ if sys.platform == "win32":
     from touka_local.app import ApprovalWindow, MainWindow, OpenRequestWindow, _setup_display
 
 import base64
+import logging
 import uuid
 from dataclasses import replace
 from typing import TYPE_CHECKING
@@ -276,6 +277,53 @@ def test_calling_up_without_a_running_helper_fails() -> None:
 
 def test_consuming_without_an_event_is_always_false() -> None:
     assert consume_show_event(None) is False
+
+
+def test_the_main_window_asks_its_own_show_event() -> None:
+    name = _test_name("Show")
+    handle = create_show_event(name)
+    assert handle is not None
+    try:
+        requested = app_module._show_requests(handle)
+        assert requested() is False
+        assert signal_show_event(name) is True
+        assert requested() is True
+        assert requested() is False
+    finally:
+        _winapi.CloseHandle(handle)
+    assert app_module._show_requests(None)() is False
+
+
+@pytest.mark.parametrize(
+    ("background", "paired", "show_ready", "hidden"),
+    [
+        (True, True, True, True),
+        (True, True, False, False),
+        (True, False, True, False),
+        (False, True, True, False),
+    ],
+)
+def test_only_a_paired_startup_launch_starts_hidden(
+    caplog: pytest.LogCaptureFixture,
+    *,
+    background: bool,
+    paired: bool,
+    show_ready: bool,
+    hidden: bool,
+) -> None:
+    root = tkinter.Tk()
+    try:
+        with caplog.at_level(logging.WARNING):
+            app_module._prepare_main_window(
+                root, background=background, paired=paired, show_ready=show_ready
+            )
+        assert (root.state() == "withdrawn") is hidden
+        # 叫不出來時留一筆紀錄，之後查得到為什麼主視窗一直顯示、× 只最小化
+        assert any("show event" in record.getMessage() for record in caplog.records) is (
+            not show_ready
+        )
+    finally:
+        root.destroy()
 
 
 def test_approval_window_shows_every_full_path() -> None:
@@ -551,6 +599,27 @@ def test_opening_it_again_brings_the_window_back(shown_window, monkeypatch) -> N
     window._root.update()
     requests.pending = 1
     window._refresh()
+    window._root.update()
+    assert window._root.state() == "normal"
+
+
+class _RoundFailed(Exception):
+    pass
+
+
+def test_a_failing_round_still_brings_the_window_back(shown_window, monkeypatch) -> None:
+    window, requests = shown_window
+    _press_close(window, monkeypatch)
+    window._root.update()
+
+    def broken() -> None:
+        raise _RoundFailed
+
+    # 例如審批視窗一直建不起來：這段時間收著的主視窗也要叫得出來
+    monkeypatch.setattr(window, "_sync_approval", broken)
+    requests.pending = 1
+    with pytest.raises(_RoundFailed):
+        window._refresh()
     window._root.update()
     assert window._root.state() == "normal"
 

@@ -35,7 +35,7 @@ from touka_local.presence import (
     AttentionTracker,
     attention_reasons,
     close_button_action,
-    second_instance_action,
+    second_instance,
     visible_at_start,
     wants_background,
     window_action,
@@ -80,6 +80,7 @@ from touka_local.view import (
     approval_title,
     approval_window_kind,
     clean_reason,
+    close_hint_text,
     connection_text,
     display_safe,
     mode_status_text,
@@ -114,10 +115,6 @@ _NAMED_FONTS: Final = ("TkDefaultFont", "TkTextFont", "TkHeadingFont", "TkMenuFo
 _CLOSE_CONFIRM_TITLE: Final = "結束小幫手"
 _CLOSE_CONFIRM_TEXT: Final = "結束之後，靈魂就不能用你電腦上的檔案。確定要結束嗎？"
 _QUIT_LABEL: Final = "結束小幫手"
-_HIDE_HINT: Final = (
-    "按右上角 × 只會收起來，小幫手會在背景繼續服務；要完全結束請按「結束小幫手」。"
-    "收起來之後，從桌面的 ToukaLocal.cmd 再開一次就會叫出這個視窗。"
-)
 _CLOSE_CANCELLED: Final = "有一份清單在等你決定，小幫手先不關。"
 _PATHS_PANEL_LINES: Final = 6
 _OPEN_WINDOW_SIZE: Final = (640, 380)
@@ -479,9 +476,11 @@ class MainWindow:
             pairing, text="停止目前這批", command=self._service.stop_running, state="disabled"
         )
         self._stop.pack(side="right", padx=4)
-        ttk.Label(frame, text=_HIDE_HINT, wraplength=self._display.px(_MAIN_WRAP)).pack(
-            anchor="w", pady=(0, 6)
-        )
+        ttk.Label(
+            frame,
+            text=close_hint_text(show_ready=self._show_ready),
+            wraplength=self._display.px(_MAIN_WRAP),
+        ).pack(anchor="w", pady=(0, 6))
 
     def _build_mode(self, frame: ttk.Frame) -> None:
         row = ttk.Frame(frame)
@@ -758,11 +757,12 @@ class MainWindow:
 
     def _refresh(self) -> None:
         self._service.tick()
+        # 叫出主視窗排在最前面：這一輪後面哪一段出錯，收著的主視窗也叫得出來
+        self._place_window()
         self._status.configure(text=f"Touka：{connection_text(self._service.state)}")
         self._stop.configure(state="normal" if self._service.running else "disabled")
         self._sync_approval()
         self._refresh_open_requests()
-        self._place_window()
         notice = _NOTICE_TEXT.get(self._service.notice)
         if notice is not None:
             report = self._service.last_report
@@ -915,14 +915,25 @@ def _make_client(settings: Settings) -> ToukaClient | None:
         return None
 
 
+def _show_requests(show_event: int | None) -> Callable[[], bool]:
+    """主視窗每一輪問一次：有沒有人再開了一次小幫手。"""
+    return lambda: winapi.consume_show_event(show_event)
+
+
+def _prepare_main_window(root: tk.Tk, *, background: bool, paired: bool, show_ready: bool) -> None:
+    """主視窗建好就馬上決定要不要收起來，在排版之前，才不會閃一下。"""
+    if not show_ready:
+        # 失效不沉默：之後才查得到為什麼主視窗一直顯示、× 只縮到工作列
+        logger.warning("the show event is unavailable; the main window stays visible")
+    if not visible_at_start(background=background, paired=paired, show_ready=show_ready):
+        root.withdraw()
+
+
 def main() -> int:
     """啟動小幫手。開機啟動檔帶 ``--background``：已經配對時不顯示主視窗。"""
     background = wants_background(sys.argv[1:])
     if not winapi.acquire_single_instance():
-        # 已經有一個在跑：自己打開的就請它叫出主視窗；開機啟動的安靜結束
-        signalled = False if background else winapi.signal_show_event()
-        action = second_instance_action(background=background, signalled=signalled)
-        if action == ALREADY_OPEN:
+        if second_instance(background=background, signal=winapi.signal_show_event) == ALREADY_OPEN:
             messagebox.showinfo("Touka 本機小幫手", "小幫手已經開著了。")
             return 1
         return 0
@@ -968,10 +979,9 @@ def main() -> int:
     winapi.enable_dpi_awareness()
     root = tk.Tk()
     show_ready = show_event is not None
-    # 建好就馬上收起來，在排版之前，主視窗才不會閃一下
-    paired = client is not None
-    if not visible_at_start(background=background, paired=paired, show_ready=show_ready):
-        root.withdraw()
+    _prepare_main_window(
+        root, background=background, paired=client is not None, show_ready=show_ready
+    )
     root.report_callback_exception = _log_window_error
     MainWindow(
         root,
@@ -983,7 +993,7 @@ def main() -> int:
         settings_file=settings_file,
         display=_setup_display(root),
         switches=switches,
-        show_requested=lambda: winapi.consume_show_event(show_event),
+        show_requested=_show_requests(show_event),
         show_ready=show_ready,
         tracker=AttentionTracker(clock=time.monotonic),
     )
