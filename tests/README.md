@@ -75,6 +75,7 @@ tests/
 |---|---|
 | `unit/test_tool_error_text_security.py` | **工具例外的錯誤文字先消毒**（禁令 23）：例外文字含 `Bearer sk-…`、這台機器的本機絕對路徑（原生與 / 兩種寫法；本機是 Windows、CI 是 Linux）時，錯誤事件、給模型的結果（截短與不截短）、存下的步驟都看不到；機密跨過舊的 200 字截斷處也整段遮掉 |
 | `unit/test_ext_review_fixes.py` | **外部審查小修其他項**：無痕回合不讀看板、不放 `<mission_awareness>`（任務工具照樣列）；無痕請求不列記憶工具（ctx 沒旗標也一樣）；兩個調度工具被政策拒絕時不列、放行時只列一次；SNS 回合（沒有身分）管理員放寬 Base 也不列工具、`<harness_context>` 角色寫 Base、不寫回身分；MCP 呼叫補的 `agent_id` 不改模型自己的參數（Claude 共用 dict 的形狀）；成功與失敗畫面和 hook 同一條規則（終端看結束碼、其他看開頭，含沒標 `isError` 的 MCP）；完全沒帶參數的必填工具在 hook、審查員與審批卡之前回錯誤、留一則失敗小提示、照記「試過」，沒列出的工具照樣先拒絕、少了部分必填的照舊核准後才檢查；沒人在場的危險指令由終端自己再擋（沒有舊介面時拒絕、有時等核准，都不執行） |
+| `unit/test_terminal_approval_human_security.py` | **舊的終端核准端點只收人類管理員本人**（外部審查第 12 項，ADR-0033 修訂）：核准與拒絕要人類管理員本人加信任的 Origin；admin 代打、一般使用者代打成 Owner、Debugger、本機開發卡、一般人類、沒登入都 403 且等待中的核准沒被放行；沒權限的人對不存在的編號也是 403；log 只記核准人與編號、不記附帶的值；`/terminal/stream`、`/terminal/history` 只給人類管理員本人 |
 | `unit/test_sns_mission_privacy_security.py` | **SNS 外人觸發的回合不帶任務看板**（ADR-0276 修訂）：沒有 `<mission_awareness>`、沒讀看板；`<continuity>` 沒有看板行、最近完成行與任務編號（沒有身分與有身分）；網頁對話照樣有 |
 
 ### 子代理的結果講清楚（ADR-0318）

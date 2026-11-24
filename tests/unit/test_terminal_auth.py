@@ -3,6 +3,9 @@
 C8 — POST /terminal/approve/{exec_id} and /terminal/reject/{exec_id} must
 require a valid authenticated identity. Unauthenticated callers must be
 denied (403), regardless of whether the exec_id exists.
+
+2026-11-24（外部審查第 12 項）：只收人類管理員本人，而且要帶信任的 Origin；
+Owner 靈魂與代打一律 403（完整案例在 test_terminal_approval_human_security.py）。
 """
 
 from __future__ import annotations
@@ -16,16 +19,17 @@ from src.models.identity import AgentIdentity
 from src.routers.terminal import pending_approvals
 from src.services.identity_router import get_verified_identity
 
-OWNER_IDENTITY = AgentIdentity.for_role(agent_id="DebugAgent", role="Owner", capabilities=[])
+HUMAN_ADMIN = AgentIdentity.for_role(agent_id="zz-c8-admin", role="admin", is_human=True)
+TRUSTED = {"Origin": "http://localhost:3001"}
 # ADR-0245：Guest 退役，低權限樣本改用 Base。
 GUEST_IDENTITY = AgentIdentity.for_role(agent_id="LowAgent", role="Base", capabilities=[])
 
 
 @pytest.fixture
-def owner_client():
-    """TestClient with Owner identity injected."""
-    app.dependency_overrides[get_verified_identity] = lambda: OWNER_IDENTITY
-    with TestClient(app) as c:
+def admin_client():
+    """TestClient with a human admin injected; every request carries a trusted Origin."""
+    app.dependency_overrides[get_verified_identity] = lambda: HUMAN_ADMIN
+    with TestClient(app, headers=TRUSTED) as c:
         yield c
     app.dependency_overrides.clear()
 
@@ -84,21 +88,21 @@ def test_approve_rejects_guest_role(guest_client: TestClient):
     )
 
 
-def test_approve_allows_owner(owner_client: TestClient):
-    """Owner identity must be able to approve a pending terminal command."""
+def test_approve_allows_a_human_admin(admin_client: TestClient):
+    """A human admin must be able to approve a pending terminal command."""
     exec_id = "test-exec-owner"
     event = asyncio.Event()
     pending_approvals[exec_id] = event
 
-    response = owner_client.post(f"/terminal/approve/{exec_id}")
+    response = admin_client.post(f"/terminal/approve/{exec_id}")
 
     assert response.status_code == 200
     assert response.json()["status"] == "approved"
 
 
-def test_approve_returns_404_for_unknown_exec_id(owner_client: TestClient):
+def test_approve_returns_404_for_unknown_exec_id(admin_client: TestClient):
     """Known-good identity trying to approve non-existent exec_id gets 404."""
-    response = owner_client.post("/terminal/approve/does-not-exist")
+    response = admin_client.post("/terminal/approve/does-not-exist")
 
     # Should be a 404-like error (ToukaException: TERMINAL_APPROVAL_NOT_FOUND)
     assert response.status_code in (404, 422, 400, 500), (
@@ -130,13 +134,13 @@ def test_reject_rejects_guest_role(guest_client: TestClient):
     assert response.status_code == 403
 
 
-def test_reject_allows_owner(owner_client: TestClient):
-    """Owner identity must be able to reject a pending terminal command."""
+def test_reject_allows_a_human_admin(admin_client: TestClient):
+    """A human admin must be able to reject a pending terminal command."""
     exec_id = "test-reject-owner"
     event = asyncio.Event()
     pending_approvals[exec_id] = event
 
-    response = owner_client.post(f"/terminal/reject/{exec_id}")
+    response = admin_client.post(f"/terminal/reject/{exec_id}")
 
     assert response.status_code == 200
     assert response.json()["status"] == "rejected"

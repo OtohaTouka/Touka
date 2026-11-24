@@ -19,11 +19,13 @@ from fastapi.testclient import TestClient
 from src.main import app
 from src.models.identity import AgentIdentity
 from src.routers.terminal import terminal_stream
+from src.services.authorization_gateway import require_admin_human
 from src.services.identity_router import get_verified_identity
 from src.services.models import model_manager as _model_manager_singleton
 
 OWNER = AgentIdentity.for_role(agent_id="DebugAgent", role="Owner", capabilities=[])
 ADMIN = AgentIdentity.for_role(agent_id="DebugAgent", role="admin", capabilities=[])
+HUMAN_ADMIN = AgentIdentity.for_role(agent_id="zz-gf3-admin", role="admin", is_human=True)
 
 
 def _override(identity):
@@ -118,23 +120,28 @@ def test_terminal_history_requires_auth():
     assert resp.status_code in (401, 403), f"Got {resp.status_code}"
 
 
-def test_terminal_history_owner_passes():
+def test_terminal_history_is_for_a_human_admin():
+    """2026-11-24（外部審查第 12 項）：Owner 不再能讀，人類管理員本人可以。"""
     c = _as_owner()
     resp = c.get("/terminal/history")
     _clear()
-    assert resp.status_code not in (401, 403), f"Owner must pass, got {resp.status_code}"
+    assert resp.status_code == 403, f"Owner must be refused, got {resp.status_code}"
+    _override(HUMAN_ADMIN)
+    resp = TestClient(app, raise_server_exceptions=False).get("/terminal/history")
+    _clear()
+    assert resp.status_code == 200, f"Human admin must pass, got {resp.status_code}"
 
 
 def test_terminal_stream_requires_auth():
-    """P3 fix: /terminal/stream now has Depends(get_verified_identity)."""
+    """P3 fix: /terminal/stream has an identity dependency."""
     sig = inspect.signature(terminal_stream)
     assert "identity" in sig.parameters, "terminal_stream must require identity"
 
 
-def test_terminal_stream_owner_passes():
-    """P3 fix: owner identity should be accepted by terminal_stream."""
+def test_terminal_stream_is_for_a_human_admin():
+    """2026-11-24（外部審查第 12 項）：事件串流只給人類管理員本人。"""
     sig = inspect.signature(terminal_stream)
-    assert "identity" in sig.parameters, "terminal_stream must accept identity"
+    assert sig.parameters["identity"].default.dependency is require_admin_human
 
 
 # ---------------------------------------------------------------------------

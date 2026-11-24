@@ -3,14 +3,15 @@
 ``POST /v1/tools/approve|reject/{exec_id}``——解算 approval_service 的待決審批
 （審批卡經聊天 SSE 送達，見 tool_executor._await_human_approval）。
 
-授權立場（比遺留 /terminal/approve 的 is_privileged 更嚴）：
+授權立場（遺留 /terminal/approve 2026-11-24 起只收人類管理員本人，比這裡更窄）：
 1. **必須是人類**（``is_human``）——HITL 的 H 是人；agent token（含 Owner／admin
    代打）一律 403，杜絕 agent 自批自己的工具調用。
 2. 且滿足其一：admin 權威（``is_admin_authority``）／待批 agent 的擁有者
    （``agent_id ∈ owned_agents``）／該 session 的擁有者（``owner_user_id`` 相符）。
-3. Origin 驗證（CSRF）與 /terminal/approve 同款。
+3. Origin 驗證（CSRF）用 ``verify_origin``
+   （/terminal/approve 改用較嚴的 ``require_trusted_origin``）。
 
-``/terminal/approve|reject`` 保留原樣（skill 安裝與遺留 ToukaUI 生態仍在用）。
+``/terminal/approve|reject`` 保留（skill 安裝與沒人在場的終端指令仍在用）。
 """
 
 from __future__ import annotations

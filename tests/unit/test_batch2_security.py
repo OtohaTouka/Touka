@@ -110,7 +110,7 @@ def _clean_approvals():
 async def test_approve_is_protected_by_lock():
     """approve_command must acquire _approval_lock before modifying state."""
     # Inject a fake identity via the raw function (bypass Depends for unit test)
-    identity = AgentIdentity.for_role(agent_id="DebugAgent", role="Owner")
+    identity = AgentIdentity.for_role(agent_id="zz-lock-admin", role="admin", is_human=True)
     exec_id = "lock-test-exec"
     event = asyncio.Event()
     pending_approvals[exec_id] = event
@@ -124,7 +124,8 @@ async def test_approve_is_protected_by_lock():
         return result
 
     _State = type("S", (), {"new_auth_token": None})
-    mock_request = type("R", (), {"headers": {}, "client": None, "state": _State()})()
+    headers = {"origin": "http://localhost:3001"}  # 核准一定要帶信任的 Origin（2026-11-24）
+    mock_request = type("R", (), {"headers": headers, "client": None, "state": _State()})()
     with patch.object(type(_approval_lock), "acquire", spy_acquire):
         await approve_command(exec_id, mock_request, identity)
 

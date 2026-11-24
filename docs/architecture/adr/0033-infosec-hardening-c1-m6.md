@@ -64,7 +64,7 @@
 - 跨切面安全邏輯必須抽出純函式至 `src/utils/`，可獨立單元測試。
 - 端點層只負責呼叫，不重複實作驗證邏輯。
 - 守衛包含：
-  - **CSRF**：`csrf_guard.verify_origin()`
+  - **CSRF**：`csrf_guard.verify_origin()`（核准類端點用一定要帶 Origin 的 `require_trusted_origin()`，2026-11-24 修訂）
   - **Rate Limiting**：`rate_limiter.RateLimiter`
   - **Webhook auth**：`csrf_guard.verify_origin()` + 業務層 `_warn_if_unverified()`
   - **Resource bound**：常數上限 (`MAX_PENDING_APPROVALS`、`MAX_SNS_CONTENT_LENGTH`)
@@ -118,6 +118,15 @@
 3. **每次新增 noqa 必須更新 `NOQA_REGISTRY.md`** —  `guard_noqa_registry.py` 強制檢查。
 
 ---
+
+## 修訂（2026-11-24，外部審查第 12 項）
+
+C8 的 `/terminal/approve`、`/terminal/reject` 原本只看 `is_privileged()`（Owner／Debugger／admin），M1 的 `verify_origin()` 沒帶 Origin 就放行。多人部署時一般使用者帶 `X-Agent-ID` 代打自己的靈魂會解析成 Owner，能核准或拒絕任何人的待核准項目；同一組的 `/terminal/stream`、`/terminal/history` 任何登入的人都看得到所有代理人的指令與輸出。
+
+- 四個端點改用 `Depends(require_admin_human)`（ADR-0239 的授權閘道），只收人類管理員本人，錯誤碼 `AUTH_ADMIN_REQUIRED`；登記進 Guard #24 的 admin 名單（`scripts/endpoint_auth_admin_required.py`）。
+- 核准與拒絕改用 `require_trusted_origin()`（ADR-0320），一定要帶信任的 Origin。
+- 只會收緊。首次安裝前沒登入、只靠本機開發卡就不能核准技能安裝（用暫時密碼登入後可以）。
+- 測試：`tests/unit/test_terminal_approval_human_security.py`；SECURITY.md 一筆。
 
 ## 一致性紀錄
 
