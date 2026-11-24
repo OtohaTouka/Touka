@@ -735,7 +735,12 @@ async def test_recent_completions_leave_out_anything_older_than_seven_days(
 async def test_full_block_stays_small(clock: dict[str, float]) -> None:
     sid = _sid()
     await _seed(sid, _tree(("u1", "user", "hi", None)))
-    await _event("user_turn", at=_ms(NOW - DAY), subject="m1", session_id=sid)
+    # 較早幾輪那一行最長的樣子：清單列滿，最近一次長間隔在清單更早之前（補在行尾）
+    await _event("user_turn", at=_ms(NOW - 30 * DAY), subject="m0", session_id=sid)
+    await _event("user_turn", at=_ms(NOW - 12 * DAY), subject="m1", session_id=sid)
+    for index in range(cs.EARLIER_TURNS_SHOWN):
+        at = NOW - 12 * DAY + (index + 1) * 600
+        await _event("user_turn", at=_ms(at), subject=f"m{index + 2}", session_id=sid)
     await _event(
         "heartbeat_finished",
         at=_ms(NOW - 3600),
@@ -749,7 +754,10 @@ async def test_full_block_stays_small(clock: dict[str, float]) -> None:
             subject=f"m/T{index}",
             metadata={"task_id": f"T{index}"},
         )
-    assert len(await _v1(sid)) <= 1200
+    block = await _v1(sid)
+    assert _BREAK_NOTE_PREFIX in block  # 真的測到補在行尾的那種
+    # 較早幾輪那一行最長約 300 字（11/24 加），其他行不變
+    assert len(block) <= 1550
 
 
 async def test_model_written_task_ids_are_only_shown_hashed(clock: dict[str, float]) -> None:
@@ -809,3 +817,144 @@ async def test_two_homes_or_a_failed_read_do_not_break_the_block(
     monkeypatch.setattr(cs.session_service, "home_session_ids", AsyncMock(return_value=[home]))
     monkeypatch.setattr(cs, "unreported_children", AsyncMock(side_effect=OSError("db")))
     assert f"- {cs.UNREPORTED_LABEL}: unknown (read failed)" in await _block(home)
+
+
+# --------------------------------------------------------------------------- #
+# 這段對話較早幾輪的時間：看得到之前隔了多久，不會把對的時間判斷收回
+# --------------------------------------------------------------------------- #
+
+
+_BREAK_NOTE_PREFIX = cs.EARLIER_BREAK_NOTE.split("{", 1)[0]
+
+
+def _earlier_line(block: str) -> str | None:
+    prefix = f"- {cs.EARLIER_TURNS_LABEL}: "
+    return next((line for line in block.splitlines() if line.startswith(prefix)), None)
+
+
+async def test_earlier_turns_line_lists_this_conversation_oldest_first_with_breaks(
+    clock: dict[str, float],
+) -> None:
+    """隔了 8 天再來：每一輪都看得到之前的時間與間隔（11/24 試用時模型把對的話收回）."""
+    sid = _sid()
+    first = NOW - 9 * DAY
+    second = first + 120
+    latest = NOW - 60
+    for subject, at in (("m1", first), ("m2", second), ("m3", latest)):
+        await _event("user_turn", at=_ms(at), subject=subject, session_id=sid)
+    await _event("user_turn", at=_ms(NOW - 1), subject="this-msg", session_id=sid)  # 這一輪
+    await _event("user_turn", at=_ms(NOW - 30), subject="elsewhere", session_id="other-chat")
+
+    block = await _v1(sid, current_message_id="this-msg")
+
+    gap = cs.format_elapsed(latest - second)
+    assert _earlier_line(block) == (
+        f"- {cs.EARLIER_TURNS_LABEL}: {_minute(first)}; {_minute(second)}; "
+        f"{_minute(latest)} (+{gap}) {cs.ACTIVITY_RECORD}"
+    )
+    # 緊接在「距上一輪多久」之後
+    lines = block.splitlines()
+    previous_at = next(i for i, line in enumerate(lines) if cs.PREVIOUS_TURN_LABEL in line)
+    assert lines[previous_at + 1] == _earlier_line(block)
+
+
+async def test_earlier_turns_line_shows_only_the_latest_few(clock: dict[str, float]) -> None:
+    sid = _sid()
+    times = [NOW - (10 - i) * 600 for i in range(cs.EARLIER_TURNS_SHOWN + 2)]
+    for i, at in enumerate(times):
+        await _event("user_turn", at=_ms(at), subject=f"m{i}", session_id=sid)
+
+    block = await _v1(sid)
+
+    shown = "; ".join(_minute(at) for at in times[-cs.EARLIER_TURNS_SHOWN :])
+    # 間隔都是 10 分鐘，不到一小時就不標
+    assert _earlier_line(block) == f"- {cs.EARLIER_TURNS_LABEL}: {shown} {cs.ACTIVITY_RECORD}"
+
+
+async def test_no_earlier_turns_line_without_records_in_heartbeat_incognito_or_on_read_failure(
+    clock: dict[str, float],
+) -> None:
+    sid = _sid()
+    assert _earlier_line(await _v1(sid)) is None  # 第一輪：沒有紀錄就不加，區塊和以前一樣
+    await _event("user_turn", at=_ms(NOW - 60), subject="m1", session_id=sid)
+    assert _earlier_line(await _v1(sid)) is not None
+    assert _earlier_line(await _v1(sid, heartbeat=True)) is None  # 心跳不是這段對話的一輪
+    assert _earlier_line(await _block(sid, incognito=True)) is None  # 無痕只放時間
+    with patch.object(cs, "read_snapshot", AsyncMock(side_effect=RuntimeError("db down"))):
+        assert _earlier_line(await _v1(sid)) is None  # 讀不到：上一輪那行已照實寫
+
+
+async def test_a_break_of_exactly_the_threshold_is_marked(clock: dict[str, float]) -> None:
+    sid = _sid()
+    base = NOW - DAY
+    marked = base + cs.EARLIER_TURNS_BREAK_SECONDS
+    unmarked = marked + cs.EARLIER_TURNS_BREAK_SECONDS - 60
+    for subject, at in (("m1", base), ("m2", marked), ("m3", unmarked)):
+        await _event("user_turn", at=_ms(at), subject=subject, session_id=sid)
+
+    line = _earlier_line(await _v1(sid))
+
+    gap = cs.format_elapsed(cs.EARLIER_TURNS_BREAK_SECONDS)
+    assert line == (
+        f"- {cs.EARLIER_TURNS_LABEL}: {_minute(base)}; {_minute(marked)} (+{gap}); "
+        f"{_minute(unmarked)} {cs.ACTIVITY_RECORD}"
+    )
+
+
+async def test_a_long_break_that_left_the_list_is_still_shown(clock: dict[str, float]) -> None:
+    """隔了 8 天後又聊了很多輪：清單裡看不到那次間隔，同一行補上，依據不會消失."""
+    sid = _sid()
+    old = NOW - 9 * DAY
+    back = old + 8 * DAY + 15 * 3600  # 隔 8 天 15 小時回來
+    await _event("user_turn", at=_ms(old), subject="old", session_id=sid)
+    times = [back + i * 60 for i in range(cs.EARLIER_TURNS_SHOWN + 1)]
+    for i, at in enumerate(times):
+        await _event("user_turn", at=_ms(at), subject=f"m{i}", session_id=sid)
+
+    line = _earlier_line(await _v1(sid))
+
+    shown = "; ".join(_minute(at) for at in times[-cs.EARLIER_TURNS_SHOWN :])
+    note = cs.EARLIER_BREAK_NOTE.format(gap=cs.format_elapsed(back - old), at=_minute(back))
+    assert line == f"- {cs.EARLIER_TURNS_LABEL}: {shown}; {note} {cs.ACTIVITY_RECORD}"
+
+
+async def test_the_oldest_listed_turn_shows_the_break_before_it(clock: dict[str, float]) -> None:
+    """最舊那一輪前面就是最近一次長間隔：直接標在它後面，不另外補在行尾."""
+    sid = _sid()
+    old = NOW - 9 * DAY
+    back = NOW - 600
+    await _event("user_turn", at=_ms(old), subject="old", session_id=sid)
+    times = [back + i * 60 for i in range(cs.EARLIER_TURNS_SHOWN)]
+    for i, at in enumerate(times):
+        await _event("user_turn", at=_ms(at), subject=f"m{i}", session_id=sid)
+
+    line = _earlier_line(await _v1(sid))
+
+    rest = "; ".join(_minute(at) for at in times[1:])
+    gap = cs.format_elapsed(back - old)
+    assert line == (
+        f"- {cs.EARLIER_TURNS_LABEL}: {_minute(back)} (+{gap}); {rest} {cs.ACTIVITY_RECORD}"
+    )
+
+
+async def test_a_break_already_marked_in_the_list_is_not_repeated(
+    clock: dict[str, float],
+) -> None:
+    sid = _sid()
+    first = NOW - 9 * DAY
+    later = NOW - 120
+    for subject, at in (("m1", first), ("m2", later)):
+        await _event("user_turn", at=_ms(at), subject=subject, session_id=sid)
+
+    line = _earlier_line(await _v1(sid))
+
+    assert line is not None and _BREAK_NOTE_PREFIX not in line
+    assert f"(+{cs.format_elapsed(later - first)})" in line
+
+
+async def test_no_earlier_turns_line_for_sns_requests(clock: dict[str, float]) -> None:
+    """SNS 的家模式借用家的 session：列出的會是擁有者的時間，外人觸發的請求不加."""
+    sid = _sid()
+    await _event("user_turn", at=_ms(NOW - 60), subject="m1", session_id=sid)
+    assert _earlier_line(await _v1(sid)) is not None
+    assert _earlier_line(await _v1(sid, sns=True)) is None

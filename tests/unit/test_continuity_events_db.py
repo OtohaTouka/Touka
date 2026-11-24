@@ -199,3 +199,77 @@ async def test_snapshot_reads_only_this_soul_and_leaves_out_this_turn() -> None:
         OTHER, session_id=None, exclude_message_id=None, since_ms=0, limit=3
     )
     assert (empty.last_turn_here_ms, empty.last_human_ms, empty.recent) == (None, 99, ())
+
+
+async def test_snapshot_lists_the_latest_earlier_turns_in_this_conversation() -> None:
+    """這段對話較早幾輪的 user_turn：舊到新、只取最近幾筆、不含這一輪、別的對話與靈魂不算."""
+    await init_db_async()
+    for row in (
+        _row("u1", "user_turn", at=10, subject="m1", session_id="chat-a"),
+        _row("u2", "user_turn", at=20, subject="m2", session_id="chat-a"),
+        _row("u3", "user_turn", at=30, subject="m3", session_id="chat-a"),
+        _row("u4", "user_turn", at=25, subject="m-b", session_id="chat-b"),
+        _row("u5", "user_turn", at=40, subject="m-now", session_id="chat-a"),  # 這一輪
+        _row("g1", "group_turn", at=35, subject="g1", session_id="chat-a"),
+        _row("o1", "user_turn", at=45, subject="m-x", session_id="chat-a", agent=OTHER),
+    ):
+        await db_mod.insert_event(row)
+
+    snapshot = await db_mod.read_snapshot(
+        SOUL,
+        session_id="chat-a",
+        exclude_message_id="m-now",
+        since_ms=0,
+        limit=3,
+        turns_here_limit=2,
+    )
+    assert snapshot.turns_here_ms == (20, 30)
+
+    no_session = await db_mod.read_snapshot(
+        SOUL, session_id=None, exclude_message_id=None, since_ms=0, limit=3, turns_here_limit=2
+    )
+    not_asked = await db_mod.read_snapshot(
+        SOUL, session_id="chat-a", exclude_message_id="m-now", since_ms=0, limit=3
+    )
+    assert no_session.turns_here_ms == () and not_asked.turns_here_ms == ()
+
+
+async def test_snapshot_finds_the_latest_long_break_in_this_conversation() -> None:
+    """最近一次和前一輪隔了夠久的那一輪：不含這一輪，別的對話與靈魂不算；沒要就不查."""
+    await init_db_async()
+    for row in (
+        _row("u1", "user_turn", at=100, subject="m1", session_id="chat-a"),
+        _row("u2", "user_turn", at=1_000, subject="m2", session_id="chat-a"),  # 隔 900
+        _row("u3", "user_turn", at=1_050, subject="m3", session_id="chat-a"),
+        _row("u4", "user_turn", at=1_500, subject="m4", session_id="chat-a"),  # 隔 450
+        _row("u5", "user_turn", at=9_000, subject="m-now", session_id="chat-a"),  # 這一輪
+        _row("b1", "user_turn", at=1_200, subject="m-b", session_id="chat-b"),
+        _row("o1", "user_turn", at=1_400, subject="m-x", session_id="chat-a", agent=OTHER),
+    ):
+        await db_mod.insert_event(row)
+
+    async def latest(min_gap: int) -> tuple[int, int] | None:
+        snapshot = await db_mod.read_snapshot(
+            SOUL,
+            session_id="chat-a",
+            exclude_message_id="m-now",
+            since_ms=0,
+            limit=3,
+            turns_here_limit=2,
+            turns_break_ms=min_gap,
+        )
+        return snapshot.latest_break_here
+
+    assert await latest(400) == (1_500, 450)  # 最近的那一次
+    assert await latest(450) == (1_500, 450)  # 剛好等於也算
+    assert await latest(500) == (1_000, 900)
+    assert await latest(1_000) is None
+    not_asked = await db_mod.read_snapshot(
+        SOUL,
+        session_id="chat-a",
+        exclude_message_id="m-now",
+        since_ms=0,
+        limit=3,
+        turns_here_limit=2,
+    )
+    assert not_asked.latest_break_here is None
