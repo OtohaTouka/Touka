@@ -3,17 +3,20 @@
 
 ruff、pyrefly 每條規則的數量必須和基準完全相等。變多要修；變少要在同一個 PR 重拍基準，
 讓改善留在差異裡、之後不會被悄悄用掉。vulture 例外，只有多出來才紅（ADR-0298）。
+complexity 記每個超過 15 的函式（ADR-0331），兩個方向都紅：變多要拆，變少要重拍。
 測試（`tests/lint/test_ruff_ratchet.py`、`tests/lint/test_pyrefly_ratchet.py`、
-`tests/lint/test_vulture_ratchet.py`）和重拍都用這裡唯一一份收集指令，兩邊不會各算各的。
-只用標準函式庫。
+`tests/lint/test_vulture_ratchet.py`、`tests/lint/test_complexity_ratchet.py`）和重拍都用
+這裡唯一一份收集指令，兩邊不會各算各的。只用標準函式庫。
 
 用法：
     python scripts/lint_ratchet.py ruff               # 檢查
     python scripts/lint_ratchet.py ruff --update      # 重拍基準
     python scripts/lint_ratchet.py pyrefly [--update] # 型別檢查，範圍在 pyproject.toml
     python scripts/lint_ratchet.py vulture [--update] # 未用的函式、方法、類別
+    python scripts/lint_ratchet.py complexity [--update]  # 函式複雜度上限 15
 """
 
+import ast
 import json
 import re
 import subprocess
@@ -56,6 +59,23 @@ PYREFLY_FINISHED_EXIT_CODES = (0, 1)
 # 正常跑完時 stderr 只有 INFO 行。設定打錯欄位、search-path 不存在都只印 WARN 就照跑，
 # 範圍會悄悄變掉；升級後日誌格式也可能改變。所以只要有一行不是 INFO 就算失敗。
 PYREFLY_LOG_PREFIX = "INFO "
+# 函式複雜度（ruff C901）上限；超過的才記進基準（ADR-0331）。
+MAX_COMPLEXITY = 15
+COMPLEXITY_BASELINE = PROJECT_ROOT / "tests" / "lint" / "complexity_baseline.json"
+# --isolated 不讀 ruff.toml（per-file-ignores 關不掉），--ignore-noqa 讓 noqa 壓不掉；
+# 不看 .gitignore、清掉預設排除（dist、venv…）、加掃 .pyw，檔案藏不起來。
+COMPLEXITY_ARGS = (
+    "ruff", "check", "--isolated", "--ignore-noqa", "--no-cache", "--no-respect-gitignore",
+    "--select", "C901", "--config", f"lint.mccabe.max-complexity={MAX_COMPLEXITY}",
+    "--config", "exclude=[]", "--config", 'extend-include=["*.pyw"]',
+    "--output-format", "json",
+)  # fmt: skip
+COMPLEXITY_CODE = "C901"
+COMPLEXITY_MESSAGE = re.compile(
+    r"^`(?P<name>[^`]+)` is too complex \((?P<score>\d+) > (?P<limit>\d+)\)$"
+)
+# 結束碼 0 是沒有超標、1 是有超標；2 是設定或參數壞掉。
+COMPLEXITY_FINISHED_EXIT_CODES = (0, 1)
 
 
 def _only_info_logs(stderr: str) -> bool:
@@ -64,11 +84,11 @@ def _only_info_logs(stderr: str) -> bool:
     return all(line.startswith(PYREFLY_LOG_PREFIX) for line in lines)
 
 
-def _run_tool_module(args: list[str]) -> subprocess.CompletedProcess[str]:
-    """在 repo 根目錄用目前的直譯器跑檢查工具模組，不經 shell。"""
+def _run_tool_module(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    """在 repo 根目錄（或指定資料夾）用目前的直譯器跑檢查工具模組，不經 shell。"""
     return subprocess.run(  # noqa: S603 - fixed tool module argv, no shell
         [sys.executable, "-m", *args],
-        cwd=PROJECT_ROOT,
+        cwd=cwd or PROJECT_ROOT,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -159,6 +179,134 @@ def collect_vulture() -> Counter[str]:
     return found
 
 
+def collect_complexity(
+    root: Path | None = None, source_roots: tuple[str, ...] = PRODUCT_SOURCE_ROOTS
+) -> Counter[str]:
+    """跑 ruff C901，回傳 {相對路徑::完整名稱: 複雜度}，只有超過上限的函式。
+
+    先確認每個資料夾都在：ruff 碰到不存在的資料夾只在 stderr 印一行、結束碼照舊。
+    """
+    root = root or PROJECT_ROOT
+    missing = [name for name in source_roots if not (root / name).is_dir()]
+    if missing:
+        message = f"complexity: source roots missing: {missing}"
+        raise RuntimeError(message)
+    return parse_complexity(_run_tool_module([*COMPLEXITY_ARGS, *source_roots], cwd=root), root)
+
+
+def parse_complexity(result: subprocess.CompletedProcess[str], root: Path) -> Counter[str]:
+    """讀 ruff 的 JSON 結果；任何一處看不懂就丟錯，不當成 0 筆。"""
+    failure = ""
+    if result.stderr.strip():
+        failure = f"ruff C901 wrote to stderr: {result.stderr[-1500:]}"
+    elif result.returncode not in COMPLEXITY_FINISHED_EXIT_CODES:
+        failure = f"ruff C901 did not finish (exit {result.returncode})"
+    if failure:
+        raise RuntimeError(failure)
+    try:
+        items = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        failure = f"ruff C901 output is not JSON: {result.stdout[:300]}"
+        raise RuntimeError(failure) from exc
+    if bool(items) != (result.returncode == 1):
+        failure = f"ruff C901 exit {result.returncode} with {len(items)} results"
+        raise RuntimeError(failure)
+    found: Counter[str] = Counter()
+    names: dict[Path, list[tuple[str, int, int]]] = {}
+    for item in sorted(items, key=lambda entry: (entry["filename"], entry["location"]["row"])):
+        message = COMPLEXITY_MESSAGE.match(str(item.get("message")))
+        if item.get("code") != COMPLEXITY_CODE or message is None:
+            failure = f"unexpected ruff C901 result: {item}"
+        elif int(message["limit"]) != MAX_COMPLEXITY:
+            failure = f"ruff C901 used another limit: {item['message']}"
+        if failure:
+            raise RuntimeError(failure)
+        path = Path(item["filename"])
+        if path not in names:
+            names[path] = _definitions(path)
+        qualname, start = _qualname(names[path], message["name"], item["location"]["row"], path)
+        # 同完整名稱的定義（property、if／else 兩邊）照檔內順序編號，互換才會紅。
+        serial = sorted(begin for other, begin, _ in names[path] if other == qualname).index(start)
+        key = f"{path.resolve().relative_to(root.resolve()).as_posix()}::{qualname}"
+        found[f"{key}#{serial + 1}" if serial else key] = int(message["score"])
+    return found
+
+
+def _definitions(path: Path) -> list[tuple[str, int, int]]:
+    """檔案裡每個函式的 (完整名稱, def 起始行, 本體第一行)，完整名稱和 __qualname__ 一致。"""
+    found: list[tuple[str, int, int]] = []
+
+    def visit(node: ast.AST, prefix: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+                found.append((prefix + child.name, child.lineno, child.body[0].lineno))
+                visit(child, f"{prefix}{child.name}.<locals>.")
+            elif isinstance(child, ast.ClassDef):
+                visit(child, f"{prefix}{child.name}.")
+            else:
+                visit(child, prefix)
+
+    visit(ast.parse(path.read_bytes()), "")
+    return found
+
+
+def _qualname(
+    definitions: list[tuple[str, int, int]], name: str, row: int, path: Path
+) -> tuple[str, int]:
+    """把 ruff 回報的短名稱與行號換成 (完整名稱, def 起始行)；要恰好對到一個 def，否則丟錯。"""
+    matches = [
+        (qualname, start)
+        for qualname, start, body in definitions
+        if qualname.rsplit(".", 1)[-1] == name and start <= row <= body
+    ]
+    if len(matches) != 1:
+        message = f"no single definition of {name} at {path}:{row}: {matches}"
+        raise RuntimeError(message)
+    return matches[0]
+
+
+def compare_complexity(current: Counter[str], baseline: dict[str, int]) -> list[str]:
+    """兩個方向都報：變多要拆，變少或不見了要重拍；空清單代表和基準完全相同。"""
+    problems = []
+    for key in sorted(set(current) | set(baseline)):
+        now, allowed = current.get(key), baseline.get(key)
+        if allowed is None:
+            problems.append(f"[新超標，要拆] {key}：{now}（上限 {MAX_COMPLEXITY}）")
+        elif now is None:
+            problems.append(f"[不見了：改名、搬檔或拆掉，請跑 --update] {key}：基準 {allowed}")
+        elif now > allowed:
+            problems.append(f"[變複雜，要拆] {key}：現在 {now}，基準 {allowed}")
+        elif now < allowed:
+            problems.append(f"[變簡單，請跑 --update] {key}：現在 {now}，基準 {allowed}")
+    return problems
+
+
+def _complexity_main(current: Counter[str], baseline_path: Path, *, update: bool) -> int:
+    """複雜度的檢查與重拍；結果全空而基準不空時兩條路都丟錯。"""
+    baseline = load_baseline(baseline_path)
+    if baseline and not current:
+        message = (
+            "complexity: no function over the limit but the baseline is not empty; "
+            "if every one was really split, set the baseline to {} by hand and say so in the PR"
+        )
+        raise RuntimeError(message)
+    if update:
+        for problem in compare_complexity(current, baseline):
+            if "要拆" in problem:  # --update 照單全收，至少讓跑的人看到收了什麼
+                print(f"收進基準（只收改名或搬檔、數字沒變大的，PR 說明要列出）：{problem}")
+        write_baseline(baseline_path, current)
+        print(f"complexity: baseline updated, {len(current)} functions over {MAX_COMPLEXITY}")
+        return 0
+    problems = compare_complexity(current, baseline)
+    for problem in problems:
+        print(problem)
+    if problems:
+        print("要拆的先拆到模組或方法層（不要拆成巢狀函式）；只有改名或搬檔、數字沒變大才重拍。")
+    verdict = "FAIL" if problems else "PASS"
+    print(f"complexity: {verdict} ({len(current)} functions over {MAX_COMPLEXITY})")
+    return 1 if problems else 0
+
+
 def load_baseline(path: Path) -> dict[str, int]:
     """讀基準；不存在就是空的，任何違規都會被當成變多。"""
     if not path.exists():
@@ -197,6 +345,7 @@ TOOLS: dict[str, tuple[Callable[[], Counter[str]], Path]] = {
     "ruff": (collect_ruff, RUFF_BASELINE),
     "pyrefly": (collect_pyrefly, PYREFLY_BASELINE),
     "vulture": (collect_vulture, VULTURE_BASELINE),
+    "complexity": (collect_complexity, COMPLEXITY_BASELINE),
 }
 
 
@@ -208,6 +357,8 @@ def main(argv: list[str]) -> int:
         return 2
     collect, baseline_path = TOOLS[argv[0]]
     current = collect()
+    if argv[0] == "complexity":
+        return _complexity_main(current, baseline_path, update=bool(flags))
     if flags:
         write_baseline(baseline_path, current)
         total, rules = sum(current.values()), len(current)
