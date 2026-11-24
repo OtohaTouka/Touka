@@ -11,6 +11,9 @@
 - 這段對話上一輪：先看記憶體裡這個 (agent, session) 上一次前景請求的時間（伺服器）；沒有時看可信
   活動事件的 user_turn（同一個對話、不含這一輪）；再沒有就在目前分支上往回找帶時間戳的節點——
   對話樹是前端整棵寫回的，節點時間可能來自使用者裝置的時鐘，照實標示，也絕不寫進事件表。
+- 這段對話較早幾輪的時間（舊到新，最近幾輪；隔一小時以上標出間隔）：可信活動事件的 user_turn。
+  前一輪送出的區塊不存進紀錄，沒有這行時模型回頭看自己說過的「隔了幾天」找不到依據，
+  會把對的話收回（11/24 試用）。沒有紀錄或讀不到就不加這一行。
 - 上次有人類訊息、上次自主執行、最近完成：可信活動事件（``utils/continuity_events_db``）。
 - 任務看板：MissionManager 唯讀（SSOT），只補 ``<mission_awareness>`` 沒有的時間。
 - 可信紀錄起點：只在有「沒有紀錄」時出現。
@@ -133,6 +136,13 @@ RERUN_LATER = "- Re-run: this is pulse {pulse} of the re-run."
 RERUN_STARTED = "it started {ago}"
 RERUN_START_UNKNOWN = "start time unknown"
 PREVIOUS_TURN_LABEL = "Since your previous turn in this conversation"
+# 這段對話較早幾輪的時間：最多列幾輪、間隔多久以上標出來
+EARLIER_TURNS_SHOWN = 5
+EARLIER_TURNS_BREAK_SECONDS = _HOUR
+EARLIER_TURNS_LABEL = (
+    f"Earlier turns in this conversation (Asia/Taipei, oldest first, last {EARLIER_TURNS_SHOWN}; "
+    f"+gap marks breaks of {EARLIER_TURNS_BREAK_SECONDS // _HOUR}h or more)"
+)
 UNKNOWN_PREVIOUS = "unknown (no record of when the previous turn happened)"
 HUMAN_LABEL = "Last message from a human (any conversation)"
 RUN_LABEL = "Last autonomous run"
@@ -231,6 +241,7 @@ async def _read_timeline(
     now_s: float,
     *,
     elsewhere: bool = False,
+    turns: bool = False,
 ) -> TimelineSnapshot | None:
     """一次讀完這個靈魂的活動事件；讀不到回 None（照實寫讀不到，不丟例外）。"""
     try:
@@ -246,6 +257,7 @@ async def _read_timeline(
                 if elsewhere
                 else None
             ),
+            turns_here_limit=EARLIER_TURNS_SHOWN if turns else 0,
         )
     except Exception:
         logger.exception("continuity: reading the activity record failed")
@@ -277,6 +289,26 @@ async def _previous_turn_line(
                 note = f" {CONVERSATION_RECORD_TIME_NOTE}"
     text = UNKNOWN_PREVIOUS if seconds is None else format_elapsed(seconds) + note
     return f"- {PREVIOUS_TURN_LABEL}: {text}"
+
+
+def _earlier_turns_line(timeline: TimelineSnapshot | None) -> str | None:
+    """這段對話較早幾輪的時間，舊到新；隔一小時以上標出間隔.
+
+    沒有紀錄或讀不到就不加（「上一輪」那行已照實寫），區塊和以前一樣。
+    """
+    if timeline is None or not timeline.turns_here_ms:
+        return None
+    items: list[str] = []
+    previous: int | None = None
+    for at_ms in timeline.turns_here_ms:
+        item = _at_minute(at_ms)
+        if previous is not None:
+            gap = elapsed_seconds(at_ms / _MS_PER_SECOND, previous, "ms")
+            if gap >= EARLIER_TURNS_BREAK_SECONDS:
+                item = f"{item} (+{format_elapsed(gap)})"
+        items.append(item)
+        previous = at_ms
+    return f"- {EARLIER_TURNS_LABEL}: {'; '.join(items)} {ACTIVITY_RECORD}"
 
 
 def _human_line(now_s: float, timeline: TimelineSnapshot | None) -> str:
@@ -555,7 +587,12 @@ async def build_continuity_block(
             if own_id is not None:
                 lines.append(own_id)
         timeline = await _read_timeline(
-            soul, session_id, current_message_id, now_s, elsewhere=at_home is True
+            soul,
+            session_id,
+            current_message_id,
+            now_s,
+            elsewhere=at_home is True,
+            turns=not heartbeat,
         )
         if heartbeat:
             lines.append(HEARTBEAT_LINE)
@@ -563,6 +600,9 @@ async def build_continuity_block(
             lines.append(f"- {HEARTBEAT_SCOPE_SOUL}")
         else:
             lines.append(await _previous_turn_line(soul, session_id, now_s, timeline))
+            earlier = _earlier_turns_line(timeline)
+            if earlier is not None:
+                lines.append(earlier)
         lines.append(_human_line(now_s, timeline))
         lines.append(_run_line(now_s, timeline, heartbeat=heartbeat))
         lines.append(_recent_line(now_s, timeline))
