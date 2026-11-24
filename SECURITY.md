@@ -176,7 +176,7 @@ Windows 的 JailedWriter 只提供可繞過的寫入配額，不是檔案讀取�
 
 | 公告 | 範圍 | 核准 | 到期 | 理由 |
 | --- | --- | --- | --- | --- |
-| GHSA-fc5q-39xc-vjpf（picomatch ≤ 4.0.7，正規式讓程式卡住，high） | Chat、IDE 的 full 範圍（vite、vitest、knip、fast-glob、vsce 等開發工具；runtime 範圍 0 筆） | 2026-11-18 維護者 | 2026-11-25 結束 | 2026-11-18 沒有修補版；要利用得能提供比對規則，這些工具的規則都來自 Touka 自己的設定檔 |
+| GHSA-fc5q-39xc-vjpf（picomatch ≤ 4.0.7，正規式讓程式卡住，high） | Chat、IDE 的 full 範圍（vite、vitest、knip、fast-glob、vsce 等開發工具；runtime 範圍 0 筆） | 2026-11-18 維護者 | 2026-11-24 移除：公告 2026-11-18 撤回，npm audit 不再回報；目前沒有例外 | 2026-11-18 沒有修補版；要利用得能提供比對規則，這些工具的規則都來自 Touka 自己的設定檔 |
 
 ### Node 依賴的 moderate advisory
 
