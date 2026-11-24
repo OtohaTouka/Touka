@@ -30,7 +30,7 @@ S1（歷史資料界線）：
   - 開頭一句（`HEADER`）：這段由系統附加、不是使用者寫的；只講事實；每次請求重新產生、不會被存下。
   - 現在時間：`get_current_epoch()`，用 `format_epoch_to_taipei` 呈現台北時間。
   - 距這個對話上一輪多久（見決策 3）。
-  - 任務看板：只補 `<mission_awareness>` 沒有的時間，也就是看板多久前更新、進行中（DOING）的 task id 各自多久前更新，再加一句「細節在 `<mission_awareness>`」；不重複大目標與 task 描述。讀取經 `MissionManager().get_current_mission`，唯讀；身分和 ToolLayer 相同（ctx 的身分，沒有時依 agent 註冊角色建）；「有進行中的看板」的條件也和 ToolLayer 相同（有看板而且 `status != "DONE"`），沒有就寫「no active mission」。
+  - 任務看板：只補 `<mission_awareness>` 沒有的時間，也就是看板多久前更新、進行中（DOING）的 task id 各自多久前更新，再加一句「細節在 `<mission_awareness>`」；不重複大目標與 task 描述。讀取經 `MissionManager().get_current_mission`，唯讀；身分和 ToolLayer 相同（ctx 的身分；〔2026-11-24 修訂：沒有身分的只有 SNS，SNS 回合不讀看板，原本「沒有時依 agent 註冊角色建」的退路刪掉，見 ADR-0276 修訂〕）；「有進行中的看板」的條件也和 ToolLayer 相同（有看板而且 `status != "DONE"`），沒有就寫「no active mission」。
 
 #### 2. 位置：附在這次請求最後一則 user 訊息尾端，不放 system
 

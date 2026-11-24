@@ -485,8 +485,9 @@ class ToolLayer(ProxyLayer):
         # pipeline 中 ContextLayer 早於本層執行，無法讀取本層此刻才備妥的 mission
         # （舊實作僅寫入 ctx["mission_awareness"]，區塊因而永不注入——靜默流失）。
         # 比照 _inject_availability_note：由本層自行注入 <mission_awareness>。
-        # 無痕不自動帶看板（ADR-0086，和 <continuity> 一致）；AI 自己用任務工具查仍可以。
-        if incognito:
+        # 無痕（ADR-0086）與 SNS 觸發的回合（外人，ADR-0276）不自動帶看板，和 <continuity>
+        # 一致；AI 自己用任務工具查仍可以（SNS 回合本來就沒有工具）。
+        if incognito or ctx.get("sns_source"):
             return
         try:
             from memory_server.services.mission_manager import MissionManager
