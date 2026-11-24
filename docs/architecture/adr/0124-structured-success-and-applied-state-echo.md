@@ -18,6 +18,7 @@
 
 1. **結構化成功 SSOT**（[`tool_errors`](../../../ToukaProxy/src/services/tool_errors.py)）：新增 `build_tool_success(message, *, preview=None, **fields)` → `{"ok": true, "message": …, "preview": …}`（`ok` 保證第一個 key）＋ `is_tool_success(text)`（前綴 `{"ok"` 偵測）；並納入 `is_structured_payload`（結構化成功也跳過時間尾綴注入，保持 JSON 可解析）。與既有 `build_tool_error` 對稱。
 2. **執行層穩健判定**（`tool_executor.is_success`）：`is_tool_success(result_text)` **為權威**成功訊號；舊子字串啟發（`"Error:"`／`"❌"` not in）**保留為未結構化 legacy 工具的後備**。故結構化成功即使回傳內容含 `Error:`／`❌` 也不誤判，legacy 工具零回歸。
+   〔2026-11-24 修訂（外部審查小修第 4 項）：後備改成和 PostToolUseFailure（ADR-0292 決定 16）同一條規則：終端看結束碼，其他沒有結構的結果（含沒標 `isError` 的 MCP 結果）看開頭是不是 `Error:`／`❌`；中段出現不算失敗。例如結束碼 0、輸出中間有 `Error:` 的 grep 從失敗改成成功。〕
 3. **`edit`／`insert` 回傳最終狀態**（[`file_verbs`](../../../ToukaProxy/src/tools/file_verbs.py)）：成功時回 `build_tool_success(message, preview=<hunk>)`。新增純函式 `_applied_hunk(content, line_1based, radius=3)`＝帶行號、以 `>` 標記變更行的變更周邊片段，讓模型**免重讀**即可驗證（呼應 ADR-0123：驗證要便宜）。`edit` 由 snapshot 推算新內容與變更行；`insert` 用已在本地組好的行。
 4. **範圍**：只 `edit`／`insert` echo 片段（in-place 改動、模型最需看結果）；`write`（模型已有內容）／`undo`（回復、模型知先前狀態）／`delete`（無內容可 echo）**不動**——無 echo 即無 `is_success` 風險，維持原字串回傳。
 

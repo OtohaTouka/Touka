@@ -142,12 +142,10 @@ class ToolLayer(ProxyLayer):
         agent_id = ctx.get("agent_id", "Unknown")
         is_custom = ctx.get("is_custom", False)
 
-        # 降級相容（針對舊路徑）
+        # ctx 沒有身分只會是 SNS（認不出發言的人，ADR-0276）：列工具用沒有角色的身分，和執行時
+        # （System → 寫死的空授權）同一套權限。和 SkillLayer 一樣，不寫回 ctx。
         if not isinstance(identity, AgentIdentity):
-            agent_info = agent_service.identify_agent(agent_id) or {"role": "Base"}
-            identity = AgentIdentity.for_role(
-                agent_id, agent_info.get("role", "Base"), capabilities=[]
-            )
+            identity = AgentIdentity(agent_id=agent_id)
 
         session_id = ctx.get("session_id")
         # 群聊回合（ADR-0323）：成員身分沒有權限角色、一個工具都用不了，不組伺服器端工具，
@@ -277,19 +275,16 @@ class ToolLayer(ProxyLayer):
 
              active_builtin_schemas.append(schema)
         
-        # 5. 注入調度工具 (MCP 掛載 + 技能啟用)
-        if is_dispatcher_active:
-            active_builtin_schemas.append(CONNECT_MCP_SERVER_SCHEMA)
-        if "system-skill-dispatcher" in active_skill_ids:
-            active_builtin_schemas.append(ACTIVATE_SKILL_SCHEMA)
-              
+        # 5. 調度工具（MCP 掛載、技能啟用）在 builtin_tools_schema 裡，已經和其他工具一樣在上面
+        #    過了政策與角色權限，這裡不再另外加（再加一次會繞過政策拒絕，放行時又重複列）。
+
         # 6.（Tier 3）project_tools 條件注入已退役：統一動詞常駐廣告，scope=project
         #    於未選專案時由執行層回可讀錯誤（結構化、模型可自我修正）。
 
         # 7. 處理記憶工具 (Memory)
         # ADR-0086：無痕模式完全失憶——不注入記憶工具，AI 無從讀寫記憶。
         memory_tools_schema = (
-            [] if ctx.get("incognito") or is_group_round else ctx.get("memory_tools_schema", [])
+            [] if incognito or is_group_round else ctx.get("memory_tools_schema", [])
         )
         active_memory_schemas = []
         for s in memory_tools_schema:
@@ -472,7 +467,7 @@ class ToolLayer(ProxyLayer):
         # 子代理（_assemble_subagent_request 設 is_toukasoul=False）與 L2 直通不注入；
         # 群聊回合在上面就結束了（ADR-0322、0323）。
         if ctx.get("is_toukasoul"):
-            self._inject_harness_context(request, ctx, advertised)
+            self._inject_harness_context(request, identity, advertised)
 
         # 11e. 模式、在場與核准（ADR-0316）：這一輪有列工具就說（靈魂、子代理、心跳、
         # IDE、自訂模型都會走到；群聊回合不會），說法和實際判斷對齊；被擋建議與這裡共用同一句。
@@ -490,6 +485,10 @@ class ToolLayer(ProxyLayer):
         # pipeline 中 ContextLayer 早於本層執行，無法讀取本層此刻才備妥的 mission
         # （舊實作僅寫入 ctx["mission_awareness"]，區塊因而永不注入——靜默流失）。
         # 比照 _inject_availability_note：由本層自行注入 <mission_awareness>。
+        # 無痕（ADR-0086）與 SNS 觸發的回合（外人，ADR-0276）不自動帶看板，和 <continuity>
+        # 一致；AI 自己用任務工具查仍可以（SNS 回合本來就沒有工具）。
+        if incognito or ctx.get("sns_source"):
+            return
         try:
             from memory_server.services.mission_manager import MissionManager
 
@@ -571,17 +570,17 @@ class ToolLayer(ProxyLayer):
             inject_openai_system(messages, block)
 
     def _inject_harness_context(
-        self, request: Any, ctx: PipelineContext, advertised: set
+        self, request: Any, identity: AgentIdentity, advertised: set
     ) -> None:
         """把 <harness_context>（OS 環境事實）注入 system（ADR-0139）。
 
-        model 取 SoulLayer 解析後的 ``request.model``（本層晚於 SoulLayer）；
-        advertised 為 Gate-1 過濾後的實際廣告面（含 None 無妨，僅做成員檢查）。
+        model 取 SoulLayer 解析後的 ``request.model``（本層晚於 SoulLayer）；角色是本層列工具
+        用的那個身分（SNS 沒有角色，寫 Base）；advertised 為 Gate-1 過濾後的實際廣告面
+        （含 None 無妨，僅做成員檢查）。
         """
-        identity = ctx.get("identity")
         block = build_harness_context(
             model=str(getattr(request, "model", "") or ""),
-            role=str(identity.display_role if identity else ""),
+            role=identity.display_role,
             advertised=frozenset(advertised),
         )
         if "anthropic" in str(type(request)).lower():
