@@ -92,9 +92,13 @@ ruff check --select F ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatc
 #    python -B scripts/lint_ratchet.py ruff --update（型別檢查是 pyrefly --update）
 #    未用的函式、方法、類別不得增加：和 tests/lint/vulture_baseline.json 比，這道只有多出來才紅、少了不紅
 #    （test_vulture_ratchet.py）。接上或刪掉；確定要留才跑 vulture --update，並在 PR 說明逐項列出
+#    函式複雜度上限 15（ADR-0331）：超過的函式記在 tests/lint/complexity_baseline.json，兩個方向都紅
+#    （test_complexity_ratchet.py）。新超標或變複雜要拆到模組或方法層；變簡單、改名或搬檔才跑
+#    complexity --update，改名或搬檔要在 PR 說明逐項列出。CI 要跑完整測試才會紅，推送前先在本機跑
 python -B scripts/lint_ratchet.py ruff
 python -B scripts/lint_ratchet.py pyrefly
 python -B scripts/lint_ratchet.py vulture
+python -B scripts/lint_ratchet.py complexity
 
 # 3. 前端 ESLint 只減不增（CI 會跑）：Guard #35 跑完整 ESLint，對照 scripts/eslint_baseline.json，
 #    任一規則的 error 數比基準多就失敗（warning 不算）。要看逐條結果：cd ToukaChat && npm run lint
