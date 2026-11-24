@@ -681,7 +681,7 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | 決定的章、誰決定的 | `ToukaProxy/src/utils/local_bridge_signing.py`；小幫手另存一份 `ToukaLocal/touka_local/signing.py`，兩邊用同一組固定測資 |
 | 開放請求的章（ADR-0320） | 同上兩檔的 `sign_open_request`（`act` 是 `request_open`，和清單的章不能互用）；小幫手核對在 `open_request_signature_ok` |
 | 開放請求的驗章、停收、視窗時間 | `ToukaLocal/touka_local/open_request.py`（`OPEN_DECISION_SECONDS` 與 Touka 的同名常數由 parity 測試核對） |
-| 一定要帶信任 Origin 的端點 | `ToukaProxy/src/utils/csrf_guard.py` 的 `require_trusted_origin`（只給開放請求用；其他端點照舊 `verify_origin`） |
+| 一定要帶信任 Origin 的端點 | `ToukaProxy/src/utils/csrf_guard.py` 的 `require_trusted_origin`（開放請求，以及舊的終端核准與拒絕，ADR-0033 修訂 2026-11-24；其他端點照舊 `verify_origin`） |
 | 核准前的預覽 | `ToukaProxy/src/services/tool_previews.py`（註冊表 `PREVIEWERS`） |
 | 小幫手沒做成時的說法 | `ToukaProxy/src/services/local_bridge_results.py` |
 | 風險下限 | `ToukaProxy/src/models/safety.py` 的 `MIN_TOOL_RISK` |

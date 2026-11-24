@@ -36,7 +36,7 @@ PAYLOAD_VALUE = "sk-zz-term-not-a-real-key-0123456789"
 
 REFUSED = pytest.mark.parametrize(
     "who",
-    ["assumed-admin", "user-as-soul", "debugger", "ldh", "user", "anonymous"],
+    ["assumed-admin", "user-as-soul", "debugger", "ldh", "ldh-any-id", "user", "no-identity"],
 )
 DECISIONS = pytest.mark.parametrize(
     ("action", "status"), [("approve", "approved"), ("reject", "rejected")]
@@ -50,10 +50,13 @@ def _identity(who: str) -> AgentIdentity | None:
         "assumed-admin": ASSUMED_ADMIN,
         "user-as-soul": USER_AS_SOUL,
         "debugger": DEBUGGER,
-        # 首次安裝前沒登入的本機請求拿到的開發卡（沒有類型旗標，是代理人身分）。
-        "ldh": ldh_identity("zz-term-ldh"),
+        # 首次安裝前沒登入的本機請求拿到的開發卡：網頁不帶 X-Agent-ID，實際是 DebugAgent 的卡；
+        # 帶別的 id 時落到預設角色。兩種都沒有類型旗標，是代理人身分。
+        "ldh": ldh_identity("DebugAgent"),
+        "ldh-any-id": ldh_identity("zz-term-ldh"),
         "user": USER,
-        "anonymous": None,
+        # 沒有身分（正式環境遠端沒帶權杖會在 get_verified_identity 先回 401）。
+        "no-identity": None,
     }[who]
 
 
@@ -123,6 +126,7 @@ def test_a_human_admin_without_a_trusted_origin_is_refused(origin: str | None, a
     event = _pending("zz-exec-origin")
     response = _decide(_as("admin"), action, "zz-exec-origin", origin=origin)
     assert response.status_code == 403, response.text
+    assert _code(response) == "AUTH_PERMISSION_DENIED"  # 身分過了，是 Origin 擋的
     assert not event.is_set()
     assert "zz-exec-origin" not in terminal.approval_results
 
