@@ -117,6 +117,10 @@ def test_a_report_from_another_pairing_is_ignored(bridge: LocalBridge) -> None:
     _poll(bridge)
     bridge.accept_report(GENERATION + 1, _report())
     assert bridge.folder_list().state == "waiting"
+    # 換配對前發出、晚到的回報，不能把目前這份蓋掉
+    bridge.accept_report(GENERATION, _report(names=("Mine",)))
+    bridge.accept_report(GENERATION + 1, _report(SECOND, names=("Other",)))
+    assert _names(bridge) == ["Mine"]
 
 
 def test_a_new_pairing_forgets_the_list(bridge: LocalBridge) -> None:
