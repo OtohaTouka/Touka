@@ -34,7 +34,7 @@
 不納入、原樣保留的檢查：
 
 - 在函式內呼叫與掛在 `Depends` 的形式各自不變。前者遇到錯誤 body 回 422，後者回 403，現有測試鎖定此差異。
-- 行為特殊的 inline 檢查不併入：debug `/tools` 拒絕時回 200 加空清單、context-snapshot、terminal approve／reject（CSRF 先行）、`group_settings`（`AUTH_OWNER_REQUIRED`）、`chat_upload`（`AUTH_UNAUTHORIZED_ACCESS`）、souls step-up、`tools_approval`、`resource_manager` 的人類 admin 判斷、`_require_mcp_data_access`（授權而非角色）。
+- 行為特殊的 inline 檢查不併入：debug `/tools` 拒絕時回 200 加空清單、context-snapshot、terminal approve／reject（CSRF 先行；2026-11-24 起改掛 `Depends(require_admin_human)`、先驗身分再驗 Origin，見 ADR-0033 修訂）、`group_settings`（`AUTH_OWNER_REQUIRED`）、`chat_upload`（`AUTH_UNAUTHORIZED_ACCESS`）、souls step-up、`tools_approval`、`resource_manager` 的人類 admin 判斷、`_require_mcp_data_access`（授權而非角色）。
 
 ### 2. ExecutionBroker
 

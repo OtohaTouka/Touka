@@ -646,9 +646,9 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
     - **SSOT**: Cookie 必須設為 `path="/"`, 前端請求必須帶入 `credentials: 'include'`。
 
 ### 1.5 終端機審核 API 安全 (Terminal Approval Security) ⭐
-- **端點**: `POST /terminal/approve/{exec_id}` / `POST /terminal/reject/{exec_id}`
-- **C8 fix**：必須帶有效 JWT；只接受 `Owner`、`Debugger`、`admin` 角色。
-- **M1 fix**：必須通過 `verify_origin()` — 跨域請求（`Origin` 不在 `{localhost:3000/3001, UI_DEFAULT_URL}` 內）一律回 403。
+- **端點**: `POST /terminal/approve/{exec_id}` / `POST /terminal/reject/{exec_id}`；`GET /terminal/stream`、`GET /terminal/history`
+- **C8 fix（2026-11-24 收緊，外部審查第 12 項）**：四個端點都掛 `Depends(require_admin_human)`，只收人類管理員本人；admin 代打、靈魂權杖、Debugger、首次安裝前的本機開發卡一律 403 `AUTH_ADMIN_REQUIRED`。身分在查 `exec_id` 之前驗，沒權限的人對不存在的編號也是 403。
+- **M1 fix（2026-11-24 收緊）**：核准與拒絕改用 `require_trusted_origin()` — 一定要帶 `Origin`，而且在 `{localhost:3000/3001, UI_DEFAULT_URL}` 內，否則 403。
 - **M2/N5 fix**：`pending_approvals` 佇列上限 `MAX_PENDING_APPROVALS = 50`；所有佇列修改在 `_approval_lock`（asyncio.Lock）內執行。
 
 ### 1.6 MCP 配置端點安全 (M4/N3 fix) ⭐

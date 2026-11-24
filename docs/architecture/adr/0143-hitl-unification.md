@@ -90,7 +90,7 @@ connections.ts 白名單（live＋resume 共用 dispatchSseLine＝重播一致�
 黃牌收斂）＋`ToolApprovalCard`（參數預覽／風險章／倒數／批准拒絕；404/403 還原
 按鈕）＋tracker `awaiting` 黃態＋並行多筆獨立＋i18n 兩語系。**設計決定**：skill
 安裝審批仍解算於 `/terminal/approve`（Event 在 terminal 遺留 registry；useEvolution
-不遷移）。vitest 996／guard 41/41。
+不遷移）。（2026-11-24 註：`/terminal/approve|reject|stream|history` 收緊成只收人類管理員本人，核准與拒絕要帶信任的 Origin，見 ADR-0033 修訂。）vitest 996／guard 41/41。
 
 ## H4 成果（文件與提示對齊）
 

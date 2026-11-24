@@ -14,6 +14,7 @@ import pytest
 import src.routers.observability as _obs_module
 from fastapi.testclient import TestClient
 from src.main import app
+from src.models.identity import AgentIdentity
 from src.models.user import User
 from src.routers.auth import get_current_user
 from src.routers.observability import websocket_events as _websocket_events
@@ -31,6 +32,16 @@ def admin_auth_client(mock_identity):
     admin_identity = mock_identity(agent_id="DebugAgent", role="admin")
     identity_service.issue_token(admin_identity)
     app.dependency_overrides[get_verified_identity] = lambda: admin_identity
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def human_admin_client():
+    """人類管理員本人 — 用於 require_admin_human 端點（/terminal/history，2026-11-24）。"""
+    identity = AgentIdentity.for_role(agent_id="smoke-admin", role="admin", is_human=True)
+    app.dependency_overrides[get_verified_identity] = lambda: identity
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
@@ -308,15 +319,15 @@ def test_get_ui_mission_not_500(auth_client):
 
 # --- terminal ---
 
-def test_get_terminal_history_not_500(auth_client):
+def test_get_terminal_history_not_500(human_admin_client):
     """GET /terminal/history 不應回傳 500（smoke test）"""
-    resp = auth_client.get("/terminal/history")
+    resp = human_admin_client.get("/terminal/history")
     assert resp.status_code != 500
 
 
-def test_get_terminal_history_returns_200(auth_client):
-    """GET /terminal/history 應回傳 200"""
-    resp = auth_client.get("/terminal/history")
+def test_get_terminal_history_returns_200(human_admin_client):
+    """GET /terminal/history 應回傳 200（人類管理員本人）"""
+    resp = human_admin_client.get("/terminal/history")
     assert resp.status_code == 200
 
 

@@ -54,7 +54,7 @@ IDE 工具系統（`vault_tools`, `project_tools` 等）由 ToukaMemory 提供�
 - **批准**: `POST /terminal/approve/{exec_id}`
 - **拒絕**: `POST /terminal/reject/{exec_id}`
 - **歷史**: `GET /terminal/history`
-- **說明**: 當前端收到 `bash_approval_request` 後，應呼叫批准端點。
+- **說明**: 這組是舊的核准端點，四個都只收人類管理員本人，核准與拒絕還要帶信任的 `Origin`（2026-11-24，外部審查第 12 項）。聊天中的工具核准走聊天串流的審批卡與 `POST /v1/tools/approve|reject/{exec_id}`（ADR-0143）；這組目前只剩技能安裝（網頁的 `useEvolution`）與沒人在場的終端指令在用。
 
 ---
 

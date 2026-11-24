@@ -14,8 +14,8 @@ from fastapi.responses import StreamingResponse
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity  # noqa: TC001
 from src.models.terminal import TerminalApprovalRequest  # noqa: TC001
-from src.services.identity_router import get_verified_identity
-from src.utils.csrf_guard import verify_origin
+from src.services.authorization_gateway import require_admin_human
+from src.utils.csrf_guard import require_trusted_origin
 from src.utils.time_utils import get_current_taipei_iso
 
 if TYPE_CHECKING:
@@ -200,9 +200,9 @@ def push_bash_result(
 
 @router.get("/stream")
 async def terminal_stream(
-    identity: AgentIdentity = Depends(get_verified_identity),  # noqa: ARG001, B008
+    identity: AgentIdentity = Depends(require_admin_human),  # noqa: ARG001, B008
 ) -> StreamingResponse:
-    """SSE 串流：推送所有 bash 事件給前端。"""
+    """SSE 串流：推送所有代理人的 bash 事件，只給人類管理員本人（外部審查第 12 項）。"""
     queue: Queue = asyncio.Queue(maxsize=100)
     sse_subscribers.append(queue)
 
@@ -238,17 +238,15 @@ async def terminal_stream(
 async def approve_command(
     exec_id: str,
     http_request: Request,
-    identity: AgentIdentity = Depends(get_verified_identity),  # noqa: B008
+    identity: AgentIdentity = Depends(require_admin_human),  # noqa: B008
     request: TerminalApprovalRequest | None = None,
 ) -> dict[str, Any]:
     """批准審核請求，可附帶 Payload (如環境變數)。
 
-    C8 fix: requires a verified identity with Owner/Debugger/admin role.
-    M1 fix: validates Origin header to prevent CSRF from untrusted origins.
+    C8 fix（2026-11-24 收緊）: only a human admin, not an impersonated soul or agent token.
+    M1 fix（2026-11-24 收緊）: the Origin header is required and must be trusted.
     """
-    verify_origin(http_request)
-    if not identity or not identity.is_privileged():
-        raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+    require_trusted_origin(http_request)
 
     # N5 fix: serialize state mutation under the lock
     async with _approval_lock:
@@ -262,6 +260,8 @@ async def approve_command(
             has_payload = True
 
         pending_approvals[exec_id].set()
+    # 只記誰核准哪一筆；payload 可能帶金鑰，不寫進 log（禁令 23）。
+    logger.info("✅ [Terminal] %s approved %s", identity.agent_id, exec_id)
     return {"status": "approved", "id": exec_id, "has_payload": has_payload}
 
 
@@ -269,32 +269,29 @@ async def approve_command(
 async def reject_command(
     exec_id: str,
     http_request: Request,
-    identity: AgentIdentity = Depends(get_verified_identity),  # noqa: B008
+    identity: AgentIdentity = Depends(require_admin_human),  # noqa: B008
 ) -> dict[str, Any]:
     """拒絕危險指令執行。
 
-    C8 fix: requires a verified identity with Owner/Debugger/admin role.
-    M1 fix: validates Origin header to prevent CSRF from untrusted origins.
+    C8 fix（2026-11-24 收緊）: only a human admin, not an impersonated soul or agent token.
+    M1 fix（2026-11-24 收緊）: the Origin header is required and must be trusted.
     N5 fix: serialized under _approval_lock.
     """
-    verify_origin(http_request)
-    if not identity or not identity.is_privileged():
-        raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+    require_trusted_origin(http_request)
 
     async with _approval_lock:
         if exec_id not in pending_approvals:
             raise ToukaException(ErrorCode.TERMINAL_APPROVAL_NOT_FOUND)
         approval_results[exec_id] = "rejected"
         pending_approvals[exec_id].set()
+    logger.info("🚫 [Terminal] %s rejected %s", identity.agent_id, exec_id)
     return {"status": "rejected", "id": exec_id}
 
 
 @router.get("/history")
 async def get_history(
     limit: int = 100,
-    _identity: AgentIdentity = Depends(get_verified_identity),  # noqa: B008
+    _identity: AgentIdentity = Depends(require_admin_human),  # noqa: B008
 ) -> dict[str, Any]:
-    """取得最近執行歷史（需認證）."""
-    if not _identity:
-        raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+    """取得最近執行歷史：所有代理人的指令與輸出，只給人類管理員本人."""
     return {"history": terminal_history[-limit:]}

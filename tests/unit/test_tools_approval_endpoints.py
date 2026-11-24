@@ -1,6 +1,6 @@
 """H2 — 統一審批解算端點授權矩陣（POST /v1/tools/approve|reject/{exec_id}）。
 
-授權立場（嚴於遺留 /terminal/approve 的 is_privileged）：
+授權立場（遺留 /terminal/approve 2026-11-24 起只收人類管理員本人，比這裡更窄）：
 1. **必須人類**（is_human）——agent token（含 Owner）一律 403＝杜絕 agent 自批。
 2. 且其一：admin 權威／待批 agent 擁有者（owned_agents）／session 擁有者
    （owner_user_id）。

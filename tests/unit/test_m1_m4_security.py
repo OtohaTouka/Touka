@@ -23,6 +23,8 @@ from src.services.identity_router import get_verified_identity as global_get_ver
 from src.utils.csrf_guard import verify_origin
 
 OWNER = AgentIdentity.for_role(agent_id="DebugAgent", role="Owner", capabilities=[])
+# /terminal/approve 只收人類管理員本人（2026-11-24，外部審查第 12 項）。
+HUMAN_ADMIN = AgentIdentity.for_role(agent_id="zz-m1-admin", role="admin", is_human=True)
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +70,7 @@ def test_csrf_verify_origin_blocks_untrusted_origin():
 
 def test_terminal_approve_blocked_from_untrusted_origin():
     """POST /terminal/approve with untrusted Origin must return 403."""
-    app.dependency_overrides[global_get_verified_identity] = lambda: OWNER
+    app.dependency_overrides[global_get_verified_identity] = lambda: HUMAN_ADMIN
     pending_approvals["csrf-test-exec"] = asyncio.Event()
 
     with TestClient(app, headers={"Origin": "https://evil.example.com"}) as c:
@@ -84,7 +86,7 @@ def test_terminal_approve_blocked_from_untrusted_origin():
 
 def test_terminal_approve_allowed_from_trusted_origin():
     """POST /terminal/approve with trusted Origin must proceed normally."""
-    app.dependency_overrides[global_get_verified_identity] = lambda: OWNER
+    app.dependency_overrides[global_get_verified_identity] = lambda: HUMAN_ADMIN
     pending_approvals["csrf-trusted-exec"] = asyncio.Event()
 
     with TestClient(app, headers={"Origin": "http://localhost:3001"}) as c:

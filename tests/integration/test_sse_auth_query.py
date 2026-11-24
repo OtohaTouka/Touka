@@ -4,6 +4,10 @@ from src.main import app
 from src.models.identity import AgentIdentity
 from src.services.identity_service import identity_service
 
+# 測的是「權杖只能放在 Authorization 標頭」。原本用 /terminal/history，2026-11-24 起它只給
+# 人類管理員本人（外部審查第 12 項），改用任何登入者都能讀的端點。
+_ENDPOINT = "/v1/models/lifecycle-alerts"
+
 
 @pytest.fixture
 def untrusted_client():
@@ -14,7 +18,7 @@ def untrusted_client():
 
 def test_sse_stream_without_auth_fails(untrusted_client):
     """沒有 Auth Header 且沒有 Query Token 的外部請求應被拒絕，回傳 401。"""
-    response = untrusted_client.get("/terminal/history")
+    response = untrusted_client.get(_ENDPOINT)
     assert response.status_code == 401
     assert response.json()["detail"]["code"] == "AUTH_INVALID_TOKEN"
 
@@ -28,7 +32,7 @@ def test_sse_stream_with_query_token_fails_under_new_policy(untrusted_client):
     )
     token = identity_service.issue_token(identity)
 
-    response = untrusted_client.get(f"/terminal/history?token={token}")
+    response = untrusted_client.get(f"{_ENDPOINT}?token={token}")
     assert response.status_code == 401
     assert response.json()["detail"]["code"] == "AUTH_INVALID_TOKEN"
 
@@ -43,9 +47,8 @@ def test_sse_stream_with_auth_header_success(untrusted_client):
     token = identity_service.issue_token(identity)
 
     response = untrusted_client.get(
-        "/terminal/history",
+        _ENDPOINT,
         headers={"Authorization": f"Bearer {token}"}
     )
-    assert response.status_code == 200
-    assert "history" in response.json()
+    assert response.status_code == 200, response.text
 
