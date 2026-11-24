@@ -192,7 +192,7 @@ def result_payload(
     return payload
 
 
-def _reportable(text: str, limit: int) -> bool:
+def is_reportable_text(text: str, limit: int) -> bool:
     """Touka 收得下：長度在上限內、沒有不收的字元，也沒有單獨的代理字元（UTF-8 編不出來）。"""
     return (
         1 <= len(text) <= limit
@@ -214,8 +214,8 @@ def folder_report(
     for name, path, writable, usable in folders:
         if (
             len(entries) >= MAX_REPORTED_FOLDERS
-            or not _reportable(name, MAX_REPORTED_NAME_CHARS)
-            or not _reportable(path, MAX_REPORTED_PATH_CHARS)
+            or not is_reportable_text(name, MAX_REPORTED_NAME_CHARS)
+            or not is_reportable_text(path, MAX_REPORTED_PATH_CHARS)
         ):
             omitted += 1
             continue

@@ -99,7 +99,7 @@ describe('LocalHelperFolders（ADR-0330）', () => {
         render(<LocalHelperFolders status={ONLINE} />);
         expect(screen.getByText(/為了安全，小幫手停止服務中/)).toBeDefined();
         expect(screen.queryByRole('button', { name: /拿掉/ })).toBeNull();
-        expect(screen.queryByRole('button', { name: /改成只能讀/ })).toBeNull();
+        expect(screen.queryByRole('button', { name: /改成只能看/ })).toBeNull();
     });
 
     it('沒列出的個數', () => {
@@ -137,15 +137,15 @@ describe('LocalHelperFolders（ADR-0330）', () => {
         expect(screen.getByText('讀不到開放中的資料夾，請稍後再試。')).toBeDefined();
     });
 
-    // --- 拿掉、改成只能讀（ADR-0330 2b） ---
+    // --- 拿掉、改成只能看（ADR-0330 2b） ---
 
     it('可以改的有兩個按鈕，只能看的只有「拿掉」', () => {
         state.folders = listed();
         render(<LocalHelperFolders status={ONLINE} />);
-        expect(screen.getByRole('button', { name: '把「Drafts」改成只能讀' })).toBeDefined();
+        expect(screen.getByRole('button', { name: '把「Drafts」改成只能看' })).toBeDefined();
         expect(screen.getByRole('button', { name: '拿掉「Drafts」' })).toBeDefined();
         expect(screen.getByRole('button', { name: '拿掉「Notes」' })).toBeDefined();
-        expect(screen.queryByRole('button', { name: '把「Notes」改成只能讀' })).toBeNull();
+        expect(screen.queryByRole('button', { name: '把「Notes」改成只能看' })).toBeNull();
     });
 
     it('按了先確認，取消就不送', () => {
@@ -162,8 +162,8 @@ describe('LocalHelperFolders（ADR-0330）', () => {
         state.folders = listed();
         revoking.revoke.mockResolvedValueOnce(done({ name: 'Drafts', writable: false }));
         render(<LocalHelperFolders status={ONLINE} />);
-        fireEvent.click(screen.getByRole('button', { name: '把「Drafts」改成只能讀' }));
-        expect(screen.getByText('確定把「Drafts」改成只能讀？代理人就只能看、不能改；要改回請到小幫手主視窗。')).toBeDefined();
+        fireEvent.click(screen.getByRole('button', { name: '把「Drafts」改成只能看' }));
+        expect(screen.getByText('確定把「Drafts」改成只能看？代理人就不能改裡面的東西；要改回可以改，請到小幫手主視窗。')).toBeDefined();
         await act(async () => {
             fireEvent.click(screen.getByRole('button', { name: '確定' }));
         });
@@ -188,6 +188,36 @@ describe('LocalHelperFolders（ADR-0330）', () => {
         revoking.pending = true;
         render(<LocalHelperFolders status={ONLINE} />);
         expect((screen.getByRole('button', { name: '拿掉「Notes」' }) as HTMLButtonElement).disabled).toBe(true);
+        expect(screen.getByText('正在請小幫手改，最多等 30 秒。')).toBeDefined();
+    });
+
+    it('有結果時小幫手斷線：結果照樣看得到，清單與按鈕不顯示', () => {
+        state.folders = listed();
+        revoking.outcome = failed('result_unknown');
+        render(<LocalHelperFolders status={{ ...ONLINE, online: false }} />);
+        expect(screen.getByText('不確定有沒有改，請看清單或小幫手主視窗。')).toBeDefined();
+        expect(screen.queryByText('Notes')).toBeNull();
+        expect(screen.queryByRole('button', { name: /拿掉/ })).toBeNull();
+        expect(state.enabledWith.every((enabled) => !enabled)).toBe(true);
+    });
+
+    it('送出中小幫手斷線：仍寫正在請小幫手改', () => {
+        state.folders = listed();
+        revoking.pending = true;
+        render(<LocalHelperFolders status={{ ...ONLINE, online: false }} />);
+        expect(screen.getByText('正在請小幫手改，最多等 30 秒。')).toBeDefined();
+        expect(screen.queryByText('Notes')).toBeNull();
+    });
+
+    it('確認到一半小幫手斷線：確認收起來，上次的結果還在', () => {
+        state.folders = listed();
+        revoking.outcome = failed('not_found');
+        const { rerender } = render(<LocalHelperFolders status={ONLINE} />);
+        fireEvent.click(screen.getByRole('button', { name: '拿掉「Notes」' }));
+        expect(screen.getByText(/確定從開放名單拿掉「Notes」/)).toBeDefined();
+        rerender(<LocalHelperFolders status={{ ...ONLINE, online: false }} />);
+        expect(screen.queryByText(/確定從開放名單拿掉/)).toBeNull();
+        expect(screen.getByText('名單已經變了，沒有改。請重新整理。')).toBeDefined();
     });
 
     it.each([

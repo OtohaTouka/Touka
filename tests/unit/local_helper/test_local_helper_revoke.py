@@ -181,6 +181,9 @@ def test_a_good_revoke_is_verified() -> None:
             path="D:\\Open",
             decision=Decision("0" * 22, "a" * 64, "b" * 64, DECIDED_BY_OPEN_REQUEST, "c" * 64),
         ),
+        # 名單回報不收的字元（改變顯示方向、控制字元），章蓋對了也不收
+        _job(name="Open\u202e", path="D:\\Open"),
+        _job(name="Open", path="D:\\Open\n"),
         _job(decision=None),
         _job(decision=_decision("Open", "D:\\Open", "remove", job_id="r1")),
         _job(decision=_decision("Open", "D:\\Open", "read_only", job_id="r2")),

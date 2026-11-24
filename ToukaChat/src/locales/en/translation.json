@@ -1412,6 +1412,7 @@
       "folders_remove_label": "Remove \"{{name}}\"",
       "folders_confirm_read_only": "Make \"{{name}}\" view only? Agents can then look but not change anything; to undo, use the helper's main window.",
       "folders_confirm_remove": "Remove \"{{name}}\" from the open folders? Agents can no longer use it; to add it back, use the helper's main window.",
+      "folders_revoke_waiting": "Asking the helper to make the change; this takes up to 30 seconds.",
       "revoke_result": {
         "removed": "Removed \"{{name}}\" from the open folders.",
         "read_only": "\"{{name}}\" is now view only.",

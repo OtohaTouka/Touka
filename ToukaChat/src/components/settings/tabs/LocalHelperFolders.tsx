@@ -69,7 +69,7 @@ interface LocalHelperFoldersProps {
 /**
  * 小幫手開放了哪些資料夾（ADR-0330）：完整路徑只給配對的人看，以小幫手主視窗為準。
  * 這裡只能縮小（拿掉、改成只能讀，2b），按了先確認；加回或改回可以改要到主視窗。
- * 配對了、小幫手開著時才顯示。
+ * 配對了、小幫手開著時才顯示；送出中或已有結果時，小幫手斷線也繼續顯示結果。
  */
 export function LocalHelperFolders({ status }: LocalHelperFoldersProps) {
     const { t } = useTranslation();
@@ -79,10 +79,11 @@ export function LocalHelperFolders({ status }: LocalHelperFoldersProps) {
     const folders = useLocalHelperFolders(visible, refresh);
     const { pending, outcome, revoke } = useLocalFolderRevoke();
 
-    if (!visible) return null;
+    // 送出中或已有結果時，小幫手斷線也繼續顯示，結果才看得到；清單與確認只在連線時顯示
+    if (!visible && !pending && outcome === null) return null;
 
-    const message = notice(folders);
-    const list = folders.kind === "loaded" && folders.list.state === "ok" ? folders.list : null;
+    const message = visible ? notice(folders) : null;
+    const list = visible && folders.kind === "loaded" && folders.list.state === "ok" ? folders.list : null;
     const shown = list?.folders ?? [];
     const result = outcome ? revokeMessage(outcome) : null;
 
@@ -115,7 +116,7 @@ export function LocalHelperFolders({ status }: LocalHelperFoldersProps) {
             {list && list.omitted > 0 && (
                 <p className="text-xs text-muted-foreground">{t(`${PREFIX}folders_omitted`, { count: list.omitted })}</p>
             )}
-            {asking && (
+            {visible && asking && (
                 <div className="space-y-2">
                     <p className="text-sm text-foreground">
                         {t(
@@ -133,6 +134,7 @@ export function LocalHelperFolders({ status }: LocalHelperFoldersProps) {
                     </div>
                 </div>
             )}
+            {pending && <p className="text-sm text-foreground">{t(`${PREFIX}folders_revoke_waiting`)}</p>}
             {!pending && result && (
                 <p className="text-sm text-foreground">{t(`${RESULT_PREFIX}${result.key}`, result.values)}</p>
             )}

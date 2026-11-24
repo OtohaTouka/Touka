@@ -190,7 +190,7 @@ test("設定頁看到小幫手開放的資料夾（完整路徑、權限、暫�
   await shot(page, info, "folders");
 });
 
-// ADR-0330 2b：設定頁把開放的資料夾改成只能讀。測試扮小幫手，用配對碼裡的鑰匙驗 Touka 蓋的章。
+// ADR-0330 2b：設定頁把開放的資料夾改成只能看。測試扮小幫手，用配對碼裡的鑰匙驗 Touka 蓋的章。
 const DRAFTS_PATH = "Z:\\E2E\\草稿";
 // 三方共用的固定測資（Touka、小幫手的 pytest 也核對同一個值）
 const REVOKE_VECTOR = "b38e5a7a63d367c30c4232b0da227b7e2c8c0abf28a687e8f297619b96ac9c59";
@@ -210,7 +210,7 @@ function revokeStamp(key: Buffer, jobId: string, nonce: string, name: string, pa
   return createHmac("sha256", key).update(message, "ascii").digest("hex");
 }
 
-test("設定頁把開放的資料夾改成只能讀：帶配對鑰匙的章，清單跟著改", async ({ page, request }, info) => {
+test("設定頁把開放的資料夾改成只能看：帶配對鑰匙的章，清單跟著改", async ({ page, request }, info) => {
   const fixedKey = Buffer.from(Array.from({ length: 32 }, (_, index) => index));
   expect(revokeStamp(fixedKey, "job-1", "A".repeat(22), "家 2026", "相片/家 2026", "read_only")).toBe(REVOKE_VECTOR);
 
@@ -231,8 +231,8 @@ test("設定頁把開放的資料夾改成只能讀：帶配對鑰匙的章，�
   expect((await pollAsHelper(request, token)).status()).toBe(200);
   await expect(page.getByText(DRAFTS_PATH)).toBeVisible({ timeout: 15_000 });
 
-  await page.getByRole("button", { name: "把「草稿」改成只能讀" }).click();
-  await expect(page.getByText(/確定把「草稿」改成只能讀/)).toBeVisible();
+  await page.getByRole("button", { name: "把「草稿」改成只能看" }).click();
+  await expect(page.getByText(/確定把「草稿」改成只能看/)).toBeVisible();
   await shot(page, info, "revoke-confirm");
   await page.getByRole("button", { name: "確定", exact: true }).click();
 

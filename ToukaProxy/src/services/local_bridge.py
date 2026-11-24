@@ -19,6 +19,7 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Final
 
 from src.models.local_bridge import (
+    INSTANCE_PATTERN,
     MAX_CONTAINED_NAMES,
     MAX_OPEN_NAME_CHARS,
     MAX_REQUESTER_CHARS,
@@ -102,7 +103,7 @@ _REVOKE_HELPER_CODES: Final = frozenset(
     {"not_found", "helper_exposed", "bad_signature", CODE_NEEDS_NEW_PAIRING, "io_error"}
 )
 _REVOKE_STAMP_FIELDS: Final = frozenset({"name", "instance", "revision"})
-_INSTANCE: Final = re.compile(r"[A-Za-z0-9_-]{22}")
+_INSTANCE: Final = re.compile(INSTANCE_PATTERN)
 # 小幫手回的代碼與名稱會顯示在設定頁：代碼只收小寫英數與底線，名稱不收控制字元與改變顯示方向的字元
 _RESULT_CODE: Final = re.compile(rf"[a-z0-9_]{{1,{MAX_RESULT_CODE_CHARS}}}")
 _UNSAFE_NAME_CHAR: Final = re.compile(UNSAFE_TEXT_PATTERN)
@@ -304,7 +305,8 @@ class LocalBridge:
         """縮小名單成功後，記憶體裡的清單跟著改（ADR-0330 2b），設定頁重新讀就是新的。
 
         ``stamp`` 是小幫手存檔後的（啟動編號, 修改次數）：縮小之前就在路上的舊回報晚到時會被
-        丟掉。啟動編號和手上那份不同（小幫手剛重開、新的回報還沒到）就不改，直接清掉。
+        丟掉。啟動編號和手上那份不同（小幫手剛重開、新的回報還沒到）就不改，直接清掉。手上那份
+        比這次縮小還新（之後又在主視窗改過，而且先到）時，它已經含這次的改動，照它不動。
         """
         report = self._report
         if generation != self._generation or report is None:
@@ -312,6 +314,8 @@ class LocalBridge:
         instance, revision = stamp
         if report.instance != instance:
             self._report = None
+            return
+        if report.revision > revision:
             return
         same = [
             entry.name == request.name and entry.path == request.path for entry in report.folders
@@ -323,7 +327,7 @@ class LocalBridge:
                 e.model_copy(update={"writable": False}) if hit else e
                 for e, hit in zip(report.folders, same, strict=True)
             )
-        self._report = replace(report, folders=folders, revision=max(report.revision, revision))
+        self._report = replace(report, folders=folders, revision=revision)
 
     def invalidate(self, generation: int) -> None:
         """換權杖或解除配對：掛著的輪詢作廢、工作全部失敗、上線狀態清掉。
@@ -616,7 +620,7 @@ def revoke_result_from(result: LocalJobResult) -> tuple[LocalRevokeResult, tuple
         if code in _REVOKE_HELPER_CODES or code in _REVOKE_TOUKA_CODES:
             return LocalRevokeResult(status="error", code=code), None
         return _BAD_REVOKE_RESULT, None
-    done = _revoke_done(result.data)
+    done = _revoke_done(result.data) if result.code is None else None
     if done is None:
         return _BAD_REVOKE_RESULT, None
     return done

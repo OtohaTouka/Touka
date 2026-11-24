@@ -32,7 +32,7 @@ _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 _HEX64_PATTERN: Final = r"^[0-9a-f]{64}$"
 _NONCE_PATTERN: Final = r"^[A-Za-z0-9_-]{22}$"
 # 小幫手每次啟動產生一次（secrets.token_urlsafe(16)），和一次性號碼同樣格式
-_INSTANCE_PATTERN: Final = _NONCE_PATTERN
+INSTANCE_PATTERN: Final = _NONCE_PATTERN
 _NO_CONTROL_CHARS: Final = r"^[^\x00-\x1f\x7f]+$"
 
 # request_open、revoke 只從設定頁送（ADR-0320、ADR-0330），模型的工具合約沒有這兩個動作
@@ -152,7 +152,7 @@ class LocalFolderReport(_Strict):
     """
 
     protocol: int
-    instance: str = Field(pattern=_INSTANCE_PATTERN)
+    instance: str = Field(pattern=INSTANCE_PATTERN)
     revision: int = Field(ge=0)
     exposed: bool
     folders: list[LocalFolderEntry] = Field(max_length=MAX_REPORTED_FOLDERS)

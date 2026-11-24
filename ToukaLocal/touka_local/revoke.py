@@ -10,7 +10,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Final
 
 from touka_local.errors import Refused
-from touka_local.protocol import MAX_REPORTED_NAME_CHARS, MAX_REPORTED_PATH_CHARS, REVOKE_FIELDS
+from touka_local.protocol import (
+    MAX_REPORTED_NAME_CHARS,
+    MAX_REPORTED_PATH_CHARS,
+    REVOKE_FIELDS,
+    is_reportable_text,
+)
 from touka_local.signing import revoke_signature_ok
 
 if TYPE_CHECKING:
@@ -23,18 +28,15 @@ CHANGE_READ_ONLY: Final = "read_only"
 REVOKE_CHANGES: Final = ("remove", "read_only")
 
 
-def _has_lone_surrogate(text: str) -> bool:
-    return any(0xD800 <= ord(c) <= 0xDFFF for c in text)
-
-
 def _text_within(value: object, limit: int) -> bool:
-    return isinstance(value, str) and 1 <= len(value) <= limit and not _has_lone_surrogate(value)
+    # 和回報名單同一條：名單上不收的名稱與路徑，設定頁本來就看不到，也不能縮小
+    return isinstance(value, str) and is_reportable_text(value, limit)
 
 
 def verify_revoke(job: Job, key: bytes | None) -> tuple[str, str, str]:
     """核對章，回傳（名稱, 路徑, 改法）。欄位、型別、長度或章任何一項不對都是 ``bad_signature``。
 
-    單獨的代理字元算不出指紋，在核對章之前就擋下。
+    單獨的代理字元算不出指紋，在核對章之前就擋下；不收的字元（控制、改變顯示方向）也一樣。
     """
     args = job.args
     if set(args) != REVOKE_FIELDS:

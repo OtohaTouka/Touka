@@ -1159,6 +1159,16 @@ def test_a_restarted_helper_clears_the_shown_list(client: TestClient) -> None:
     assert client.get(FOLDERS_URL).json()["state"] == "waiting"
 
 
+def test_a_newer_report_already_held_is_left_as_it_is(client: TestClient) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    # 縮小存檔是第 1 次修改；之後又在主視窗改回可以改（第 2 次），那份回報比縮小的結果先到
+    _send_report(client, token, _folder_report(revision=2))
+    response, _job = _revoke_and_answer(client, token, _done(name="Notes", writable=False))
+    assert response.json()["status"] == "done"
+    assert client.get(FOLDERS_URL).json()["folders"][0]["writable"] is True
+
+
 @pytest.mark.parametrize(
     ("answer", "code"),
     [
@@ -1191,6 +1201,8 @@ def test_a_restarted_helper_clears_the_shown_list(client: TestClient) -> None:
             "bad_result",
         ),
         ({"status": "ok", "data": None}, "bad_result"),
+        # 成功卻帶代碼：格式不對
+        ({**_done(name="Notes", writable=False), "code": "already_open"}, "bad_result"),
     ],
 )
 def test_helper_answers_to_a_revoke_are_mapped(
