@@ -174,9 +174,11 @@ Windows 的 JailedWriter 只提供可繞過的寫入配額，不是檔案讀取�
 
 沒有修補版、只出現在開發與測試工具裡的 high／critical 公告，經維護者核准可以暫時放行：每筆只寫一則 GHSA 與核准時的嚴重度、只在核准到到期之間生效（最多 14 天）、只在 full 範圍生效，runtime 範圍從不套用；套件的 high／critical 原因全都在例外內、而且不比核准時嚴重才放行，到期就照常擋。清單在 `scripts/guard_node_cve.py` 的 `ADVISORY_EXCEPTIONS`。
 
+目前沒有例外；下表是歷來的例外紀錄。
+
 | 公告 | 範圍 | 核准 | 到期 | 理由 |
 | --- | --- | --- | --- | --- |
-| GHSA-fc5q-39xc-vjpf（picomatch ≤ 4.0.7，正規式讓程式卡住，high） | Chat、IDE 的 full 範圍（vite、vitest、knip、fast-glob、vsce 等開發工具；runtime 範圍 0 筆） | 2026-11-18 維護者 | 2026-11-25 結束 | 2026-11-18 沒有修補版；要利用得能提供比對規則，這些工具的規則都來自 Touka 自己的設定檔 |
+| GHSA-fc5q-39xc-vjpf（picomatch ≤ 4.0.7，正規式讓程式卡住，high） | Chat、IDE 的 full 範圍（vite、vitest、knip、fast-glob、vsce 等開發工具；runtime 範圍 0 筆） | 2026-11-18 維護者 | 2026-11-24 移除：公告 2026-11-18 撤回，npm audit 不再回報；目前沒有例外 | 2026-11-18 沒有修補版；要利用得能提供比對規則，這些工具的規則都來自 Touka 自己的設定檔 |
 
 ### Node 依賴的 moderate advisory
 

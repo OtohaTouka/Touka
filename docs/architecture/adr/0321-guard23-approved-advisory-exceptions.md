@@ -1,6 +1,6 @@
 # ADR-0321：Guard #23 的公告例外（維護者核准、會到期）
 
-- 狀態：✅ 已實作。維護者 2026-11-18 核准（選「現在做例外清單」）。
+- 狀態：✅ 已實作。維護者 2026-11-18 核准（選「現在做例外清單」）。2026-11-24：唯一一筆例外移除（公告已撤回），清單目前是空的。
 - 日期：2026-11-18
 - 決策者：維護者
 - 相關：[ADR-0222](0222-dependency-audit-gate-hardening.md)（依賴稽核閘；本 ADR 修訂 Guard #23 的判定）、[ADR-0299](0299-dependency-cooldown-and-emergency-patches.md)（冷卻期與緊急修補、每日檢查）
@@ -25,7 +25,7 @@
   - 放行的套件以 `  excused <嚴重度> <套件> <公告>` 列出；擋下的維持原本的 `  high <套件> …` 格式。每日檢查（`dep_audit_report.py`）只數後者，筆數和 `[FAIL] N` 對得上。
   - 有有效例外時，通過的那一行寫「例外以外沒有 HIGH/CRITICAL」。
 - 一次執行只取一次現在時間，四個範圍看到的例外一致。守衛不載入專案程式、拿不到 `time_utils`，所以 `_current_time` 直接用 `datetime.now(UTC)`，以 `# noqa: TIME_SSOT_VIOLATION` 豁免並登記在 NOQA_REGISTRY（這條規則第一處豁免）；測試以 monkeypatch 換掉。
-- 目前唯一一筆：GHSA-fc5q-39xc-vjpf，2026-11-18 核准，到 2026-11-25 結束（台北時間 11/26 00:00 到期）。
+- 第一筆：GHSA-fc5q-39xc-vjpf，2026-11-18 核准，原訂到 2026-11-25 結束。這則公告 2026-11-18 晚上被撤回（GitHub 標 withdrawn、仍沒有修補版），npm audit 從此不再回報，例外沒有東西可放行；2026-11-24 移除，清單目前是空的。
 
 ## 沒選的做法
 
@@ -41,7 +41,7 @@
 - 「runtime 範圍 0 筆」不等於跑起來的 Touka 完全沒有 picomatch：Next 在 `next/dist/compiled/picomatch` 內嵌了一份，npm audit 看不到；它用在圖片網址比對，規則來自設定，而 Chat 設了 `images.unoptimized: true`、正式映像是靜態匯出，實際沒有影響。另外，「runtime 範圍＝會出貨的程式」是前提：打包工具會打包任何被匯入的套件，不分 dev 或 prod；picomatch 和帶它進來的套件（fast-glob、micromatch、tinyglobby 等）目前只被測試與守衛匯入；Chat 的 `globals.css` 會把 dev 套件 tailwindcss、tw-animate-css 編進出貨的 CSS，那裡沒有 picomatch（2026-11-18 審查查證）。
 - 已知限制：保留的證據（`--evidence-dir`）沒有記下當時的時間、有效例外與放行的套件，事後只看 npm 原始輸出會看到「有 high 卻通過」；被放行的套件身上若還有 moderate 公告，期間內不算進 lower-severity 計數。
 - 例外只在合併了本 ADR 的分支生效：`main` 在維護者把 dev 合進去之前，每日檢查仍會因這則公告開 issue。
-- 修補版出來後照緊急通道升級，並刪掉這筆例外。
+- 修補版出來後照緊急通道升級，並刪掉這筆例外；公告撤回、npm audit 不再回報時也刪掉（第一筆就是這樣）。
 
 ## 驗證
 

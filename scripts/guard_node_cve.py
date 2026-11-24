@@ -22,7 +22,7 @@ import subprocess
 import sys
 import tempfile
 from contextlib import nullcontext
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NoReturn
 
@@ -67,7 +67,6 @@ BLOCKING_SEVERITIES = frozenset({"high", "critical"})
 _ADVISORY_ID = re.compile(r"GHSA(?:-[23456789cfghjmpqrvwx]{4}){3}")
 _ADVISORY_URL = re.compile(rf"https://github\.com/advisories/({_ADVISORY_ID.pattern})")
 _PACKAGE_NAME = re.compile(r"(?:@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*")
-_TAIPEI = timezone(timedelta(hours=8))
 
 
 class AdvisoryException(NamedTuple):
@@ -87,17 +86,9 @@ class AdvisoryException(NamedTuple):
 EXCEPTION_SCOPE = "full"
 MAX_EXCEPTION_DAYS = 14
 SEVERITY_RANK: dict[str, int] = {"info": 0, "low": 1, "moderate": 2, "high": 3, "critical": 4}
-ADVISORY_EXCEPTIONS: tuple[AdvisoryException, ...] = (
-    # picomatch <= 4.0.7 ReDoS; no fixed release on 2026-11-18; reached only through
-    # dev tooling (vite, vitest, knip, fast-glob, vsce). Ends after 2026-11-25 Taipei.
-    AdvisoryException(
-        advisory="GHSA-fc5q-39xc-vjpf",
-        severity="high",
-        approved_at=datetime(2026, 11, 18, tzinfo=_TAIPEI),
-        expires_at=datetime(2026, 11, 26, tzinfo=_TAIPEI),
-        approval="maintainer, 2026-11-18",
-    ),
-)
+# Empty. The only entry so far, GHSA-fc5q-39xc-vjpf (picomatch), was removed on
+# 2026-11-24: the advisory was withdrawn on 2026-11-18 and npm audit no longer reports it.
+ADVISORY_EXCEPTIONS: tuple[AdvisoryException, ...] = ()
 
 
 class AuditExecutionError(RuntimeError):
