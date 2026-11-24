@@ -5,8 +5,8 @@ import { loginInBrowser, openSideMenu, shot } from "./lib/ui";
 
 const POLL_URL = `${API_ORIGIN}/v1/local-bridge/poll`;
 const WRONG_TOKEN = "e2e-not-the-real-pairing-code";
-// 協議第 2 版（ADR-0317）：配對碼是「權杖.鑰匙」，小幫手只拿權杖輪詢，鑰匙留著驗章
-const PROTOCOL = 2;
+// 協議第 3 版（ADR-0330；第 2 版起配對碼是「權杖.鑰匙」，小幫手只拿權杖輪詢，鑰匙留著驗章）
+const PROTOCOL = 3;
 
 async function openLocalHelperTab(page: Page): Promise<void> {
   await openSideMenu(page);
@@ -156,4 +156,36 @@ test("設定頁請小幫手開放資料夾：小幫手沒有開放時照實顯�
   expect(answer.status()).toBe(200);
   await expect(page.getByText("小幫手沒有開放這個資料夾：可能是你按了拒絕、這個位置不能開放，或它和已經開放的資料夾重疊（包括同一個資料夾已經開放）。原因寫在小幫手的視窗。")).toBeVisible({ timeout: 15_000 });
   await shot(page, info, "open-refused");
+});
+
+// ADR-0330：小幫手回報開放名單，配對的人在設定頁看得到完整路徑。路徑是假的，不是任何人電腦上的位置。
+const REPORT_URL = `${API_ORIGIN}/v1/local-bridge/folder-report`;
+const REPORTED_PATH = "Z:\\E2E\\範例\\筆記";
+
+test("設定頁看到小幫手開放的資料夾（完整路徑、權限、暫停中）", async ({ page, request }, info) => {
+  const { token } = await pairAndConnect(page, request);
+  await expect(page.getByText("正在等小幫手回報開放中的資料夾。")).toBeVisible({ timeout: 15_000 });
+
+  const report = await request.post(REPORT_URL, {
+    headers: { "X-Touka-Local-Token": token },
+    data: {
+      protocol: PROTOCOL,
+      instance: "e2e-".padEnd(22, "a"),
+      revision: 0,
+      exposed: false,
+      folders: [
+        { name: "筆記", path: REPORTED_PATH, writable: false, usable: true },
+        { name: "草稿", path: "Z:\\E2E\\草稿", writable: true, usable: false },
+      ],
+      omitted: 0,
+    },
+  });
+  expect(report.status()).toBe(200);
+  // 小幫手要一直輪詢才算開著
+  expect((await pollAsHelper(request, token)).status()).toBe(200);
+  await expect(page.getByText(REPORTED_PATH)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("只能看", { exact: true })).toBeVisible();
+  await expect(page.getByText("可以改", { exact: true })).toBeVisible();
+  await expect(page.getByText("暫停中", { exact: true })).toBeVisible();
+  await shot(page, info, "folders");
 });

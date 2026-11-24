@@ -15,6 +15,7 @@
 - 配對碼只放在 hook 的記憶體，不寫瀏覽器儲存，離開頁面就沒了。換新和解除都要先確認。
 - 讀不到狀態時照實顯示，不當成沒配對。搬移與刪除照 Touka 的模式核准（見下一點），碰到小幫手的底線才在小幫手視窗按。
 - 請小幫手開放資料夾（ADR-0320）：配對而且小幫手開著時，這一頁多一個 `LocalHelperOpenFolder` 區塊（小幫手離線時按鈕停用）（狀態由 `LocalHelperTab` 用 props 傳下去，不另開計時器）。資料層是 `useLocalOpenRequest`：去掉前後空白與一組引號後 POST，自帶中止訊號（離開頁面就中止、最多等 170 秒）。小幫手一定跳視窗，結果要等人在小幫手決定或 2 分鐘到；關掉頁面不會撤回。先看 HTTP 狀態：403、409 才用 `getResponseErrorCode` 查代碼，422 是路徑不合格式，401、5xx、網路錯誤說沒有收到結果（請求可能已經交給小幫手）；等待中或已有結果時，小幫手斷線也繼續顯示這個區塊；每個小幫手代碼都有一句話，舊版小幫手的 `bad_request`、`not_supported` 說要更新。也可以照舊在小幫手主視窗加。
+- 開放中的資料夾（ADR-0330）：配對而且小幫手開著時，`LocalHelperFolders` 區塊列出名稱、完整路徑、只能看或可以改、暫停中；被看見時警告；寫明以小幫手主視窗為準與怎麼叫出主視窗。資料層 `useLocalHelperFolders` 每 10 秒讀 `GET /v1/local-bridge/folders`，403（不是配對的人）就停止讀取；清單只放在記憶體。`/status` 的 `version_problem` 讓 `LocalHelperTab` 說要重裝小幫手或更新 Touka，不再說「小幫手沒有開著」。
 - 審批卡的「小幫手掃描到的清單」（ADR-0317）：`HelperPreview` 元件，等寬字、可以捲動。解析在 `stream_tree`（`ToolStepPreview`，型別在 `tree_history.ts` 手寫，同 `review_reason`）；卡片完整顯示時核准請求帶 `payload.preview_ack`，卡片答完就把 ack 丟掉，不留在對話紀錄。清單放在參數之後、緊接著按鈕，代理人寫的理由假造不了它下面的位置。
 
 ## 換後端網址與登入憑證（ADR-0297）

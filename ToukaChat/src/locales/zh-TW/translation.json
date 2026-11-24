@@ -1382,7 +1382,22 @@
         "denied": "沒有權限送出。",
         "invalid_path": "路徑裡有不能用的字元，或太長。",
         "failed": "沒有收到結果。如果小幫手跳出視窗，請在那邊決定；沒有的話再試一次。"
-      }
+      },
+      "status_helper_older": "已配對，小幫手版本太舊：請到 GitHub 的 ToukaLocal 頁面複製安裝指令重新安裝",
+      "status_touka_older": "已配對，Touka 比小幫手舊：請更新 Touka",
+      "folders_heading": "開放中的資料夾",
+      "folders_help": "以小幫手主視窗為準。要改權限或拿掉，請到小幫手主視窗：從桌面（或 %LOCALAPPDATA%\\ToukaLocal）開 ToukaLocal.cmd 就會叫出來。",
+      "folders_denied": "只有產生配對碼的人看得到開放中的資料夾。",
+      "folders_failed": "讀不到開放中的資料夾，請稍後再試。",
+      "folders_offline": "小幫手沒有連線，看不到目前開放的資料夾。",
+      "folders_waiting": "正在等小幫手回報開放中的資料夾。",
+      "folders_stale": "小幫手一陣子沒有回報，看不到目前開放的資料夾。",
+      "folders_exposed": "為了安全，小幫手停止服務中；請到小幫手主視窗看原因。",
+      "folders_empty": "還沒有開放任何資料夾。",
+      "folders_read_only": "只能看",
+      "folders_writable": "可以改",
+      "folders_paused": "暫停中",
+      "folders_omitted": "還有 {{count}} 個沒有列出，請看小幫手主視窗。"
     }
   },
   "sidebar": {

@@ -5,13 +5,20 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useLocalHelper } from "@/hooks/settings/useLocalHelper";
 import { logSSOTError } from "@/lib/error_handler";
+import { LocalHelperFolders } from "./LocalHelperFolders";
 import { LocalHelperOpenFolder } from "./LocalHelperOpenFolder";
 
 type PendingAction = "rotate" | "revoke" | null;
 
+// 小幫手的輪詢因為版本不符被拒時，說要更新哪一邊（ADR-0330）
+const VERSION_PROBLEM_MESSAGES = {
+    helper_older: "settings.local_helper_tab.status_helper_older",
+    touka_older: "settings.local_helper_tab.status_touka_older",
+} as const;
+
 /**
- * 本機小幫手的配對（ADR-0312），以及請小幫手開放資料夾（ADR-0320，由 LocalHelperOpenFolder 負責）。
- * 核准都在小幫手自己的視窗。
+ * 本機小幫手的配對（ADR-0312）、開放中的資料夾（ADR-0330，由 LocalHelperFolders 負責），
+ * 以及請小幫手開放資料夾（ADR-0320，由 LocalHelperOpenFolder 負責）。核准都在小幫手自己的視窗。
  */
 export function LocalHelperTab() {
     const { t } = useTranslation();
@@ -38,6 +45,7 @@ export function LocalHelperTab() {
         if (failed) return t("settings.local_helper_tab.load_failed");
         if (!status) return "";
         if (!status.paired) return t("settings.local_helper_tab.status_unpaired");
+        if (!status.online && status.version_problem) return t(VERSION_PROBLEM_MESSAGES[status.version_problem]);
         if (!status.online) return t("settings.local_helper_tab.status_offline");
         return t("settings.local_helper_tab.status_online", { version: status.helper_version ?? "" });
     };
@@ -104,6 +112,7 @@ export function LocalHelperTab() {
                             </div>
                         )}
 
+                        <LocalHelperFolders status={status} />
                         <LocalHelperOpenFolder status={status} />
                     </div>
                 )

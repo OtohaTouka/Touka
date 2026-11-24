@@ -119,11 +119,25 @@ class GrantBook:
         self._lock = threading.RLock()
         self._mounts: tuple[str, ...] = ()
         self._grants = _load(file)
+        # 這次啟動以來存檔成功的次數；回報給 Touka 時用來判斷新舊（ADR-0330）
+        self._revision = 0
+
+    @property
+    def revision(self) -> int:
+        """名單改過幾次（這次啟動以來）。"""
+        with self._lock:
+            return self._revision
 
     def grants(self) -> list[Grant]:
         """名單上的全部，包含暫停的。"""
         with self._lock:
             return list(self._grants)
+
+    def snapshot(self) -> tuple[int, list[tuple[Grant, bool]]]:
+        """修改次數和名單一起取（同一把鎖），再算每一個現在能不能用（讀磁碟，不拿鎖）。"""
+        with self._lock:
+            revision, grants = self._revision, list(self._grants)
+        return revision, [(grant, self._is_usable(grant)) for grant in grants]
 
     def usable(self) -> list[Grant]:
         """現在可以用的。"""
@@ -209,6 +223,7 @@ class GrantBook:
         payload = {"grants": [asdict(grant) for grant in grants]}
         durable_write_text(self._file, json.dumps(payload, ensure_ascii=False, indent=2))
         self._grants = grants
+        self._revision += 1
 
     def _unique_name(self, base: str) -> str:
         taken = {grant.name.casefold() for grant in self._grants}

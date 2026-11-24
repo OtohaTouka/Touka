@@ -36,6 +36,9 @@ class _Client:
         self.results.append((job_id, payload))
         return True
 
+    def report_folders(self, _payload: dict[str, Any]) -> bool:
+        return True
+
 
 @dataclass
 class _Switches:

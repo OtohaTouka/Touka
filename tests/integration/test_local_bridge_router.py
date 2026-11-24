@@ -79,6 +79,7 @@ def _poll(client: TestClient, token: str | None, body: dict[str, Any] | None = N
         ("post", "/v1/local-bridge/pairing"),
         ("delete", "/v1/local-bridge/pairing"),
         ("get", "/v1/local-bridge/status"),
+        ("get", "/v1/local-bridge/folders"),
     ],
 )
 def test_human_endpoints_are_for_human_admins_only(
@@ -100,7 +101,12 @@ def test_pairing_code_is_shown_once(client: TestClient) -> None:
     token, _, key_text = code.partition(".")
     assert len(key_text) == 43
     status = client.get("/v1/local-bridge/status").json()
-    assert status == {"paired": True, "online": False, "helper_version": None}
+    assert status == {
+        "paired": True,
+        "online": False,
+        "helper_version": None,
+        "version_problem": None,
+    }
     assert token not in str(status)
     assert key_text not in str(status)
 
@@ -130,7 +136,12 @@ def test_poll_marks_online(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()["job"] is None
     status = client.get("/v1/local-bridge/status").json()
-    assert status == {"paired": True, "online": True, "helper_version": "1.0"}
+    assert status == {
+        "paired": True,
+        "online": True,
+        "helper_version": "1.0",
+        "version_problem": None,
+    }
 
 
 def test_rotated_token_is_refused(client: TestClient) -> None:
@@ -601,3 +612,152 @@ def test_open_requests_are_in_the_api_contract() -> None:
     paths = app.openapi()["paths"]
     assert "/v1/local-bridge/open-requests" in paths
     assert "/local-bridge/open-requests" in paths
+
+
+# --- 開放名單與版本不符（ADR-0330） ---
+
+REPORT_URL = "/v1/local-bridge/folder-report"
+FOLDERS_URL = "/v1/local-bridge/folders"
+# 路徑不以磁碟代號開頭（PATH_LITERAL_SSOT）；只要夠特別，搜得到有沒有進日誌
+REPORTED_PATH = "Someone/Private Notes 2026"
+
+
+def _folder_report(**changes: Any) -> dict[str, Any]:
+    report: dict[str, Any] = {
+        "protocol": PROTOCOL_VERSION,
+        "instance": "a" * 22,
+        "revision": 0,
+        "exposed": False,
+        "folders": [{"name": "Notes", "path": REPORTED_PATH, "writable": True, "usable": True}],
+        "omitted": 0,
+    }
+    report.update(changes)
+    return report
+
+
+def _send_report(client: TestClient, token: str | None, body: dict[str, Any]) -> Any:
+    headers = {HEADER: token} if token is not None else {}
+    return client.post(REPORT_URL, json=body, headers=headers)
+
+
+@pytest.mark.parametrize(
+    ("protocol", "problem"),
+    [(PROTOCOL_VERSION - 1, "helper_older"), (PROTOCOL_VERSION + 1, "touka_older")],
+)
+def test_a_mismatched_helper_shows_as_a_version_problem(
+    client: TestClient, protocol: int, problem: str
+) -> None:
+    token = _pair(client)
+    response = _poll(client, token, {"protocol": protocol, "helper_version": "0.4.0"})
+    # 欄位不變，所以舊小幫手收到的是 409（需要升級），不是 422（會被當成離線）
+    assert response.status_code == 409
+    status = client.get("/v1/local-bridge/status").json()
+    assert status["online"] is False
+    assert status["version_problem"] == problem
+
+
+def test_only_a_real_helper_can_report_a_version_problem(client: TestClient) -> None:
+    _pair(client)
+    body = {"protocol": PROTOCOL_VERSION - 1, "helper_version": "0.4.0"}
+    assert _poll(client, "wrong", body).status_code == 401
+    assert client.get("/v1/local-bridge/status").json()["version_problem"] is None
+
+
+def test_folders_before_pairing(client: TestClient) -> None:
+    response = client.get(FOLDERS_URL)
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "LOCAL_HELPER_NOT_PAIRED"
+
+
+def test_only_the_person_who_paired_sees_the_folders(wired: LocalBridge) -> None:
+    app.dependency_overrides[get_verified_identity] = lambda: ADMIN
+    with TestClient(app) as test_client:
+        token = _pair(test_client)
+        _poll(test_client, token)
+        assert _send_report(test_client, token, _folder_report()).status_code == 200
+    other = AgentIdentity.for_role("Other", "admin", is_human=True)
+    app.dependency_overrides[get_verified_identity] = lambda: other
+    with TestClient(app) as test_client:
+        response = test_client.get(FOLDERS_URL)
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "LOCAL_HELPER_NOT_PAIRED_HUMAN"
+    assert "Private Notes" not in response.text
+
+
+def test_the_owner_sees_the_reported_folders(client: TestClient) -> None:
+    token = _pair(client)
+    assert client.get(FOLDERS_URL).json()["state"] == "offline"
+    _poll(client, token)
+    assert client.get(FOLDERS_URL).json() == {
+        "state": "waiting",
+        "exposed": False,
+        "folders": None,
+        "omitted": 0,
+    }
+    response = _send_report(client, token, _folder_report())
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    listed = client.get(FOLDERS_URL)
+    assert listed.headers["cache-control"] == "no-store"
+    assert listed.json() == {
+        "state": "ok",
+        "exposed": False,
+        "folders": [{"name": "Notes", "path": REPORTED_PATH, "writable": True, "usable": True}],
+        "omitted": 0,
+    }
+
+
+def test_a_new_pairing_forgets_the_reported_folders(client: TestClient) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    _send_report(client, token, _folder_report())
+    token = _pair(client)
+    _poll(client, token)
+    assert client.get(FOLDERS_URL).json()["folders"] is None
+
+
+@pytest.mark.parametrize("token", [None, "", "wrong"])
+def test_reporting_needs_the_helper_token(client: TestClient, token: str | None) -> None:
+    _pair(client)
+    assert _send_report(client, token, _folder_report()).status_code == 401
+
+
+def test_a_report_in_another_protocol_is_refused(client: TestClient) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    response = _send_report(client, token, _folder_report(protocol=PROTOCOL_VERSION + 1))
+    assert response.status_code == 409
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"extra": 1},
+        {"instance": "short"},
+        {"revision": -1},
+        {"folders": [{"name": "A", "path": "Notes/A", "writable": True}]},
+        {"folders": [{"name": "A\u202e", "path": "Notes/A", "writable": True, "usable": True}]},
+        {"folders": [{"name": "A\u061c", "path": "Notes/A", "writable": True, "usable": True}]},
+        {"folders": [{"name": "A", "path": "Notes/A\x07", "writable": True, "usable": True}]},
+        {"folders": [{"name": "A", "path": "a" * 1025, "writable": True, "usable": True}]},
+        {
+            "folders": [
+                {"name": f"F{i}", "path": f"Notes/F{i}", "writable": True, "usable": True}
+                for i in range(65)
+            ]
+        },
+    ],
+)
+def test_a_report_touka_cannot_show_is_refused(client: TestClient, changes: dict[str, Any]) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    assert _send_report(client, token, _folder_report(**changes)).status_code == 422
+
+
+def test_the_full_path_is_not_logged(client: TestClient, caplog: pytest.LogCaptureFixture) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    with caplog.at_level("DEBUG"):
+        _send_report(client, token, _folder_report())
+        client.get(FOLDERS_URL)
+    assert "Private Notes" not in caplog.text
