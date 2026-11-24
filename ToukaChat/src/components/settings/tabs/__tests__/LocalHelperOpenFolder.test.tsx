@@ -83,7 +83,7 @@ describe('LocalHelperOpenFolder（ADR-0320）', () => {
             { kind: 'result', result: { status: 'opened', code: null, name: '相片', writable: true } },
             '已開放「相片」（可以改）。',
         ],
-        [refused('not_opened'), '小幫手沒有開放這個資料夾，原因寫在小幫手的視窗。'],
+        [refused('not_opened'), '小幫手沒有開放這個資料夾：可能是你按了拒絕、這個位置不能開放，或它和已經開放的資料夾重疊（包括同一個資料夾已經開放）。原因寫在小幫手的視窗。'],
         [refused('no_decision'), '2 分鐘內沒有在小幫手的視窗決定，沒有開放。'],
         [refused('not_openable'), '核准後還是沒辦法開放，原因寫在小幫手的視窗。'],
         [refused('open_paused'), '小幫手暫停接收開放請求，約 10 分鐘後再試，或在小幫手主視窗按「現在恢復」。'],

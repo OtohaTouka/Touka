@@ -1362,7 +1362,7 @@
       "open_result": {
         "opened_read_only": "Opened \"{{name}}\" (view only).",
         "opened_writable": "Opened \"{{name}}\" (can change).",
-        "not_opened": "The helper did not open this folder. The reason is in the helper's window.",
+        "not_opened": "The helper did not open this folder: you may have rejected it, the place cannot be opened, or it overlaps a folder that is already open (including the same folder). The reason is in the helper's window.",
         "no_decision": "Nothing was decided in the helper's window within 2 minutes, so nothing was opened.",
         "not_openable": "It was approved but still could not be opened. The reason is in the helper's window.",
         "open_paused": "The helper has paused folder requests. Try again in about 10 minutes, or press \"Resume now\" in the helper's main window.",
