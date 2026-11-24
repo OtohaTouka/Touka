@@ -11,9 +11,11 @@
 - 這段對話上一輪：先看記憶體裡這個 (agent, session) 上一次前景請求的時間（伺服器）；沒有時看可信
   活動事件的 user_turn（同一個對話、不含這一輪）；再沒有就在目前分支上往回找帶時間戳的節點——
   對話樹是前端整棵寫回的，節點時間可能來自使用者裝置的時鐘，照實標示，也絕不寫進事件表。
-- 這段對話較早幾輪的時間（舊到新，最近幾輪；隔一小時以上標出間隔）：可信活動事件的 user_turn。
-  前一輪送出的區塊不存進紀錄，沒有這行時模型回頭看自己說過的「隔了幾天」找不到依據，
-  會把對的話收回（11/24 試用）。沒有紀錄或讀不到就不加這一行。
+- 這段對話較早幾輪的時間（舊到新，最近幾輪；隔一小時以上標出間隔；長間隔已經掉出清單時，
+  同一行補上最近一次長間隔）：可信活動事件的 user_turn。前一輪送出的區塊不存進紀錄，
+  沒有這行時模型回頭看自己說過的「隔了幾天」找不到依據，會把對的話收回（11/24 試用）。
+  沒有紀錄或讀不到就不加；心跳、無痕與 SNS 觸發的請求不加（SNS 的家模式會借用家的
+  session，列出的會是擁有者的時間）。
 - 上次有人類訊息、上次自主執行、最近完成：可信活動事件（``utils/continuity_events_db``）。
 - 任務看板：MissionManager 唯讀（SSOT），只補 ``<mission_awareness>`` 沒有的時間。
 - 可信紀錄起點：只在有「沒有紀錄」時出現。
@@ -141,8 +143,9 @@ EARLIER_TURNS_SHOWN = 5
 EARLIER_TURNS_BREAK_SECONDS = _HOUR
 EARLIER_TURNS_LABEL = (
     f"Earlier turns in this conversation (Asia/Taipei, oldest first, last {EARLIER_TURNS_SHOWN}; "
-    f"+gap marks breaks of {EARLIER_TURNS_BREAK_SECONDS // _HOUR}h or more)"
+    f"+gap marks breaks of {EARLIER_TURNS_BREAK_SECONDS // _MINUTE}m or more)"
 )
+EARLIER_BREAK_NOTE = "latest longer break before these: {gap} before the turn at {at}"
 UNKNOWN_PREVIOUS = "unknown (no record of when the previous turn happened)"
 HUMAN_LABEL = "Last message from a human (any conversation)"
 RUN_LABEL = "Last autonomous run"
@@ -258,6 +261,7 @@ async def _read_timeline(
                 else None
             ),
             turns_here_limit=EARLIER_TURNS_SHOWN if turns else 0,
+            turns_break_ms=EARLIER_TURNS_BREAK_SECONDS * _MS_PER_SECOND if turns else 0,
         )
     except Exception:
         logger.exception("continuity: reading the activity record failed")
@@ -294,7 +298,8 @@ async def _previous_turn_line(
 def _earlier_turns_line(timeline: TimelineSnapshot | None) -> str | None:
     """這段對話較早幾輪的時間，舊到新；隔一小時以上標出間隔.
 
-    沒有紀錄或讀不到就不加（「上一輪」那行已照實寫），區塊和以前一樣。
+    最近一次長間隔不在清單裡標得出來的位置（在最舊那一輪之前或就是它）時，同一行補上，
+    聊了很多輪之後依據也不會消失。沒有紀錄或讀不到就不加（「上一輪」那行已照實寫）。
     """
     if timeline is None or not timeline.turns_here_ms:
         return None
@@ -308,6 +313,14 @@ def _earlier_turns_line(timeline: TimelineSnapshot | None) -> str | None:
                 item = f"{item} (+{format_elapsed(gap)})"
         items.append(item)
         previous = at_ms
+    latest = timeline.latest_break_here
+    if latest is not None and latest[0] <= timeline.turns_here_ms[0]:
+        at_ms, gap_ms = latest
+        items.append(
+            EARLIER_BREAK_NOTE.format(
+                gap=format_elapsed(gap_ms / _MS_PER_SECOND), at=_at_minute(at_ms)
+            )
+        )
     return f"- {EARLIER_TURNS_LABEL}: {'; '.join(items)} {ACTIVITY_RECORD}"
 
 
@@ -592,7 +605,7 @@ async def build_continuity_block(
             current_message_id,
             now_s,
             elsewhere=at_home is True,
-            turns=not heartbeat,
+            turns=not heartbeat and not sns,
         )
         if heartbeat:
             lines.append(HEARTBEAT_LINE)

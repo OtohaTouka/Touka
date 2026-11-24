@@ -132,6 +132,14 @@ _TURNS_HERE = (
     "WHERE agent_id = ? AND kind = 'user_turn' AND session_id = ? AND subject <> ? "
     "ORDER BY occurred_at DESC, rowid DESC LIMIT ?"
 )
+# 這段對話最近一次「和前一輪隔了夠久」的那一輪與間隔（清單裡看不到時補在同一行）
+_LATEST_BREAK_HERE = (
+    "SELECT occurred_at, gap FROM ("
+    "SELECT occurred_at, occurred_at - LAG(occurred_at) OVER (ORDER BY occurred_at, rowid) AS gap "
+    "FROM continuity_events "
+    "WHERE agent_id = ? AND kind = 'user_turn' AND session_id = ? AND subject <> ?"
+    ") WHERE gap >= ? ORDER BY occurred_at DESC LIMIT 1"
+)
 _LAST_HUMAN = (
     "SELECT MAX(occurred_at) FROM continuity_events "
     "WHERE agent_id = ? AND kind = 'user_turn' AND subject <> ?"
@@ -166,6 +174,7 @@ class TimelineSnapshot:
     records_start_ms: int | None
     elsewhere: tuple[tuple[str, int, int], ...] = ()  # 種類、次數、最後一次的毫秒
     turns_here_ms: tuple[int, ...] = ()  # 這段對話較早幾輪的 user_turn，舊到新，不含這一輪
+    latest_break_here: tuple[int, int] | None = None  # 最近一次長間隔：那一輪的毫秒、間隔毫秒
 
 
 async def _scalar(db: Any, sql: str, params: tuple[Any, ...]) -> int | None:
@@ -183,10 +192,12 @@ async def read_snapshot(
     limit: int,
     elsewhere_since_ms: int | None = None,
     turns_here_limit: int = 0,
+    turns_break_ms: int = 0,
 ) -> TimelineSnapshot:
     """一條連線讀完 continuity 要的事件（不含這一輪的訊息）；讀不到丟例外.
 
-    ``turns_here_limit`` 大於 0 而且有 session 時，另外讀這段對話最近幾輪的時間。
+    ``turns_here_limit`` 大於 0 而且有 session 時，另外讀這段對話最近幾輪的時間；
+    ``turns_break_ms`` 也大於 0 時，再讀最近一次和前一輪隔了這麼久以上的那一輪。
     """
     agent, skip = identity.agent_id, exclude_message_id or ""
     async with get_async_db() as db:
@@ -204,6 +215,11 @@ async def read_snapshot(
             params = (agent, session_id, skip, turns_here_limit)
             async with db.execute(_TURNS_HERE, params) as cursor:
                 turns = list(await cursor.fetchall())
+        latest_break: Any = None
+        if session_id and turns_here_limit > 0 and turns_break_ms > 0:
+            params = (agent, session_id, skip, turns_break_ms)
+            async with db.execute(_LATEST_BREAK_HERE, params) as cursor:
+                latest_break = await cursor.fetchone()
         elsewhere: list[Any] = []
         if elsewhere_since_ms is not None:
             async with db.execute(_ELSEWHERE, (agent, elsewhere_since_ms)) as cursor:
@@ -218,6 +234,9 @@ async def read_snapshot(
         records_start_ms=records_start,
         elsewhere=tuple((row[0], int(row[1]), int(row[2])) for row in elsewhere),
         turns_here_ms=tuple(int(row[0]) for row in reversed(turns)),
+        latest_break_here=(
+            (int(latest_break[0]), int(latest_break[1])) if latest_break else None
+        ),
     )
 
 
