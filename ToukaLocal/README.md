@@ -12,7 +12,7 @@
 2. 開一般的 Windows PowerShell（不要用系統管理員，也不要用 PowerShell ISE），貼上這一行，按 Enter：
 
    ```powershell
-   $d=Join-Path $env:TEMP ("touka-helper-"+[guid]::NewGuid()); New-Item -ItemType Directory $d | Out-Null; $f=Join-Path $d 'install.ps1'; [Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor 3072; Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/OtohaTouka/Touka/0ad0b979e3761b47c4ee2cd61ff0835cb84927a1/ToukaLocal/install.ps1' -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -eq '86A30E2A7D9B21AD934625392B714C3632BDBE60BD4AA7A4B3796FB4A3B77395') { powershell -NoProfile -ExecutionPolicy Bypass -File $f -Commit '0ad0b979e3761b47c4ee2cd61ff0835cb84927a1' -WorkDir $d } else { Remove-Item -Recurse $d; Write-Error 'install.ps1 does not match' }
+   $d=Join-Path $env:TEMP ("touka-helper-"+[guid]::NewGuid()); New-Item -ItemType Directory $d | Out-Null; $f=Join-Path $d 'install.ps1'; [Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor 3072; Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/OtohaTouka/Touka/f16a274e0b85bf7a410265be8ea1aeeaecdf2bef/ToukaLocal/install.ps1' -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -eq 'CB9969954C8FF70D35B01CA29CD75607612E07E421983446A7AD927ABFC9FD1F') { powershell -NoProfile -ExecutionPolicy Bypass -File $f -Commit 'f16a274e0b85bf7a410265be8ea1aeeaecdf2bef' -WorkDir $d } else { Remove-Item -Recurse $d; Write-Error 'install.ps1 does not match' }
    ```
 
 3. 它會問 Touka 資料夾在哪（完整路徑，例如 `D:\Touka`；重裝時按 Enter 沿用上次的），以及要不要開機自動啟動。小幫手會記下 Touka 資料夾，不讓你把它開放出去。
