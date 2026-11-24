@@ -12,6 +12,7 @@ import logging
 import re
 from collections import OrderedDict
 from contextlib import nullcontext
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from src.models.advertised_tools import AdvertisedTools
@@ -89,8 +90,11 @@ from src.utils.turn_notices import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from src.models.policy import PolicyDecision
     from src.services.approval_service import ApprovalResolution
     from src.services.auto_reviewer import ReviewOutcome
+    from src.services.hooks.tool_hooks import PreToolOutcome
+    from src.services.isolation.status import LevelDecision
     from src.services.tool_previews import ToolPreview
 
 logger = logging.getLogger(__name__)
@@ -271,6 +275,111 @@ def _approval_note(
     )
 
 
+@dataclass(frozen=True)
+class _ApprovalCall:
+    """核准段要看的這一次呼叫（唯讀）；``execute_to_queue`` 在政策、hook 與預覽之後組好。"""
+
+    name: str
+    args: dict[str, Any]  # 模型送來、還沒驗證的原始參數（卡片照這份顯示）
+    call_id: str
+    request_id: str
+    identity: AgentIdentity
+    session_id: str | None
+    ctx: dict[str, Any]
+    queue: asyncio.Queue[dict[str, Any] | None]
+    hook_call: ToolCall
+    decision: PolicyDecision
+    pre_hooks: PreToolOutcome
+    tool_action: str | None
+    preview: ToolPreview | None
+    execution_class: ToolExecutionClass
+    is_terminal: bool
+    isolation: LevelDecision
+    builtin: bool
+
+
+@dataclass(frozen=True)
+class _Clearance:
+    """核准段的結果。
+
+    ``blocked`` 不是 None 時工具不跑：錯誤事件、結束記號與 PermissionDenied 都已經送完，
+    ``execute_to_queue`` 直接回傳它。其餘欄位是放行時交給後段的可信值。
+    """
+
+    blocked: str | None = None
+    hitl_preapproved: bool = False
+    card_complete: bool = False  # 審批卡沒截斷任何參數（IDE「由人核准」標記的前提）
+    approved_by: str | None = None
+    escalated_reason: str | None = None  # 審查員轉人時的理由（ADR-0318）
+    resolution: ApprovalResolution | None = None  # 人按卡片的解算（預覽決定要看誰決定的）
+
+
+def _unattended_denial(
+    call: _ApprovalCall, review: ReviewOutcome | None, *, human_only: bool
+) -> str | None:
+    """要人核准、但沒人在場時的拒絕文字；回 None＝終端走 terminal.py 的遺留通道照跑。"""
+    name, ctx = call.name, call.ctx
+    if human_only:
+        # H1 錨（headless fail-closed）：HUMAN_ONLY 連終端也直接拒絕
+        return approval_flow.human_only_unavailable_error(
+            name, call.decision.reason, suggestion=blocked_call_suggestion(ctx)
+        )
+    if call.pre_hooks.ask:
+        # hook 要求人核准：無人在場一律拒絕，終端也不落到遺留通道（ADR-0292）
+        return hook_ask_unavailable_error(name, call.pre_hooks.ask_reason)
+    if review is not None:
+        return approval_flow.auto_review_no_human_error(
+            name,
+            review.reason,
+            headless_terminal=review.code == CODE_HEADLESS_TERMINAL,
+            suggestion=blocked_call_suggestion(ctx),
+        )
+    if not call.is_terminal:
+        # 非終端工具無審批通道＝零執行（終端維持 terminal.py 遺留通道）
+        return tool_errors.build_tool_error(
+            tool_errors.PERMISSION_DENIED,
+            f"Tool '{name}' requires human approval under auth level "
+            f"'{ctx.get('auth_level', 'Manual')}', and no approval channel is "
+            "available in this session.",
+            suggestion=blocked_call_suggestion(ctx),
+            denied_tool=name,
+            reason="approval_required",
+        )
+    return None
+
+
+async def _emit_held(call: _ApprovalCall, denied_text: str, log_reason: str | None) -> str:
+    """沒有卡片可按就拒絕的出口：錯誤事件 → 小提示 → 結束記號 → PermissionDenied。"""
+    name = call.name
+    logger.warning(
+        "🖐️ HITL Hold (fail-closed): %s -> %s | Reason: %s",
+        call.identity.agent_id,
+        name,
+        log_reason,
+    )
+    await call.queue.put(
+        ToolCallEvent(
+            call_id=call.call_id,
+            tool_name=name,
+            arguments=call.args,
+            status="error",
+            error_class=tool_errors.extract_error_class(denied_text),
+            result_text=denied_text,
+        ).to_result_sse()
+    )
+    denied_reason = tool_errors.extract_field(denied_text, "reason")
+    await call.queue.put(
+        turn_notice_event(NOTICE_HOOK_DENIED, f"🚫 hook 拒絕: {name}", tool=name)
+        if denied_reason == HOOK_DENIED_REASON
+        else turn_notice_event(
+            NOTICE_APPROVAL_BLOCKED, f"🖐️ 待審批攔截（fail-closed）: {name}", tool=name
+        )
+    )
+    await call.queue.put(None)
+    notify_permission_denied(call.ctx, call.hook_call, denied_reason)
+    return denied_text
+
+
 class ToolExecutor:
     """統一工具執行中樞.
 
@@ -401,6 +510,147 @@ class ToolExecutor:
             on_resolved=on_resolved,
             stopped=stopped,
         )
+
+    async def _clear_for_execution(self, call: _ApprovalCall) -> _Clearance:
+        """政策、hook 與預覽之後，決定這次呼叫能不能跑（審查員、審批卡、沒人在場的拒絕）。
+
+        刻意不包錯誤處理：審查員或 hook 的例外、停止的取消照舊往外傳。
+        """
+        # H2（hitl-unification）：CONFIRM 的統一 HITL 處置。
+        # - 互動會話（resumable_stream＝UI 聊天）：審批卡走**當前聊天 SSE**（統一
+        #   broker），人類 approve/reject 後才續行——「未決不執行」的 H1 錨永遠成立。
+        # - headless（heartbeat／派工／SNS 等）：無人可問 → fail-closed 拒絕（H1 行為
+        #   保持）；終端例外——維持 terminal.py 內部遺留通道（ToukaUI 訂閱者或
+        #   ui_unavailable fail-closed），互動會話則同走 broker 並以 _hitl_preapproved
+        #   告知 terminal 跳過自帶審批。
+        # HUMAN_ONLY（硬地板，ADR-0246）：同一張人類審批卡；無人在場一律拒絕，終端也不
+        # 落到遺留通道；自帶審批工具也先過這張卡（審查員與模式都不能代替人）。
+        # 在場判斷（U2c-2）：子代理、派工、心跳都算無人在場——子代理的卡只會被子 loop 吞掉。
+        # REVIEW（Auto 審查員，U2c-3）：allow 以可信 kwarg _approved_by 交給工具（terminal 只
+        # 重驗地板、不再審）；escalate 跳同一張人類卡、卡上帶審查理由（無人在場拒絕，終端也
+        # 不落到遺留通道）；deny 直接拒絕。審查員的 allow 只滿足 REVIEW，不能代替人核准。
+        decision, pre_hooks = call.decision, call.pre_hooks
+        approved_by: str | None = None
+        human_only = decision.effect == "HUMAN_ONLY"
+        needs_human = (
+            human_only
+            or pre_hooks.ask
+            or (
+                decision.effect == "CONFIRM"
+                and call.execution_class != ToolExecutionClass.SELF_APPROVING
+            )
+        )
+        interactive = is_human_present(call.ctx)
+        review: ReviewOutcome | None = None
+        escalated_reason: str | None = None  # 審查員轉人時的理由（ADR-0318）
+        denied_text: str | None = None
+        if decision.effect == "REVIEW" and not pre_hooks.ask:
+            review = await self._run_auto_review(call, interactive)
+            if review.verdict == "allow":
+                approved_by = APPROVED_BY_AUTO_REVIEWER
+            elif review.verdict == "deny":
+                denied_text = approval_flow.auto_review_denied_error(call.name, review.reason)
+            else:
+                needs_human = True
+                escalated_reason = review.reason
+        # ADR-0292：PermissionRequest hook——要跳卡之前（無人在場沒有卡，也不問 hook）。只能拒絕。
+        if needs_human and interactive and denied_text is None:
+            denied_text = await run_permission_request_hooks(call.ctx, call.hook_call)
+        if needs_human and denied_text is None:
+            if interactive:
+                return await self._ask_human(
+                    call,
+                    human_only=human_only,
+                    review=review,
+                    approved_by=approved_by,
+                    escalated_reason=escalated_reason,
+                )
+            denied_text = _unattended_denial(call, review, human_only=human_only)
+        if denied_text is not None:
+            blocked = await _emit_held(
+                call, denied_text, review.code if review is not None else decision.reason
+            )
+            return _Clearance(blocked=blocked)
+        return _Clearance(approved_by=approved_by, escalated_reason=escalated_reason)
+
+    async def _run_auto_review(self, call: _ApprovalCall, interactive: bool) -> ReviewOutcome:
+        """REVIEW 送 Auto 審查員；``interactive`` 由呼叫端在送審前算好（只算一次）。"""
+        args, session_id = call.args, call.session_id
+        return await auto_reviewer.review(
+            call.identity,
+            ReviewRequest(
+                tool_name=call.name,
+                arguments=args,
+                is_command=call.is_terminal,
+                # 和 terminal._execute_core 共用：非 Windows 一律 bash
+                shell_kind=effective_shell(args.get("env")) if call.is_terminal else None,
+                human_present=interactive,
+                user_intent=call.ctx.get("user_intent"),
+                session_id=session_id,
+                conversation_key=session_id or call.request_id,
+                isolation=reviewer_level(call.name, call.isolation, builtin=call.builtin),
+            ),
+        )
+
+    async def _ask_human(
+        self,
+        call: _ApprovalCall,
+        *,
+        human_only: bool,
+        review: ReviewOutcome | None,
+        approved_by: str | None,
+        escalated_reason: str | None,
+    ) -> _Clearance:
+        """跳審批卡等人決定；沒核准時送錯誤事件與結束記號（不送小提示）再發 PermissionDenied。"""
+        name, args, ctx = call.name, call.args, call.ctx
+        resolutions: list[ApprovalResolution] = []
+        verdict = await self._await_human_approval(
+            name=name,
+            args=args,
+            call_id=call.call_id,
+            agent_id=call.identity.agent_id,
+            session_id=call.session_id,
+            tool_action=call.tool_action,
+            queue=call.queue,
+            review_reason=review.reason if review is not None else None,
+            hook_reason=(call.pre_hooks.ask_reason or "") if call.pre_hooks.ask else None,
+            human_only=human_only,
+            on_card_shown=lambda: notify_approval_card(ctx, name),
+            tool_preview=call.preview,
+            on_resolved=resolutions.append,
+            stopped=lambda: request_stopped(ctx),
+        )
+        resolution = resolutions[-1] if resolutions else None
+        if verdict == "approved":
+            return _Clearance(
+                hitl_preapproved=True,
+                card_complete=not approval_flow.approval_preview_truncated(args),
+                approved_by=approved_by,
+                escalated_reason=escalated_reason,
+                resolution=resolution,
+            )
+        result_text = approval_flow.approval_denied_error(
+            name, verdict, review_reason=escalated_reason
+        )
+        logger.warning("🖐️ HITL %s: %s -> %s", verdict, call.identity.agent_id, name)
+        await call.queue.put(
+            ToolCallEvent(
+                call_id=call.call_id,
+                tool_name=name,
+                arguments=args,
+                status="error",
+                error_class=tool_errors.extract_error_class(result_text),
+                result_text=result_text,
+            ).to_result_sse()
+        )
+        await call.queue.put(None)
+        # 使用者按停止不算被拒（ADR-0292）：停止收掉的卡不發 PermissionDenied；
+        # 看解算者，卡片被關（/v1/tools/cancel）照舊發
+        denied_reason = tool_errors.extract_field(result_text, "reason")
+        if resolution is not None and resolution.resolver_id == approval_flow.STOPPED_RESOLVER:
+            denied_reason = STOPPED_REASON
+        notify_permission_denied(ctx, call.hook_call, denied_reason)
+        return _Clearance(blocked=result_text)
 
     async def execute_to_queue(
         self,
@@ -748,169 +998,42 @@ class ToolExecutor:
             await queue.put(None)
             return previewed
         preview: ToolPreview | None = previewed
-        resolutions: list[ApprovalResolution] = []
 
-        # H2（hitl-unification）：CONFIRM 的統一 HITL 處置。
-        # - 互動會話（resumable_stream＝UI 聊天）：審批卡走**當前聊天 SSE**（統一
-        #   broker），人類 approve/reject 後才續行——「未決不執行」的 H1 錨永遠成立。
-        # - headless（heartbeat／派工／SNS 等）：無人可問 → fail-closed 拒絕（H1 行為
-        #   保持）；終端例外——維持 terminal.py 內部遺留通道（ToukaUI 訂閱者或
-        #   ui_unavailable fail-closed），互動會話則同走 broker 並以 _hitl_preapproved
-        #   告知 terminal 跳過自帶審批。
-        # HUMAN_ONLY（硬地板，ADR-0246）：同一張人類審批卡；無人在場一律拒絕，終端也不
-        # 落到遺留通道；自帶審批工具也先過這張卡（審查員與模式都不能代替人）。
-        # 在場判斷（U2c-2）：子代理、派工、心跳都算無人在場——子代理的卡只會被子 loop 吞掉。
-        # REVIEW（Auto 審查員，U2c-3）：allow 以可信 kwarg _approved_by 交給工具（terminal 只
-        # 重驗地板、不再審）；escalate 跳同一張人類卡、卡上帶審查理由（無人在場拒絕，終端也
-        # 不落到遺留通道）；deny 直接拒絕。審查員的 allow 只滿足 REVIEW，不能代替人核准。
-        hitl_preapproved = False
-        card_complete = False  # 審批卡沒截斷任何參數（IDE「由人核准」標記的前提）
-        approved_by: str | None = None
-        human_only = decision.effect == "HUMAN_ONLY"
-        needs_human = (
-            human_only
-            or pre_hooks.ask
-            or (
-                decision.effect == "CONFIRM"
-                and execution_class != ToolExecutionClass.SELF_APPROVING
+        # 核准段（審查員、審批卡、沒人在場的拒絕）：不跑時事件與 hook 都已送完，直接回傳
+        clearance = await self._clear_for_execution(
+            _ApprovalCall(
+                name=name,
+                args=args,
+                call_id=call_id,
+                request_id=request_id,
+                identity=identity,
+                session_id=session_id,
+                ctx=ctx,
+                queue=queue,
+                hook_call=hook_call,
+                decision=decision,
+                pre_hooks=pre_hooks,
+                tool_action=policy_context.environment.get("tool_action"),
+                preview=preview,
+                execution_class=execution_class,
+                is_terminal=is_terminal,
+                isolation=isolation,
+                builtin=handler_source == "builtin",
             )
         )
-        interactive = is_human_present(ctx)
-        review: ReviewOutcome | None = None
-        escalated_reason: str | None = None  # 審查員轉人時的理由（ADR-0318）
-        denied_text: str | None = None
-        if decision.effect == "REVIEW" and not pre_hooks.ask:
-            review = await auto_reviewer.review(
-                identity,
-                ReviewRequest(
-                    tool_name=name,
-                    arguments=args,
-                    is_command=is_terminal,
-                    # 和 terminal._execute_core 共用：非 Windows 一律 bash
-                    shell_kind=effective_shell(args.get("env")) if is_terminal else None,
-                    human_present=interactive,
-                    user_intent=ctx.get("user_intent"),
-                    session_id=session_id,
-                    conversation_key=session_id or request_id,
-                    isolation=reviewer_level(name, isolation, builtin=handler_source == "builtin"),
-                ),
-            )
-            if review.verdict == "allow":
-                approved_by = APPROVED_BY_AUTO_REVIEWER
-            elif review.verdict == "deny":
-                denied_text = approval_flow.auto_review_denied_error(name, review.reason)
-            else:
-                needs_human = True
-                escalated_reason = review.reason
-        # ADR-0292：PermissionRequest hook——要跳卡之前（無人在場沒有卡，也不問 hook）。只能拒絕。
-        if needs_human and interactive and denied_text is None:
-            denied_text = await run_permission_request_hooks(ctx, hook_call)
-        if needs_human and denied_text is None:
-            if interactive:
-                verdict = await self._await_human_approval(
-                    name=name,
-                    args=args,
-                    call_id=call_id,
-                    agent_id=agent_id,
-                    session_id=session_id,
-                    tool_action=policy_context.environment.get("tool_action"),
-                    queue=queue,
-                    review_reason=review.reason if review is not None else None,
-                    hook_reason=(pre_hooks.ask_reason or "") if pre_hooks.ask else None,
-                    human_only=human_only,
-                    on_card_shown=lambda: notify_approval_card(ctx, name),
-                    tool_preview=preview,
-                    on_resolved=resolutions.append,
-                    stopped=lambda: request_stopped(ctx),
-                )
-                if verdict != "approved":
-                    result_text = approval_flow.approval_denied_error(
-                        name, verdict, review_reason=escalated_reason
-                    )
-                    logger.warning("🖐️ HITL %s: %s -> %s", verdict, agent_id, name)
-                    await queue.put(
-                        ToolCallEvent(
-                            call_id=call_id,
-                            tool_name=name,
-                            arguments=args,
-                            status="error",
-                            error_class=tool_errors.extract_error_class(result_text),
-                            result_text=result_text,
-                        ).to_result_sse()
-                    )
-                    await queue.put(None)
-                    # 使用者按停止不算被拒（ADR-0292）：停止收掉的卡不發 PermissionDenied；
-                    # 看解算者，卡片被關（/v1/tools/cancel）照舊發
-                    denied_reason = tool_errors.extract_field(result_text, "reason")
-                    if resolutions and (
-                        resolutions[-1].resolver_id == approval_flow.STOPPED_RESOLVER
-                    ):
-                        denied_reason = STOPPED_REASON
-                    notify_permission_denied(ctx, hook_call, denied_reason)
-                    return result_text
-                hitl_preapproved = True
-                card_complete = not approval_flow.approval_preview_truncated(args)
-            elif human_only:
-                # H1 錨（headless fail-closed）：HUMAN_ONLY 連終端也直接拒絕
-                denied_text = approval_flow.human_only_unavailable_error(
-                    name, decision.reason, suggestion=blocked_call_suggestion(ctx)
-                )
-            elif pre_hooks.ask:
-                # hook 要求人核准：無人在場一律拒絕，終端也不落到遺留通道（ADR-0292）
-                denied_text = hook_ask_unavailable_error(name, pre_hooks.ask_reason)
-            elif review is not None:
-                denied_text = approval_flow.auto_review_no_human_error(
-                    name,
-                    review.reason,
-                    headless_terminal=review.code == CODE_HEADLESS_TERMINAL,
-                    suggestion=blocked_call_suggestion(ctx),
-                )
-            elif not is_terminal:
-                # 非終端工具無審批通道＝零執行（終端維持 terminal.py 遺留通道）
-                denied_text = tool_errors.build_tool_error(
-                    tool_errors.PERMISSION_DENIED,
-                    f"Tool '{name}' requires human approval under auth level "
-                    f"'{ctx.get('auth_level', 'Manual')}', and no approval channel is "
-                    "available in this session.",
-                    suggestion=blocked_call_suggestion(ctx),
-                    denied_tool=name,
-                    reason="approval_required",
-                )
-        if denied_text is not None:
-            logger.warning(
-                "🖐️ HITL Hold (fail-closed): %s -> %s | Reason: %s",
-                agent_id,
-                name,
-                review.code if review is not None else decision.reason,
-            )
-            await queue.put(
-                ToolCallEvent(
-                    call_id=call_id,
-                    tool_name=name,
-                    arguments=args,
-                    status="error",
-                    error_class=tool_errors.extract_error_class(denied_text),
-                    result_text=denied_text,
-                ).to_result_sse()
-            )
-            denied_reason = tool_errors.extract_field(denied_text, "reason")
-            await queue.put(
-                turn_notice_event(NOTICE_HOOK_DENIED, f"🚫 hook 拒絕: {name}", tool=name)
-                if denied_reason == HOOK_DENIED_REASON
-                else turn_notice_event(
-                    NOTICE_APPROVAL_BLOCKED, f"🖐️ 待審批攔截（fail-closed）: {name}", tool=name
-                )
-            )
-            await queue.put(None)
-            notify_permission_denied(ctx, hook_call, denied_reason)
-            return denied_text
+        if clearance.blocked is not None:
+            return clearance.blocked
+        hitl_preapproved = clearance.hitl_preapproved
+        card_complete = clearance.card_complete
+        approved_by = clearance.approved_by
+        escalated_reason = clearance.escalated_reason
 
         # ADR-0317：誰決定的只看這裡的可信值；回 None 的工具不送決定，小幫手改跳視窗
         if preview is not None:
             preview = tool_previews.decide(
                 preview,
                 hitl_preapproved=hitl_preapproved,
-                resolution=resolutions[-1] if resolutions else None,
+                resolution=clearance.resolution,
                 approved_by=approved_by,
                 auth_level=ctx.get("auth_level", "Manual"),
             )
