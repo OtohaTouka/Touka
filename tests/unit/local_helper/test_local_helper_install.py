@@ -15,6 +15,7 @@ import install as installer
 import pytest
 from touka_local import settings as settings_module
 from touka_local.errors import Refused
+from touka_local.presence import BACKGROUND_FLAG
 from touka_local.settings import Settings, load_environment, load_settings, save_settings
 from touka_local.winapi import (
     DELETE_FLAGS,
@@ -527,6 +528,58 @@ def test_an_older_python_in_our_launcher_still_counts() -> None:
     assert installer.is_our_launcher(old, APP_DIR, "ascii")
 
 
+def _background_launcher() -> bytes:
+    plan = installer.plan_install(
+        source=SOURCE, local_app_data=APPDATA, python=PYTHON, touka_folder=TOUKA
+    )
+    return installer.launcher_bytes(plan, "ascii", background=True)
+
+
+def test_only_the_startup_launcher_runs_in_the_background() -> None:
+    plan = installer.plan_install(
+        source=SOURCE, local_app_data=APPDATA, python=PYTHON, touka_folder=TOUKA
+    )
+    assert installer.launcher_text(plan).endswith(f'"{plan.app_dir}"\r\n')
+    assert installer.launcher_text(plan, background=True).endswith(
+        f'"{plan.app_dir}" --background\r\n'
+    )
+
+
+def test_installer_and_helper_agree_on_the_background_flag() -> None:
+    # 安裝程式載入不到 touka_local，旗標各寫一份，這裡釘住
+    assert installer._BACKGROUND_FLAG == BACKGROUND_FLAG
+
+
+def test_both_launcher_forms_count_as_ours() -> None:
+    # 0.3.0 以前的開機啟動檔沒有旗標，重裝時要認得、換成新的
+    assert installer.is_our_launcher(_background_launcher(), APP_DIR, "ascii")
+    assert installer.is_our_launcher(_our_launcher(), APP_DIR, "ascii")
+
+
+@pytest.mark.parametrize(
+    "suffix", [b" --other", b" --background --other", b" --background=1", b" --BACKGROUND"]
+)
+def test_other_launcher_arguments_are_not_ours(suffix: bytes) -> None:
+    data = _our_launcher().replace(b'app"\r\n', b'app"' + suffix + b"\r\n")
+    assert data != _our_launcher()
+    assert not installer.is_our_launcher(data, APP_DIR, "ascii")
+
+
+def test_an_old_startup_launcher_is_replaced_by_the_background_one(tmp_path: Path) -> None:
+    target = tmp_path / installer._LAUNCHER_NAME
+    target.write_bytes(_our_launcher())
+    new = _background_launcher()
+    installer.apply_autostart(target, want=True, data=new, app_dir=APP_DIR, encoding="ascii")
+    assert target.read_bytes() == new
+
+
+def test_turning_autostart_off_removes_the_background_launcher(tmp_path: Path) -> None:
+    target = tmp_path / installer._LAUNCHER_NAME
+    target.write_bytes(_background_launcher())
+    installer.apply_autostart(target, want=False, data=b"", app_dir=APP_DIR, encoding="ascii")
+    assert not target.exists()
+
+
 _OUR_APP = b'"C:\\Users\\Me\\AppData\\Local\\ToukaLocal\\app"'
 
 
@@ -790,7 +843,11 @@ def _wire_run(
     monkeypatch.setattr(installer, "has_our_launcher", has_ours)
     monkeypatch.setattr(installer, "copy_allowed", copy)
     monkeypatch.setattr(installer, "apply_autostart", autostart)
-    monkeypatch.setattr(installer, "launcher_bytes", lambda _plan: b"@echo off\r\n")
+    monkeypatch.setattr(
+        installer,
+        "launcher_bytes",
+        lambda _plan, *, background=False: b"bg\r\n" if background else b"fg\r\n",
+    )
     return events
 
 
@@ -824,6 +881,27 @@ def test_run_finishes_when_the_desktop_launcher_cannot_be_written(
     assert installer.run(["--touka-folder", "D:\\Touka", "--no-autostart"]) == 0
     assert "桌面的啟動檔寫不進去" in capsys.readouterr().out
     assert events[-1] == "autostart:False"
+
+
+def test_run_writes_the_background_flag_only_into_the_startup_launcher(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _wire_run(tmp_path, monkeypatch)
+    written: dict[str, bytes] = {}
+
+    def autostart(_path: Path, *, want: bool, data: bytes, app_dir: str) -> str:
+        written["startup"] = data
+        return ""
+
+    monkeypatch.setattr(installer, "apply_autostart", autostart)
+    desktop = tmp_path / "profile" / "Desktop"
+    desktop.mkdir(parents=True)
+    assert installer.run(["--touka-folder", "D:\\Touka", "--autostart"]) == 0
+    plan = _fake_plan(tmp_path)
+    # 小幫手資料夾與桌面的啟動檔：自己打開時顯示主視窗；開機啟動檔：在背景
+    assert Path(plan.launcher).read_bytes() == b"fg\r\n"
+    assert (desktop / installer._LAUNCHER_NAME).read_bytes() == b"fg\r\n"
+    assert written["startup"] == b"bg\r\n"
 
 
 def test_run_finishes_when_autostart_cannot_be_changed(

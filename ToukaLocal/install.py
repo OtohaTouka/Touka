@@ -34,6 +34,7 @@ ALLOWED_FILES: Final = (
     "touka_local/open_request.py",
     "touka_local/operations.py",
     "touka_local/paths.py",
+    "touka_local/presence.py",
     "touka_local/protocol.py",
     "touka_local/rules.py",
     "touka_local/service.py",
@@ -47,6 +48,8 @@ _LAUNCHER_NAME: Final = "ToukaLocal.cmd"
 _SETTINGS_NAME: Final = "settings.json"
 # 和 settings.py 的 STARTUP_FOLDER 相同（安裝程式載入不到那裡，測試釘住）
 _STARTUP_FOLDER: Final = ("Microsoft", "Windows", "Start Menu", "Programs", "Startup")
+# 和 presence.py 的 BACKGROUND_FLAG 相同（同上，測試釘住）
+_BACKGROUND_FLAG: Final = "--background"
 _STAGED_SUFFIX: Final = ".new"
 _OLD_SUFFIX: Final = ".old"
 _DRIVE: Final = re.compile(r"[A-Za-z]:")
@@ -114,15 +117,16 @@ def plan_install(
     return plan
 
 
-def launcher_text(plan: InstallPlan) -> str:
-    """啟動檔的內容：絕對路徑、隔離模式。"""
-    return f'@echo off\r\nstart "" "{plan.pythonw}" -I -S "{plan.app_dir}"\r\n'
+def launcher_text(plan: InstallPlan, *, background: bool = False) -> str:
+    """啟動檔的內容：絕對路徑、隔離模式。開機啟動的那份帶旗標，已配對時不顯示主視窗。"""
+    flag = f" {_BACKGROUND_FLAG}" if background else ""
+    return f'@echo off\r\nstart "" "{plan.pythonw}" -I -S "{plan.app_dir}"{flag}\r\n'
 
 
-def launcher_bytes(plan: InstallPlan, encoding: str = "oem") -> bytes:
+def launcher_bytes(plan: InstallPlan, encoding: str = "oem", *, background: bool = False) -> bytes:
     """``cmd`` 用主控台字碼頁讀啟動檔；路徑寫不進去就不裝，避免產生打不開的啟動檔。"""
     try:
-        return launcher_text(plan).encode(encoding)
+        return launcher_text(plan, background=background).encode(encoding)
     except UnicodeEncodeError as exc:
         msg = "路徑裡有這台電腦的主控台字碼頁寫不出來的字元"
         raise InstallRefused(msg) from exc
@@ -265,7 +269,10 @@ def startup_launcher(app_data: str) -> str:
 
 
 def is_our_launcher(data: bytes, app_dir: str, encoding: str = "oem") -> bool:
-    """整份內容要是我們產生的樣子、啟動這次的 app 資料夾；Python 的位置可以不同（舊版）。"""
+    """整份內容要是我們產生的樣子、啟動這次的 app 資料夾；Python 的位置可以不同（舊版）。
+
+    帶不帶開機啟動旗標都算（0.3.0 以前的沒有），其他參數不算。
+    """
     try:
         text = data.decode(encoding)
     except UnicodeDecodeError:
@@ -273,7 +280,9 @@ def is_our_launcher(data: bytes, app_dir: str, encoding: str = "oem") -> bool:
     pattern = (
         r'@echo off\r\nstart "" "[^"\r\n]+\\pythonw\.exe" -I -S "'
         + re.escape(app_dir)
-        + r'"\r\n'
+        + r'"(?: '
+        + re.escape(_BACKGROUND_FLAG)
+        + r")?\r\n"
     )
     return re.fullmatch(pattern, text) is not None
 
@@ -385,6 +394,7 @@ def run(argv: list[str]) -> int:
         note = copy_allowed(_source(), Path(plan.app_dir))
         update_settings(Path(plan.helper_dir) / _SETTINGS_NAME, plan.touka_folder)
         data = launcher_bytes(plan)
+        startup_data = launcher_bytes(plan, background=True)
         Path(plan.launcher).write_bytes(data)
         desktop = Path(environ["USERPROFILE"]) / "Desktop"
         on_desktop = desktop.is_dir()
@@ -395,7 +405,7 @@ def run(argv: list[str]) -> int:
             except OSError as exc:
                 note += f"桌面的啟動檔寫不進去（{exc}），請直接開啟上面的啟動檔。\n"
         try:
-            note += apply_autostart(startup, want=want, data=data, app_dir=plan.app_dir)
+            note += apply_autostart(startup, want=want, data=startup_data, app_dir=plan.app_dir)
         except OSError as exc:
             note += f"開機自動啟動沒有改成功：{exc}\n"
     except (InstallRefused, KeyError, OSError) as exc:
