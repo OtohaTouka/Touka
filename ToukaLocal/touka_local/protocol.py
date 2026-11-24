@@ -53,7 +53,7 @@ MAX_REPORTED_FOLDERS: Final = 64
 MAX_REPORTED_PATH_CHARS: Final = 1024
 MAX_REPORTED_NAME_CHARS: Final = 300
 # Touka 不收的字元：控制字元與改變顯示方向的字元（parity 測試核對兩邊相同）
-UNSAFE_TEXT_PATTERN: Final = r"[\x00-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]"
+UNSAFE_TEXT_PATTERN: Final = r"[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]"
 _UNSAFE_TEXT: Final = re.compile(UNSAFE_TEXT_PATTERN)
 
 

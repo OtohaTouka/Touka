@@ -34,15 +34,15 @@ export function useLocalHelperFolders(enabled: boolean): LocalHelperFolders {
     useEffect(() => {
         if (!enabled) return undefined;
         let active = true;
-        let timer: ReturnType<typeof setInterval> | undefined;
         const load = () => {
             void requestFolders().then((next) => {
                 if (!active) return;
                 setFolders(next);
-                if (next.kind === 'denied' && timer !== undefined) clearInterval(timer);
+                if (next.kind === 'denied') clearInterval(timer);
             });
         };
-        timer = setInterval(load, LOCAL_HELPER_REFRESH_MS);
+        // load 的回呼是非同步的，一定在 timer 設好之後才跑
+        const timer = setInterval(load, LOCAL_HELPER_REFRESH_MS);
         load();
         return () => {
             active = false;

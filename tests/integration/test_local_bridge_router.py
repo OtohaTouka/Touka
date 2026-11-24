@@ -618,7 +618,8 @@ def test_open_requests_are_in_the_api_contract() -> None:
 
 REPORT_URL = "/v1/local-bridge/folder-report"
 FOLDERS_URL = "/v1/local-bridge/folders"
-REPORTED_PATH = "D:\\Users\\Someone\\Private Notes"
+# 路徑不以磁碟代號開頭（PATH_LITERAL_SSOT）；只要夠特別，搜得到有沒有進日誌
+REPORTED_PATH = "Someone/Private Notes 2026"
 
 
 def _folder_report(**changes: Any) -> dict[str, Any]:
@@ -734,13 +735,14 @@ def test_a_report_in_another_protocol_is_refused(client: TestClient) -> None:
         {"extra": 1},
         {"instance": "short"},
         {"revision": -1},
-        {"folders": [{"name": "A", "path": "D:\\A", "writable": True}]},
-        {"folders": [{"name": "A\u202e", "path": "D:\\A", "writable": True, "usable": True}]},
-        {"folders": [{"name": "A", "path": "D:\\A\x07", "writable": True, "usable": True}]},
-        {"folders": [{"name": "A", "path": "D:\\" + "a" * 1024, "writable": True, "usable": True}]},
+        {"folders": [{"name": "A", "path": "Notes/A", "writable": True}]},
+        {"folders": [{"name": "A\u202e", "path": "Notes/A", "writable": True, "usable": True}]},
+        {"folders": [{"name": "A\u061c", "path": "Notes/A", "writable": True, "usable": True}]},
+        {"folders": [{"name": "A", "path": "Notes/A\x07", "writable": True, "usable": True}]},
+        {"folders": [{"name": "A", "path": "a" * 1025, "writable": True, "usable": True}]},
         {
             "folders": [
-                {"name": f"F{i}", "path": f"D:\\F{i}", "writable": True, "usable": True}
+                {"name": f"F{i}", "path": f"Notes/F{i}", "writable": True, "usable": True}
                 for i in range(65)
             ]
         },

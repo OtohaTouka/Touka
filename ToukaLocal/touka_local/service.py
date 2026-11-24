@@ -316,18 +316,22 @@ class HelperService:
         return True
 
     def _report_folders(self, client: Client) -> None:
-        """輪詢成功之後，該送的時候把開放名單送給 Touka（ADR-0330）。送不出去不影響輪詢。"""
+        """輪詢成功之後，該送的時候把開放名單送給 Touka（ADR-0330）。
+
+        整理名單或送出時出任何錯，都只算這次送失敗，隔一陣子再試；輪詢照常，執行緒不會停。
+        """
         exposed = self.state == STATE_EXPOSED
-        if not self._reporter.due(self._grants.revision, exposed=exposed):
-            return
-        revision, entries = self._grants.snapshot()
-        payload = folder_report(
-            instance=self._instance,
-            revision=revision,
-            exposed=exposed,
-            folders=[(g.name, g.path, g.writable, usable) for g, usable in entries],
-        )
+        revision = self._grants.revision
         try:
+            if not self._reporter.due(revision, exposed=exposed):
+                return
+            revision, entries = self._grants.snapshot()
+            payload = folder_report(
+                instance=self._instance,
+                revision=revision,
+                exposed=exposed,
+                folders=[(g.name, g.path, g.writable, usable) for g, usable in entries],
+            )
             ok = client.report_folders(payload)
         except Exception:
             logger.exception("reporting the open folders failed")

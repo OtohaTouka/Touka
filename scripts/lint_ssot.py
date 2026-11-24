@@ -871,6 +871,8 @@ class SSOTGuard(ast.NodeVisitor):
         "test_local_helper_floors.py",
         "test_local_helper_mode_decisions.py",
         "test_local_helper_open_request.py",
+        # ADR-0330：開放名單回報，同樣以 Windows 路徑為測試資料
+        "test_local_helper_folder_report.py",
     }
 
     def __init__(self, filename: str, ignored_lines: dict[int, set[str]] = None) -> None:

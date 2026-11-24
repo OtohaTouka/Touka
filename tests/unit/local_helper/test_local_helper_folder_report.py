@@ -15,8 +15,9 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from touka_local import grants as grants_module
+from touka_local import service as service_module
 from touka_local.approval import ApprovalGate
-from touka_local.connection import ConnectionLost, ToukaClient
+from touka_local.connection import AuthLost, ConnectionLost, ProtocolMismatch, ToukaClient
 from touka_local.folder_report import FOLDER_REPORT_SECONDS, FolderReporter
 from touka_local.grants import Environment, GrantBook
 from touka_local.operations import Operations
@@ -67,6 +68,7 @@ def test_a_report_has_exactly_the_protocol_fields() -> None:
         ("a\x07b", "D:\\Bad"),
         ("Bad", "D:\\a\u202eb"),
         ("Bad", "D:\\a\u200fb"),
+        ("Bad", "D:\\a\u061cb"),
         ("Bad", "D:\\a\x85b"),
         ("Bad", "D:\\a\ud800b"),
         ("Bad", "D:\\" + "a" * MAX_REPORTED_PATH_CHARS),
@@ -283,10 +285,24 @@ def test_it_sends_again_only_when_something_changes(
     assert len(client.reports) == 3
 
 
-def test_after_a_lost_connection_it_sends_again(service: HelperService, client: _Client) -> None:
+@pytest.mark.parametrize(
+    "failure",
+    [ConnectionLost(), AuthLost(), ProtocolMismatch(), RuntimeError("boom")],
+    ids=["connection", "auth", "protocol", "other"],
+)
+def test_after_a_failed_poll_it_sends_again(
+    service: HelperService, client: _Client, failure: Exception
+) -> None:
     _poll(service, client)
-    assert not _poll(service, client, ConnectionLost())
+    assert not _poll(service, client, failure)
     assert len(client.reports) == 1
+    _poll(service, client)
+    assert len(client.reports) == 2
+
+
+def test_after_a_new_pairing_it_sends_again(service: HelperService, client: _Client) -> None:
+    _poll(service, client)
+    service.replace_client(client)
     _poll(service, client)
     assert len(client.reports) == 2
 
@@ -322,6 +338,33 @@ def test_a_failed_report_does_not_stop_polling(
     # 送不出去時隔一陣子才重試，不是每一輪
     _poll(service, client)
     assert len(client.reports) == 1
+
+
+@pytest.mark.parametrize("broken", ["snapshot", "folder_report"])
+def test_a_broken_list_does_not_stop_polling(
+    service: HelperService,
+    client: _Client,
+    book: GrantBook,
+    broken: str,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def boom(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("boom")
+
+    if broken == "snapshot":
+        monkeypatch.setattr(book, "snapshot", boom)
+    else:
+        monkeypatch.setattr(service_module, "folder_report", boom)
+    with caplog.at_level(logging.ERROR):
+        assert _poll(service, client)
+    assert service.state == STATE_ONLINE
+    assert client.reports == []
+    assert "reporting the open folders failed" in caplog.text
+    # 算一次送失敗：隔一陣子才再試
+    monkeypatch.undo()
+    _poll(service, client)
+    assert client.reports == []
 
 
 # --- 連線 ---

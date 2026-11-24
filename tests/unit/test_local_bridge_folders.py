@@ -49,7 +49,7 @@ def _report(
         revision=revision,
         exposed=extra.get("exposed", False),
         folders=[
-            {"name": name, "path": f"D:\\{name}", "writable": False, "usable": True}
+            {"name": name, "path": f"Notes/{name}", "writable": False, "usable": True}
             for name in names
         ],
         omitted=extra.get("omitted", 0),
@@ -125,6 +125,17 @@ def test_a_new_pairing_forgets_the_list(bridge: LocalBridge) -> None:
     bridge.invalidate(GENERATION + 1)
     _poll(bridge, GENERATION + 1)
     assert bridge.folder_list().state == "waiting"
+
+
+def test_a_new_pairing_with_the_same_number_still_forgets_the_list(bridge: LocalBridge) -> None:
+    # 配對檔不見重建時世代號會從頭算，可能和舊的一樣；新配對的人不能看到前一位的路徑
+    _poll(bridge)
+    bridge.accept_report(GENERATION, _report())
+    bridge.invalidate(GENERATION)
+    _poll(bridge)
+    listed = bridge.folder_list()
+    assert listed.state == "waiting"
+    assert listed.folders is None
 
 
 # --- 版本不符 ---

@@ -47,8 +47,8 @@ export function LocalHelperFolders({ status }: LocalHelperFoldersProps) {
             )}
             {list && (list.folders ?? []).length > 0 && (
                 <ul className="space-y-2">
-                    {(list.folders ?? []).map((folder) => (
-                        <li key={folder.name} className="bg-background border border-input rounded-xl py-2.5 px-4 space-y-1">
+                    {(list.folders ?? []).map((folder, index) => (
+                        <li key={`${index}:${folder.path}`} className="bg-background border border-input rounded-xl py-2.5 px-4 space-y-1">
                             <p className="text-sm text-foreground">
                                 <span className="font-bold">{folder.name}</span>{" "}
                                 <span className="text-muted-foreground">
