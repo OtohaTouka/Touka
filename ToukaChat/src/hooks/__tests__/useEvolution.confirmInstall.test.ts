@@ -82,6 +82,17 @@ describe('useEvolution.confirmInstall 失敗時丟帶錯誤碼的錯誤', () => 
         expect(isInstalling).toBe(false);
     });
 
+    it('通用 404（fetchTouka 改打 /v1 拿回的那種，沒有錯誤碼）→ TERMINAL_APPROVAL_NOT_FOUND', async () => {
+        mockFetch.mockResolvedValueOnce(
+            new Response(JSON.stringify({ detail: 'Not Found' }), { status: 404, headers: { 'Content-Type': 'application/json' } }),
+        );
+        const { caught, isInstalling } = await confirmAndCatch();
+
+        expect(getErrorCode(caught)).toBe('TERMINAL_APPROVAL_NOT_FOUND');
+        expect((caught as ToukaApiError).status).toBe(404);
+        expect(isInstalling).toBe(false);
+    });
+
     it('回應不是 JSON（例如 500 的 HTML）→ CONFIG_SAVE_FAILED', async () => {
         mockFetch.mockResolvedValueOnce(new Response('<html>oops</html>', { status: 500 }));
         const { caught, isInstalling } = await confirmAndCatch();

@@ -15,7 +15,6 @@ vi.mock('@/hooks/useEvolution', () => ({
   }),
 }));
 vi.mock('sonner', () => ({ toast: { success: h.toastSuccess, error: vi.fn() } }));
-vi.mock('@/lib/error_handler', () => ({ errorMsg: () => 'err' }));
 
 import EvolutionModal from '../EvolutionModal';
 
