@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from src.models.identity import AgentIdentity
     from src.services.isolation.profiles import Location
     from src.services.isolation.runners import LaunchPlan, SandboxRunner
+    from src.services.isolation.status import LevelDecision
     from src.utils.isolation_policy import IsolationLevel
 
 UNBOUND_PROFILE = "unbound"
@@ -101,15 +102,22 @@ def take_grant(
     return consent_ledger.take(key, subject=consent_subject(tool, args))
 
 
-async def command_level(
+async def command_decision(
     identity: AgentIdentity, project_root: Path | None, *, attended: bool = False
-) -> IsolationLevel:
-    """這條指令現在的層級（有看專案）；驗證指令分類與沒有 grant 時共用.
+) -> LevelDecision:
+    """這條指令現在的層級與原因（有看專案）；互審要分辨專用空間被拒絕（``refused``）.
 
     ``attended``：這次有人在場（專用空間的專案要有人在場才在執行器跑，ADR-0332）。
     """
     await isolation_monitor.ensure_ready()
-    return (await isolation_monitor.level_for(identity, project_root, attended=attended)).level
+    return await isolation_monitor.level_for(identity, project_root, attended=attended)
+
+
+async def command_level(
+    identity: AgentIdentity, project_root: Path | None, *, attended: bool = False
+) -> IsolationLevel:
+    """這條指令現在的層級（``command_decision`` 的層級）；沒有 grant 時用."""
+    return (await command_decision(identity, project_root, attended=attended)).level
 
 
 async def command_scope(

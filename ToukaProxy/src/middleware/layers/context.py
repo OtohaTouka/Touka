@@ -1,6 +1,7 @@
 """專案與任務上下文注入中介軟體層。"""
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from memory_server.utils.historical_data import neutralize_tags
@@ -8,6 +9,9 @@ from src.adapters.content_normalize import append_text_part
 from src.adapters.schemas import OpenAIMessage
 from src.middleware.base import ProxyLayer
 from src.models.context import PipelineContext
+from src.models.identity import AgentIdentity
+from src.services.isolation.profiles import configured_projects_root
+from src.services.isolation.project_space import structural_scope
 from src.services.mission_status import task_reason, task_status_parts
 from src.services.prompt_blocks import (
     ALL_BLOCK_TAGS,
@@ -16,6 +20,7 @@ from src.services.prompt_blocks import (
     PROJECT_CONTEXT,
     wrap_block,
 )
+from src.services.resource_manager import resource_manager
 from src.utils.async_db import get_project_context
 from src.utils.model_text import single_line
 
@@ -27,6 +32,28 @@ def _board_text(value: Any) -> str:
     id 也保留原文（只做跳脫），mission 工具要用它完全比對。
     """
     return neutralize_tags(single_line(str(value)), ALL_BLOCK_TAGS)
+
+
+# 專用空間的專案（ADR-0332）：指令從專案根開始（其他專案的指令照舊在個人空間跑）
+COMMANDS_START_HERE = "\nCommands you run start in this folder; use paths relative to it."
+
+
+async def _commands_start_in_project(project_id: str, ctx: PipelineContext) -> bool:
+    """專案在專用空間第一層（結構層 ``ok``）；被拒絕的與其他專案都不算."""
+    identity = ctx.get("identity")
+    caller = identity if isinstance(identity, AgentIdentity) else None
+    root = await resource_manager.get_project_path(project_id, caller)
+    if not root:
+        return False
+    return structural_scope(Path(root), configured_projects_root()).kind == "ok"
+
+
+async def _project_context(project_id: str, ctx: PipelineContext) -> str:
+    """專案說明；專用空間的專案多一句指令從這裡開始、用相對路徑."""
+    text = await get_project_context(project_id)
+    if text and await _commands_start_in_project(project_id, ctx):
+        return text + COMMANDS_START_HERE
+    return text
 
 
 def inject_anthropic_system(request: Any, ctx_str: str) -> None:
@@ -132,7 +159,7 @@ class ContextLayer(ProxyLayer):
         # 3. 專案上下文注入：只帶聊天端點核對過、請求的人看得到的專案（ADR-0304 2026-11-16 補記）
         project_id = getattr(request, "project_id", None)
         if project_id and ctx.get("project_authorized"):
-            project_ctx = await get_project_context(project_id)
+            project_ctx = await _project_context(project_id, ctx)
             if project_ctx:
                 logger.info(f"🚀 Injecting project context for project_id={project_id}")
                 # 專案名稱與路徑來自使用者設定，先跳脫系統標籤字元（ADR-0316）
