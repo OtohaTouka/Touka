@@ -1745,7 +1745,7 @@
           "executor_restarted": "執行器在這條指令開始前重新啟動過，這次沒有交給它；Touka 會重新檢查，通常幾秒內恢復。",
           "executor_rejected": "執行器拒絕了這條指令（它和 Touka 對這次的設定看法不同）；Touka 會重新檢查。一直出現時請執行：\ndocker compose up -d --build",
           "agent_dir_not_in_executor": "這個代理人的資料夾不在執行器裡（例如 DebugAgent 等自訂模型），它的指令只能在 Touka 主容器內執行，每條都要你核准。",
-          "project_not_in_executor": "這個對話綁了專案，專案資料夾沒有掛進執行器，所以每條指令都要你核准；無人在場時一律拒絕。",
+          "project_not_in_executor": "這個對話綁的專案不在專用空間（touka-projects）裡，執行器看不到它，所以每條指令都要你核准；無人在場時一律拒絕。要在執行器裡跑，請把專案放進專用空間再登記。",
           "block_ports_incomplete": "Touka 讀不到自訂連線的設定（connections.json）或內容壞掉，不確定要封鎖哪些上游埠。修好檔案的內容或權限之後，約半分鐘內會自動恢復；權限要用 touka-init 修時，照升級說明的恢復步驟做完即可（那一步已含重新啟動）。",
           "block_ports_overflow": "要封鎖的埠超過 1024 個（自訂連線與 MCP 的上游位址太多），所以只擋 Touka 自己的埠。請減少自訂連線或 MCP 的上游位址，再重新啟動 Touka。",
           "interpreter_untrusted": "Touka 用來啟動隔離的 Python 不可信：在容器裡，是它（或路徑上某一層資料夾）不是 root 擁有、或別人可以改；直接在主機上跑時，是找不到 venv 背後的那個 Python。所以這次不能隔離執行。用 Docker 時請重建映像：\ndocker compose up -d --build\n直接在 Linux 主機上跑時，請檢查 Python 的安裝位置（venv 指向的 Python 還在、路徑解析得到）。"
@@ -2282,7 +2282,15 @@
       "updated_at": "更新於: {{date}}",
       "open_session_button": "開啟專案對話",
       "about_title": "關於專案意識",
-      "about_description": "連結專案後，Touka 會在背後自動為代理人標註當前的工作目錄。這意味著代理人可以透過 Terminal 工具直接讀取或修改該目錄下的程式碼，無需你手動複製路徑。請確保提供的絕對路徑正確無誤。"
+      "about_description": "連結專案後，Touka 會在背後自動為代理人標註當前的工作目錄。這意味著代理人可以透過 Terminal 工具直接讀取或修改該目錄下的程式碼，無需你手動複製路徑。請確保提供的絕對路徑正確無誤。",
+      "space_reasons": {
+        "project_space_root": "不能把整個專用空間（touka-projects）登記成專案：請選它裡面的一個資料夾。",
+        "project_not_top_level": "專用空間裡的專案必須是 touka-projects 底下第一層的資料夾，不能是更裡面的子資料夾。",
+        "project_name_unsafe": "這個資料夾名稱不能用（開頭或結尾有空白，或是「.」「..」）。請改資料夾名稱再登記。",
+        "project_linked": "路徑裡有捷徑（連結）或「..」：專用空間的專案要寫實際的資料夾路徑。",
+        "project_space_unavailable": "這個 Touka 沒有設定專用空間（touka-projects），所以不能登記這個位置。請照升級說明更新 compose 後再試。",
+        "project_path_form": "專用空間的專案要用工作區根目錄的寫法登記，例如「<工作區根目錄>/touka-projects/<資料夾>」。"
+      }
     },
     "project_sidebar_view": {
       "no_project_linked": "目前的對話尚未關聯任何專案",
@@ -2633,6 +2641,11 @@
       "result_too_large": "小幫手回傳的結果太大。",
       "not_paired": "還沒有配對小幫手。",
       "not_paired_human": "只有產生配對碼的人可以請小幫手開放資料夾。"
+    },
+    "project": {
+      "folder_taken": "這個資料夾已經登記成另一個專案；一個資料夾只能是一個專案。",
+      "folder_missing": "專用空間裡還沒有這個資料夾：請先把專案放進去再登記。",
+      "home_not_cleared": "清不掉這個資料夾上次留下的暫存資料（執行器可能還沒準備好），請稍後再試。"
     }
   }
 }

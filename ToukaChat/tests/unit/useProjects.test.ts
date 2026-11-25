@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useProjects } from '@/hooks/useProjects';
+import { useProjects, type ProjectSaveResult } from '@/hooks/useProjects';
 
 vi.mock('@/lib/connections', () => ({
   getActiveProxyUrl: () => 'http://x',
@@ -18,6 +18,8 @@ vi.mock('@/lib/connections', () => ({
 }));
 vi.mock('@/lib/error_handler', () => ({
   logSSOTError: vi.fn(),
+  getResponseErrorCode: vi.fn(async () => undefined),
+  getResponseDetailString: vi.fn(async () => undefined),
 }));
 
 import { fetchTouka } from '@/lib/connections';
@@ -109,28 +111,29 @@ describe('useProjects save/delete（修復 D：誠實回傳成敗）', () => {
 
   const draft = { id: 'p1', name: 'A', root_path: '/x', description: '' };
 
-  it('saveProject：後端 403/422/500 → 回傳 false（不再佯裝成功）', async () => {
+  it('saveProject：後端 403/422/500 → 回傳 ok: false（不再佯裝成功）', async () => {
     mockFetch.mockImplementation((_url: string, path: string) =>
       path === '/v1/ui/projects/save'
         ? Promise.resolve({ ok: false, status: 403, json: async () => ({ detail: {} }) })
         : Promise.resolve({ ok: true, status: 200, json: async () => [] }),
     );
     const { result } = renderHook(() => useProjects());
-    let ret: boolean | undefined;
+    let ret: ProjectSaveResult | undefined;
     await act(async () => {
       ret = await result.current.saveProject(draft);
     });
-    expect(ret).toBe(false);
+    expect(ret?.ok).toBe(false);
+    expect(mockLog).toHaveBeenCalled();
   });
 
-  it('saveProject：成功 → 回傳 true', async () => {
+  it('saveProject：成功 → 回傳 ok: true', async () => {
     mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => [] });
     const { result } = renderHook(() => useProjects());
-    let ret: boolean | undefined;
+    let ret: ProjectSaveResult | undefined;
     await act(async () => {
       ret = await result.current.saveProject(draft);
     });
-    expect(ret).toBe(true);
+    expect(ret).toEqual({ ok: true });
   });
 
   it('deleteProject：後端 403 → 回傳 false（不再佯裝成功）', async () => {

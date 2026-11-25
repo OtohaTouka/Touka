@@ -13,26 +13,25 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.routers import ui_sessions
 from src.routers.ui_sessions import ProjectModel
-from src.services.isolation import project_binding
+from src.services.isolation import project_binding, project_space
 from src.services.isolation.executor_session import PROJECT_ROOT_NAME
 from src.services.isolation.home_wipe import HomeWipeError
 from src.services.resource_manager import resource_manager
 from src.utils.async_db import get_async_db, get_project_root_path, init_db_async
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
 USER = AgentIdentity.for_role(agent_id="bindUser", role="Base", is_human=True, capabilities=[])
 OTHER = AgentIdentity.for_role(agent_id="bindOther", role="Base", is_human=True, capabilities=[])
 ADMIN = AgentIdentity.for_role(agent_id="bindAdmin", role="admin", is_human=True, capabilities=[])
+_LOCALES = Path(__file__).resolve().parents[2] / "ToukaChat" / "src" / "locales"
 
 
 class _Wipes:
@@ -238,3 +237,21 @@ async def test_clearing_owned_projects_wipes_the_space_ones(space):
     assert await project_binding.clear_owned_projects(USER.agent_id) == 2
     assert [name for name, _path in space.wipes.calls] == ["repo", "repo"]
     assert await get_project_root_path("bind-a") is None
+
+
+# --- 畫面說得出原因 -------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("language", ["zh-TW", "en"])
+def test_every_refusal_reason_has_wording_on_the_projects_page(language):
+    """後端的每個被拒原因在專案頁都有說明（沒有就只剩一般的「存不了」）."""
+    reasons = {
+        project_space.PROJECT_SPACE_ROOT,
+        project_space.PROJECT_NOT_TOP_LEVEL,
+        project_space.PROJECT_NAME_UNSAFE,
+        project_space.PROJECT_LINKED,
+        project_space.PROJECT_SPACE_UNAVAILABLE,
+        project_binding.PROJECT_PATH_FORM,
+    }
+    catalog = json.loads((_LOCALES / language / "translation.json").read_text(encoding="utf-8"))
+    assert reasons <= set(catalog["projects"]["projects_view"]["space_reasons"])

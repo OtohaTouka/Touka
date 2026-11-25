@@ -2,13 +2,17 @@
 import { useState, useCallback } from 'react';
 import { getActiveProxyUrl, fetchTouka } from '@/lib/connections';
 import { getSystemEpoch } from '@/lib/time_utils';
-import { logSSOTError } from '@/lib/error_handler';
+import { getResponseDetailString, getResponseErrorCode, logSSOTError } from '@/lib/error_handler';
+import type { ProjectSaveFailure } from '@/lib/project_save_wording';
 import type { Project } from '@/lib/types';
 
 // O-fix: Project is the SSOT type in lib/types; re-exported here so existing
 // `import { Project } from '@/hooks/useProjects'` consumers keep working without
 // a second, drift-prone declaration.
 export type { Project };
+
+/** 存專案的結果：成功，或被拒絕（帶伺服器給的錯誤碼與原因；斷線時兩個都沒有）。 */
+export type ProjectSaveResult = { ok: true } | ({ ok: false } & ProjectSaveFailure);
 
 export interface FileNode {
     name: string;
@@ -65,28 +69,34 @@ export function useProjects() {
         }
     }, []);
 
-    const saveProject = async (project: Omit<Project, 'updatedAt'>) => {
+    const saveProject = async (project: Omit<Project, 'updatedAt'>): Promise<ProjectSaveResult> => {
         try {
             const proxyUrl = getActiveProxyUrl();
             const payload = {
                 ...project,
                 updatedAt: getSystemEpoch()
             };
-            
+
             const res = await fetchTouka(proxyUrl, "/v1/ui/projects/save", {
                 method: 'POST',
                 body: JSON.stringify(payload)
             });
             // fetchTouka 不對非 2xx 丟例外；須顯式檢查 res.ok，否則被後端拒絕（如越界
-            // root_path 422、權限 403）仍回 true，使 UI 佯裝儲存成功（誤導使用者）。
+            // root_path 422、權限 403）仍回成功，使 UI 佯裝儲存成功（誤導使用者）。
+            // 被拒絕時帶回錯誤碼與原因（專用空間的登記規則，ADR-0332），畫面才說得出為什麼。
             if (!res.ok) {
-                throw new Error(`projects/save failed: HTTP ${res.status}`);
+                const failure = {
+                    code: await getResponseErrorCode(res),
+                    reason: await getResponseDetailString(res, "reason"),
+                };
+                logSSOTError(new Error(`projects/save failed: HTTP ${res.status}`), "useProjects:saveProject");
+                return { ok: false, ...failure };
             }
             await fetchProjects();
-            return true;
+            return { ok: true };
         } catch (error) {
             logSSOTError(error, "useProjects:saveProject");
-            return false;
+            return { ok: false };
         }
     };
 
