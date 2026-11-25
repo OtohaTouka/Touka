@@ -159,12 +159,34 @@ def _at_least_floor(tool_name: str, action: str | None, risk: RiskClass) -> Risk
     return floor
 
 
+# 專用空間的專案不能跑（ADR-0332）：任何模式都直接拒絕；拒絕訊息由執行端依這個前綴挑
+PROJECT_SPACE_DENY_PREFIX = "project_space_refused:"
+
+
+def _refused_project(context: PolicyContext, decision: PolicyDecision) -> PolicyDecision | None:
+    """``isolation_refused`` 有原因、而且是要隔離的動作：DENY（已經是 DENY 的保留原因）."""
+    refused = context.environment.get("isolation_refused")
+    if not isinstance(refused, str) or not refused or decision.effect == "DENY":
+        return None
+    if not requires_isolation(context.action, context.resource):
+        return None
+    return PolicyDecision(
+        effect="DENY",
+        reason=f"{PROJECT_SPACE_DENY_PREFIX}{refused}",
+        metadata={**decision.metadata, "isolation": "none", "isolation_refused": refused},
+    )
+
+
 def _require_isolation(context: PolicyContext, decision: PolicyDecision) -> PolicyDecision:
     """不放寬：要隔離的動作在層級 none（缺鍵、看不懂的值也算）時，Auto、YOLO 只有人能核准。
 
     審查員與 YOLO 都不能放行，無人在場拒絕；Manual 與看不懂的模式維持原判；DENY 不放寬；
-    底線已經是 HUMAN_ONLY 時保留它的理由，只多標 ``isolation``。
+    底線已經是 HUMAN_ONLY 時保留它的理由，只多標 ``isolation``。專用空間的專案被拒絕時
+    （ADR-0332）任何模式都是 DENY（``_refused_project``）。
     """
+    refused = _refused_project(context, decision)
+    if refused is not None:
+        return refused
     environment = context.environment
     mode = environment.get("auth_level", "Manual")
     if (

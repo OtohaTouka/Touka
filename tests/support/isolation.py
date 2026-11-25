@@ -143,7 +143,9 @@ class PinnedMonitor:
     async def refresh(self) -> IsolationSnapshot:
         return self.snap
 
-    async def level_for(self, _identity: Any, _project_root: Any) -> LevelDecision:
+    async def level_for(
+        self, _identity: Any, _project_root: Any, *, attended: bool = False
+    ) -> LevelDecision:
         return LevelDecision(self.snap.level, self.snap.reason)
 
     def fallback_for(

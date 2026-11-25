@@ -71,7 +71,7 @@ def level_calls(monkeypatch):
     async def _ready():
         return isolation_monitor.snapshot()
 
-    async def _level_for(_identity, project_root):
+    async def _level_for(_identity, project_root, **_kw):
         calls.append(project_root)
         if project_root is not None and project_root.name == "bound":
             return LevelDecision("none", "protected_location")

@@ -221,6 +221,11 @@ class LevelDecision:
     reason: str | None = None
     refused: bool = False
 
+    @property
+    def refused_reason(self) -> str | None:
+        """``refused`` 時的原因（給政策的 environment）；其他回 None."""
+        return self.reason if self.refused else None
+
 
 @dataclass(frozen=True)
 class LocalDecision:
