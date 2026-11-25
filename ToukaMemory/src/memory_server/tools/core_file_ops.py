@@ -17,15 +17,15 @@ from typing import TYPE_CHECKING, Any
 
 from memory_server.utils.drive_bound import same_drive
 from memory_server.utils.no_follow import (
-    LINK_NOT_FOLLOWED,
     LINK_REFUSED_MESSAGE,
+    LIST_HIDDEN,
     LinkRefusedError,
     ensure_no_links,
-    is_link,
     iter_regular_files,
     read_text_no_follow,
     remove_no_follow,
     rglob_match,
+    tree_lines,
     write_text_no_follow,
 )
 from memory_server.utils.zone_paths import ZonePath, ZoneSegmentError
@@ -376,41 +376,12 @@ async def core_list(
             lines = resource_proxy.list_directory(str(safe_path), max_depth, exclude=exclude)
             return "\n".join(lines)
             
-        # Fallback raw logic
+        # 沒有 proxy（專案工具）：走訪本身不跟隨連結、代理人資料夾剪掉（ADR-0332）
         if not safe_path.is_dir():
             return f"Error: Directory not found: {path}"
+        tree = tree_lines(safe_path, max_depth, LIST_HIDDEN | exclude)
+        return "\n".join([f"📁 {path or '/'}:", *tree])
 
-        def build_tree(current: Path, depth: int, prefix: str = "") -> list[str]:
-            """遞迴遍歷目錄以建構樹狀結構字串。"""
-            if depth > max_depth:
-                return [f"{prefix}... (max depth {max_depth} reached)"]
-                
-            lines = []
-            try:
-                hidden = {'.git', 'node_modules', '__pycache__', '.pytest_cache', '.ruff_cache'}
-                items = sorted([p for p in current.iterdir() if p.name not in hidden | exclude])
-                
-                for i, item in enumerate(items):
-                    is_last = (i == len(items) - 1)
-                    connector = "└── " if is_last else "├── "
-                    
-                    if is_link(item):
-                        lines.append(f"{prefix}{connector}{item.name} {LINK_NOT_FOLLOWED}")
-                    elif item.is_dir():
-                        lines.append(f"{prefix}{connector}{item.name}/")
-                        new_prefix = prefix + ("    " if is_last else "│   ")
-                        lines.extend(build_tree(item, depth + 1, new_prefix))
-                    else:
-                        lines.append(f"{prefix}{connector}{item.name}")
-                if not items:
-                     lines.append(f"{prefix}└── (empty)")
-            except PermissionError:
-                lines.append(f"{prefix}└── [Permission Denied]")
-            return lines
-
-        tree = [f"📁 {path or '/'}:"] + build_tree(safe_path, 1)
-        return "\n".join(tree)
-        
     except LinkRefusedError:
         return f"Error listing {path}: {LINK_REFUSED_MESSAGE}"
     except Exception as e:

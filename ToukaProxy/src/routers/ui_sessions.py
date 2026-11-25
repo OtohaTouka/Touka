@@ -73,7 +73,6 @@ from src.utils.async_db import (
 )
 from src.utils.auth_mode import AuthMode, authorize_auth_mode  # noqa: TC001
 from src.utils.history_manager import count_rounds_from_linear, get_linear_messages_from_tree
-from src.utils.path_security import validate_no_symlink_escape
 from src.utils.task_utils import spawn_logged
 from src.utils.time_utils import get_current_epoch, get_current_epoch_ms
 from src.utils.touka_dirs import SCAN_LIMIT
@@ -1006,6 +1005,31 @@ async def get_project_overview(
             raise ToukaException(ErrorCode.SYSTEM_ERROR) from e
 
 
+# 專案檔案清單頁（ADR-0332）：最多四層；這些名稱與點開頭的名稱不列
+FILE_TREE_DEPTH = 4
+_FILE_TREE_SKIPPED = frozenset({"node_modules", "__pycache__", "venv"})
+
+
+def _hidden_in_file_tree(name: str) -> bool:
+    return name.startswith(".") or name in _FILE_TREE_SKIPPED
+
+
+def _file_tree(entries: list[tuple[tuple[str, ...], str, int]]) -> list[dict[str, Any]]:
+    """走訪結果排成檔案樹：資料夾在前、名稱不分大小寫排序；第四層的資料夾 children 是空的."""
+    folders: dict[tuple[str, ...], list[dict[str, Any]]] = {(): []}
+    for parts, kind, size in sorted(entries):  # 上層一定排在它底下的項目前面
+        node: dict[str, Any] = {"name": parts[-1], "path": "/".join(parts)}
+        if kind == "dir":
+            node |= {"type": "directory", "children": []}
+            folders[parts] = node["children"]
+        else:
+            node |= {"type": "file", "size": size}
+        folders.setdefault(parts[:-1], []).append(node)
+    for children in folders.values():
+        children.sort(key=lambda n: (n["type"] != "directory", n["name"].lower()))
+    return folders[()]
+
+
 @router.get("/projects/{project_id}/files")
 async def get_project_files(
     project_id: str,
@@ -1034,51 +1058,11 @@ async def get_project_files(
             detail_override=f"Physical path not found: {root_path}",
         )
 
-    def scan_dir(path: Path, relative_prefix: str = "", depth: int = 0) -> list[dict[str, Any]]:
-        """遞迴掃描目錄結構，限制最大深度為 3 且過濾排除項目。"""
-        if depth > 3:
-            return []
-
-        entries = []
-        try:
-            for entry in path.iterdir():
-                # A-fix: 跳過會逃逸出專案根目錄的項目 (symlink 或 Windows junction——
-                # is_symlink() 不認 junction，故以 resolve() 後的包含性檢查為準；指向
-                # jail 內的合法 symlink 仍保留)。
-                if (
-                    not validate_no_symlink_escape(entry, root_path)
-                    or entry.name.startswith(".")
-                    or entry.name in ["node_modules", "__pycache__", "venv", ".git"]
-                ):
-                    continue
-
-                rel_path = f"{relative_prefix}/{entry.name}" if relative_prefix else entry.name
-                if entry.is_dir():
-                    entries.append(
-                        {
-                            "name": entry.name,
-                            "type": "directory",
-                            "path": rel_path,
-                            "children": scan_dir(entry, rel_path, depth + 1),
-                        }
-                    )
-                else:
-                    entries.append(
-                        {
-                            "name": entry.name,
-                            "type": "file",
-                            "path": rel_path,
-                            "size": entry.stat().st_size,
-                        }
-                    )
-        except PermissionError:
-            pass
-
-        entries.sort(key=lambda x: (x["type"] != "directory", x["name"].lower()))
-        return entries
-
     try:
-        tree = scan_dir(root_path)
+        entries = resource_manager.tree_entries(
+            root_path, hidden=_hidden_in_file_tree, list_depth=FILE_TREE_DEPTH
+        )
+        tree = _file_tree(entries)
     except Exception as e:
         logger.exception("Failed to scan files for project %s", project_id)
         raise ToukaException(ErrorCode.SYSTEM_ERROR) from e
