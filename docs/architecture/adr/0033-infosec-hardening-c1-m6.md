@@ -125,7 +125,7 @@ C8 的 `/terminal/approve`、`/terminal/reject` 原本只看 `is_privileged()`�
 
 - 四個端點改用 `Depends(require_admin_human)`（ADR-0239 的授權閘道），只收人類管理員本人，錯誤碼 `AUTH_ADMIN_REQUIRED`；登記進 Guard #24 的 admin 名單（`scripts/endpoint_auth_admin_required.py`）。
 - 核准與拒絕改用 `require_trusted_origin()`（ADR-0320），一定要帶信任的 Origin。
-- 只會收緊。首次安裝前沒登入、只靠本機開發卡就不能核准技能安裝（用暫時密碼登入後可以）。
+- 只會收緊。網頁上只有登入的管理員能核准，一般使用者會被拒（403）；本機開發卡打這幾個端點也會被拒，但網頁要登入才進得了聊天頁，不會遇到（2026-11-26 更正：原本寫「首次安裝前沒登入、只靠本機開發卡就不能核准技能安裝」）。被拒或申請過期時，確認視窗說出原因（2026-11-26）。
 - 測試：`tests/unit/test_terminal_approval_human_security.py`；SECURITY.md 一筆。
 
 ## 一致性紀錄

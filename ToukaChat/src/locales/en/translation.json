@@ -2235,7 +2235,9 @@
       "launch_command_label": "Launch command to run",
       "dismiss": "Maybe Later",
       "confirm_install": "Approve & Install",
-      "install_success": "Installed successfully! The capability is now active."
+      "install_success": "Installed successfully! The capability is now active.",
+      "admin_required": "Only an admin account can approve installs. If you are an admin, sign in again and ask the AI to request it again.",
+      "request_expired": "This request has expired. Ask the AI to request it again."
     },
     "mcp_install_modal": {
       "title": "Install MCP Server",

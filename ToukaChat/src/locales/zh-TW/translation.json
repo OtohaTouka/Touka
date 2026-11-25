@@ -2225,7 +2225,9 @@
       "launch_command_label": "執行的啟動指令",
       "dismiss": "下次再說",
       "confirm_install": "確認授權並安裝",
-      "install_success": "安裝成功！能力已掛載並立即生效。"
+      "install_success": "安裝成功！能力已掛載並立即生效。",
+      "admin_required": "只有管理員帳號能核准安裝。如果你是管理員，請重新登入後再請 AI 申請一次。",
+      "request_expired": "這筆申請已過期，請再請 AI 申請一次。"
     },
     "mcp_install_modal": {
       "title": "安裝 MCP 伺服器",
