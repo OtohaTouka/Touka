@@ -1128,9 +1128,9 @@ async def download_project(
         )
     if scope.kind == "refused":
         raise ToukaException(ErrorCode.VALIDATION_ERROR, reason=scope.reason)
-    await _check_project_root(identity, root_path)
     if not project_space.is_project_folder(scope) or scope.name is None or scope.path is None:
-        raise ToukaException(ErrorCode.PROJECT_FOLDER_MISSING)
+        raise ToukaException(ErrorCode.PROJECT_FOLDER_MISSING)  # 先看在不在：不在時掃描也會失敗
+    await _check_project_root(identity, root_path)
     if not await project_binding.owns_folder(project_id, scope):
         raise ToukaException(ErrorCode.PROJECT_FOLDER_TAKEN)  # 舊資料裡別的專案也綁著
     try:

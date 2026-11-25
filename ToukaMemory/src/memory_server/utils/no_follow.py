@@ -1023,13 +1023,14 @@ def zip_open_file(
     """把走訪開好的檔案寫進 zip：照 ``ZipFile.write`` 由 ``fstat`` 建 ``ZipInfo``（ADR-0293）.
 
     時間（本機時間，和 ``ZipFile.write`` 相同）、大小與壓縮方式都和 ``ZipFile.write`` 一樣，權限只留
-    讀寫執行；
+    ``rwxr-xr-x`` 以內；
     最多寫 ``info.st_size`` 位元組，檔案在寫的時候變大也不多讀（大小上限照 ``fstat`` 算）。
     zip 存不下的時間（1980 年以前、2107 年以後）夾到邊界，不讓整個打包失敗（ADR-0332 PR B）。
     """
     zinfo = zipfile.ZipInfo(arcname, _zip_time(info.st_mtime))
-    # 只留一般檔案與讀寫執行的權限：setuid、setgid、sticky 不帶進 zip（ADR-0332 PR B）
-    zinfo.external_attr = (stat.S_IFREG | (info.st_mode & 0o777)) << 16
+    # 只留一般檔案與 rwxr-xr-x 以內的權限：setuid、setgid、sticky 與別人可寫都不帶進 zip
+    # （有些解壓工具還原權限時不套 umask；ADR-0332 PR B）
+    zinfo.external_attr = (stat.S_IFREG | (info.st_mode & 0o755)) << 16
     zinfo.file_size = info.st_size
     zinfo.compress_type = zf.compression
     remaining = info.st_size

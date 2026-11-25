@@ -2340,7 +2340,7 @@
         "git_not_folder": "這個專案的 .git 是檔案而不是資料夾（例如 git worktree），Touka 讀不到它的檔案清單。",
         "git_is_link": "這個專案的 .git 是捷徑（連結）；Touka 不跟隨連結，所以不能下載。",
         "no_index": "git 還沒有追蹤任何檔案，請先 git add。",
-        "index_unsupported": "這個 git 的檔案清單用了 Touka 讀不懂的格式。如果開了 split index 或 sparse index，關掉後再試（git config core.splitIndex false、git sparse-checkout disable）；SHA-256 的 repository 目前不能從網頁下載。",
+        "index_unsupported": "這個 git 的檔案清單用了 Touka 讀不懂的格式。如果開了 split index 或 sparse index，在專案裡執行 git update-index --no-split-index 或 git sparse-checkout disable 後再試；SHA-256 的 repository 目前不能從網頁下載。",
         "index_invalid": "git 的檔案清單（.git/index）讀不到或壞了。",
         "protected_location": "這個專案的位置或裡面有 Touka 保護的東西，為了安全不能下載。",
         "index_too_large": "git 的檔案清單太大，超過下載的上限。",
@@ -2348,7 +2348,7 @@
         "too_large": "要下載的檔案太大，超過下載的上限。",
         "walk_too_large": "專案資料夾裡的項目太多或花太久，超過下載的上限。",
         "outside_workspace": "這個專案不在工作區裡，不能下載。",
-        "scan_limit": "這個專案的資料夾檢查不完：可能太大，或裡面有資料夾的權限被改掉、讀不到。太大的話請縮小專案；權限的修法見 README_QUICKSTART 的「專用空間」一節。"
+        "scan_limit": "Touka 還沒檢查完這個專案的資料夾（可能還在背景檢查），請稍後再試。一直這樣的話，可能是專案太大，或裡面有資料夾的權限被改掉、讀不到：太大的話請縮小專案；權限的修法見 README_QUICKSTART 的「專用空間」一節。"
       }
     },
     "project_sidebar_view": {

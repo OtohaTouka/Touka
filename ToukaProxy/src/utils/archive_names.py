@@ -34,9 +34,12 @@ _HFS_IGNORED = frozenset(
     "‌‍‎‏‪‫‬‭‮"
     "⁪⁫⁬⁭⁮⁯﻿"
 )
-# 解壓後會讓資料夾變成 repository 的：git 找 repository 一定要有 HEAD；其他版本控制工具的資料夾
+# 解壓後會讓資料夾變成 repository 的：git 找 repository 一定要有 HEAD；其他版本控制工具的資料夾與
+# checkout 檔（含 Windows 的短名稱，解壓蓋到既有的 checkout 時會寫進去）
 _REPOSITORY_FILE = "head"
-_VCS_FOLDERS = frozenset({".hg", ".svn", ".bzr", "_darcs", ".jj"})
+_VCS_NAME = re.compile(
+    r"\.(?:hg|svn|bzr|jj|sl|pijul|fslckout)|_darcs|_fossil_|(?:hg|svn|bzr|jj|sl|pijul|fslcko)~\d+"
+)
 _WINDOWS_BAD_CHARS = frozenset('<>:"|?*\\')
 _RESERVED_NAMES = frozenset(
     {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
@@ -46,7 +49,7 @@ _BIDI = frozenset("؜‎‏‪‫‬‭‮⁦⁧⁨⁩")
 _SHORTCUT_NAMES = frozenset({"desktop.ini", ".directory"})
 _SHORTCUT_SUFFIXES = (
     ".lnk", ".url", ".scf", ".library-ms", ".searchconnector-ms", ".theme", ".themepack",
-    ".deskthemepack", ".website",
+    ".deskthemepack", ".website", ".desktop",
 )
 _ESCAPED_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp", "Cs"})
 _SURROGATE_BYTES = range(0xDC80, 0xDD00)  # surrogateescape 解不開的位元組
@@ -71,7 +74,7 @@ def name_problem(parts: Sequence[str]) -> str | None:
     folded = [_folded(part) for part in parts]
     if any(_GIT_NAME.fullmatch(part) for part in folded):
         return GIT_FOLDER
-    if folded[-1] == _REPOSITORY_FILE or any(part in _VCS_FOLDERS for part in folded):
+    if folded[-1] == _REPOSITORY_FILE or any(_VCS_NAME.fullmatch(part) for part in folded):
         return VCS_METADATA
     if any(_is_bad_part(part) for part in parts):
         return BAD_NAME

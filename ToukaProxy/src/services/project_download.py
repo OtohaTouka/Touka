@@ -10,10 +10,11 @@
 - 名單：連結、子模組；
 - 磁碟：連結、硬連結（可能是別處的檔案）、不是一般檔案、不見了、讀不到。
 
-上限是模組常數，計時從讀名單開始；名單上每個名稱的檢查與比對只和它的長度成正比（路徑最長
-``MAX_ARCHIVE_PATH_CHARS`` 字、最深 ``MAX_PATH_DEPTH`` 層），報告每個原因只列前
-``MAX_REPORT_LINES`` 個。被拒時丟 ``ToukaException``（422 名單或形狀的問題、413 太大、429 同時
-只做一個）。zip 做在系統暫存資料夾，被拒或請求取消時刪掉；送出後由回應刪掉（``TempFileResponse``）。
+上限是模組常數，計時從讀名單開始、名單的檢查也算；每個名稱的檢查與比對有絕對上限（路徑最長
+``MAX_ARCHIVE_PATH_CHARS`` 字、最深 ``MAX_PATH_DEPTH`` 層，大約和長度乘層數成正比），報告每個
+原因只列前 ``MAX_REPORT_LINES`` 個。被拒時丟 ``ToukaException``（422 名單或形狀的問題、413 太大、
+429 同時只做一個）。zip 做在系統暫存資料夾，被拒或請求取消時刪掉；送出後由回應刪掉
+（``TempFileResponse``）。
 """
 
 from __future__ import annotations
@@ -82,9 +83,10 @@ _REASON_TEXT = {
     archive_names.GIT_FOLDER: "Git's own folder, or a name Windows or macOS treats as it. / "
     "git 自己的資料夾，或 Windows、macOS 會當成它的名稱。",
     archive_names.VCS_METADATA: "Could make its folder act as a version-control repository after "
-    "unzipping (a file named HEAD, or a Mercurial, Subversion, Bazaar, Darcs or Jujutsu folder). / "
-    "解壓後可能讓資料夾變成版本控制的 repository（名為 HEAD 的檔案，或 Mercurial、Subversion、"
-    "Bazaar、Darcs、Jujutsu 的資料夾）。",
+    "unzipping (a file named HEAD, or the folder or checkout file of Mercurial, Subversion, "
+    "Bazaar, Darcs, Jujutsu, Sapling, Pijul or Fossil). / 解壓後可能讓資料夾變成版本控制的 "
+    "repository（名為 HEAD 的檔案，或 Mercurial、Subversion、Bazaar、Darcs、Jujutsu、Sapling、"
+    "Pijul、Fossil 的資料夾或 checkout 檔）。",
     archive_names.BAD_NAME: "A name Windows cannot use (reserved name, : * ? etc., control "
     "characters, or a trailing dot or space). / Windows 不能用的名稱（保留名稱、: * ? 等字元、"
     "控制字元、結尾是點或空白）。",

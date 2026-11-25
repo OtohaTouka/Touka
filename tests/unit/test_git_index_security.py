@@ -140,8 +140,12 @@ def test_a_sha256_repository_is_refused_as_unsupported():
 
 
 def test_a_sha256_repository_with_a_skipped_checksum_is_unsupported():
-    """SHA-256 的 index 加 ``index.skipHash``：全零的檢查碼分不出種類，當 SHA-1 讀不懂就算讀不懂."""
-    head = struct.pack(">10I", 0, 0, 0, 0, 0, 0, REGULAR, 0, 0, 0) + bytes(32)
+    """SHA-256 的 index 加 ``index.skipHash``：全零的檢查碼分不出種類，當 SHA-1 讀不懂就算讀不懂.
+
+    物件編號不是全零：當 SHA-1 讀時名稱讀到物件編號的位元組，長度對不上是「壞掉」，要靠這條轉換
+    才是「讀不懂」。
+    """
+    head = struct.pack(">10I", 0, 0, 0, 0, 0, 0, REGULAR, 0, 0, 0) + bytes(range(1, 33))
     head += struct.pack(">H", 5)
     entry = (head + b"a.txt").ljust((len(head) + 5 + 8) & ~7, b"\0")
     assert _reason(b"DIRC" + struct.pack(">II", 2, 1) + entry + bytes(32)) == (

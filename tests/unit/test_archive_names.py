@@ -15,10 +15,12 @@ PROBLEMS = {
     archive_names.GIT_FOLDER: [".git/config", "a/.GIT/x", "git~1/x", ".git‌/x", "a/.git. /x"],
     archive_names.VCS_METADATA: [
         "HEAD", "bare/head", "x/HEAD.", ".hg/hgrc", "a/.Svn/x", ".bzr/x", "_darcs/x", ".jj/x",
+        ".sl/config", ".pijul/config", ".fslckout", "a/_FOSSIL_", "HG~1/hgrc", "svn~2/x",
+        "PIJUL~1/config", "FSLCKO~1",
     ],
     archive_names.BAD_NAME: ["a:b", "CON", "lpt1.txt", "x.", "x ", "a\\b", "c\x01", "", "a/../b"],
     archive_names.BIDI: ["evil‮txt.exe", "a/⁦b"],
-    archive_names.SHORTCUT: ["desktop.ini", "x.LNK", "a.themepack", "k/.directory"],
+    archive_names.SHORTCUT: ["desktop.ini", "x.LNK", "a.themepack", "k/.directory", "app.desktop"],
     archive_names.ENV_FILE: [".env", "a/.env.local"],
 }
 
@@ -34,7 +36,8 @@ def test_names_that_must_not_reach_a_zip(path, problem):
 @pytest.mark.parametrize(
     "path",
     ["README.md", ".env.example", "src/head.py", "HEADER", "objects/x", "refs/heads/main",
-     "config", ".github/workflows/ci.yml", "gitlab/x", "docs/日本語.md"],
+     "config", ".github/workflows/ci.yml", "gitlab/x", "docs/日本語.md", "hg/x", "slides/a",
+     "svn_notes.md", "desktop/app.py"],
 )
 def test_ordinary_names_are_fine(path):
     assert name_problem(path.split("/")) is None

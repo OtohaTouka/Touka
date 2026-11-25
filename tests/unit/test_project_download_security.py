@@ -336,8 +336,12 @@ def test_a_download_that_reaches_an_agent_folder_is_refused(drive_project, monke
 
 
 async def test_a_missing_project_folder_says_so(space, monkeypatch):
+    """資料夾不在就說不在（先於根目錄檢查：容器裡掃不到不在的資料夾，會變成「受保護」）."""
     gone = space.anchor / "gone"
     monkeypatch.setattr(ui_sessions, "get_project_root_path", AsyncMock(return_value=str(gone)))
+    monkeypatch.setattr(
+        ui_sessions.profiles, "project_root_reason", AsyncMock(return_value="protected_location")
+    )
     assert (await _refused()).detail["code"] == ErrorCode.PROJECT_FOLDER_MISSING.value
 
 

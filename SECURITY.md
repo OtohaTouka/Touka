@@ -1116,7 +1116,7 @@ openai SDK 3.24 為 Responses API 新加入（3b）；建構前就照 Claude 的
 | 位置 | 原有缺口 | 修復摘要 |
 |------|----------|----------|
 | ToukaMemory `utils/no_follow.zip_open_file`（GDPR 匯出的個人空間檔案、技能打包） | 代理人把自己寫得到的檔案時間改成 1980 年以前或 2107 年以後，zip 存不下，整個匯出或打包失敗（使用者拿不到自己的資料） | 時間夾到 zip 能存的範圍（1980-01-01～2107-12-31）；`test_no_follow_zone.py`、`test_resource_manager_archive.py`、`test_project_download_security.py` |
-| ToukaMemory `utils/no_follow.zip_open_file`（同上） | 檔案的 setuid、setgid、sticky 位元照原樣寫進 zip：在 Linux 用會還原權限的工具解壓時，拿到帶特殊權限的檔案 | 只留一般檔案與讀寫執行的權限；`test_no_follow_zone.py` |
+| ToukaMemory `utils/no_follow.zip_open_file`（同上，另有備份 `scripts/manage_backup.py`） | 檔案的 setuid、setgid、sticky 位元與別人可寫照原樣寫進 zip：在 Linux 用會還原權限、不套 umask 的工具解壓時，拿到帶特殊權限或誰都能改的檔案 | 只留一般檔案與 `rwxr-xr-x` 以內的權限；`test_no_follow_zone.py` |
 
 ## Out of Scope
 
