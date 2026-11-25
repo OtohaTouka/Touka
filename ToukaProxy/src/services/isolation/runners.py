@@ -250,10 +250,12 @@ class ProfileSource:
     """``acquire`` 的 profile 來源.
 
     ``executor_issue``：這次不在執行器範圍的原因（None：在範圍內）。
+    ``dedicated``：專用空間的專案（ADR-0332）：只用執行器，profile 有沒授權的就拒絕。
     """
 
     build: ProfileFactory
     executor_issue: str | None
+    dedicated: bool = False
 
     @classmethod
     def fixed(cls, profile: SandboxProfile) -> ProfileSource:
@@ -579,6 +581,8 @@ class RunnerBroker:
             ready = self._monitor.snapshot().executor
             if plan.kind == "executor" and ready is not None and needed <= plan.features:
                 return await self._executor(ready, plan.features, source)
+        if source.dedicated:  # 專用空間的專案只用執行器（ADR-0332），有同意也不退回
+            raise IsolationUnavailableError(source.executor_issue or ISOLATION_UNAVAILABLE)
         if floor > KIND_RANK["landlock"]:
             raise IsolationUnavailableError(ISOLATION_UNAVAILABLE)
         profile = await source.build("proxy", None)
@@ -642,6 +646,8 @@ class RunnerBroker:
         if layout.executor_dir is None:
             raise IsolationUnavailableError(ISOLATION_UNAVAILABLE)
         profile = await source.build("executor", ready.state_root)
+        if source.dedicated and profile.ungranted:  # 只限專用空間；自建 MCP 的照舊啟動
+            raise IsolationUnavailableError(profile.ungranted[0])
         runner = ExecutorRunner(
             kernel, layout.executor_dir, ready.boot_id, features, python=self._interpreter(layout)
         )

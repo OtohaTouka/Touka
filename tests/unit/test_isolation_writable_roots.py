@@ -77,6 +77,9 @@ CONSTRUCTIONS = {
         "services/isolation/mcp_profiles.py:build_mcp_third_party_profile": 1,
         "services/isolation/profiles.py:build_agent_command_profile": 1,
         "services/isolation/profiles.py:build_evolution_profile": 1,
+        # 專用空間的專案（ADR-0332）：讀寫只有專案本身與它的 state
+        # （test_project_space_runner_security 核對）
+        "services/isolation/profiles.py:build_project_command_profile": 1,
     },
     "PathRule": {
         "services/isolation/mcp_profiles.py:_reference_rule": 2,
@@ -85,6 +88,7 @@ CONSTRUCTIONS = {
         "services/isolation/mcp_profiles.py:build_mcp_third_party_profile": 2,
         "services/isolation/profiles.py:build_agent_command_profile": 3,
         "services/isolation/profiles.py:build_evolution_profile": 2,
+        "services/isolation/profiles.py:build_project_command_profile": 3,
         "services/isolation/profiles.py:public_config_rules": 1,
         "services/isolation/profiles.py:system_rules": 4,
     },

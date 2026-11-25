@@ -574,6 +574,49 @@ async def build_agent_command_profile(
     )
 
 
+async def build_project_command_profile(
+    name: str | None,
+    project: Path | None,
+    *,
+    agent_id: str,
+    layout: SandboxLayout,
+    location: Location = "executor",
+    block_ports: tuple[int, ...] | None = None,
+    executor_state: str | None = None,
+) -> SandboxProfile:
+    """專用空間的專案指令（ADR-0332）：只在執行器位置；讀寫只有這個專案與它自己的 state.
+
+    ``name``、``project`` 來自結構層（``project_space.structural_scope`` 的 ``ok``），這裡再核對
+    位置正好是錨點第一層。不給個人空間與公開設定檔；掃描（``authorize_derived_path``）不過時
+    標成沒授權，broker 一律拒絕。``agent_id`` 只用在掃描的 owner。
+    """
+    subject = name or "project"
+    anchor = layout.projects_root
+    if location != "executor" or anchor is None or name is None or project is None:
+        raise ProfileError(subject)
+    if not is_safe_segment(name) or _literal(project) != anchor / name:
+        raise ProfileError(subject)
+    target = anchor / name
+    ports = checked_ports(block_ports, location)
+    home, tmp = _state(layout, location, "project", name, executor_state)
+    rules = system_rules()
+    rules.append(PathRule(_resolve(layout.config_dir) / "skills", "rox", optional=True))
+    rules += [PathRule(p, "rwx") for p in (home, tmp)]
+    verdict = await authorize_derived_path(target, layout, agent_id)
+    if verdict is None:
+        rules.append(PathRule(target, "rwx"))
+    return SandboxProfile(
+        name="project_command",
+        cwd=target,
+        rules=tuple(dict.fromkeys(rules)),
+        block_ports=ports,
+        env_set=sandbox_env(home, tmp, [anchor]),
+        project_root=target,
+        ungranted=() if verdict is None else (verdict,),
+        owner=name,
+    )
+
+
 def build_evolution_profile(
     skill_id: str,
     tool_root: Path | str,

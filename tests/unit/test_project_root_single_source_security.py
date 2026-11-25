@@ -210,7 +210,7 @@ async def test_verification_command_uses_the_session_project_not_the_kwarg(
 ):
     roots, _ = projects
 
-    async def _isolatable(_identity, project_root):
+    async def _isolatable(_identity, project_root, **_kw):
         # 驗證指令的分類也看專案層級：要讓指令跑到建 profile，這裡的專案得放得進隔離
         level_calls.append(project_root)
         return LevelDecision("landlock")

@@ -27,8 +27,10 @@ from src.services.isolation.profiles import (
     ProfileError,
     SandboxProfile,
     build_agent_command_profile,
+    build_project_command_profile,
     current_layout,
 )
+from src.services.isolation.project_space import structural_scope
 from src.services.isolation.runners import (
     ISOLATION_UNAVAILABLE,
     ExecRequest,
@@ -99,18 +101,27 @@ def take_grant(
     return consent_ledger.take(key, subject=consent_subject(tool, args))
 
 
-async def command_level(identity: AgentIdentity, project_root: Path | None) -> IsolationLevel:
-    """這條指令現在的層級（有看專案）；驗證指令分類與沒有 grant 時共用。"""
+async def command_level(
+    identity: AgentIdentity, project_root: Path | None, *, attended: bool = False
+) -> IsolationLevel:
+    """這條指令現在的層級（有看專案）；驗證指令分類與沒有 grant 時共用.
+
+    ``attended``：這次有人在場（專用空間的專案要有人在場才在執行器跑，ADR-0332）。
+    """
     await isolation_monitor.ensure_ready()
-    return (await isolation_monitor.level_for(identity, project_root)).level
+    return (await isolation_monitor.level_for(identity, project_root, attended=attended)).level
 
 
 async def command_scope(
-    identity: AgentIdentity, project_root: Path | None, grant: ExecutionGrant | None
+    identity: AgentIdentity,
+    project_root: Path | None,
+    grant: ExecutionGrant | None,
+    *,
+    attended: bool = False,
 ) -> CommandScope:
     """沒有取回 grant（沒經過政策或卡片）就照現在的層級、沒有同意。"""
     if grant is None:
-        grant = ExecutionGrant(await command_level(identity, project_root))
+        grant = ExecutionGrant(await command_level(identity, project_root, attended=attended))
     else:
         await isolation_monitor.ensure_ready()  # 等人核准期間狀態可能變了：spawn 前重看
     return CommandScope(identity, grant, project_root)
@@ -142,20 +153,29 @@ async def build_command_profile(
 ) -> SandboxProfile:
     """代理人指令的 profile；組不出來（路徑形狀不對、ST 不可用）就當隔離不可用（見上）.
 
-    執行器位置組不出來一律拒絕（「未隔離」的不完整 profile 只在 proxy 位置）。
+    執行器位置組不出來一律拒絕（「未隔離」的不完整 profile 只在 proxy 位置）。專用空間的專案
+    （ADR-0332）一律用專案的 profile，組不出來就拒絕，不會改用不完整的 profile。
     """
+    layout = current_layout()
+    space = structural_scope(scope.project_root, layout.projects_root)
+    ports = isolation_monitor.block_ports(location)
     try:
+        if space.dedicated:
+            return await build_project_command_profile(
+                space.name, space.path, agent_id=scope.identity.agent_id, layout=layout,
+                location=location, block_ports=ports, executor_state=executor_state,
+            )
         return await build_agent_command_profile(
             scope.identity,
             cwd,
-            layout=current_layout(),
+            layout=layout,
             project_root=scope.project_root,
             location=location,
-            block_ports=isolation_monitor.block_ports(location),
+            block_ports=ports,
             executor_state=executor_state,
         )
     except (ProfileError, OSError) as exc:
-        if location != "proxy":
+        if location != "proxy" or space.dedicated:
             raise profile_unavailable(exc) from exc
         return unbound_or_refuse(scope.grant, cwd, profile_unavailable(exc))
 
@@ -178,7 +198,9 @@ async def prepare_command(
     else:
         issue = isolation_monitor.executor_scope_issue(scope.identity, scope.project_root)
         grant = scope.grant
-        source = ProfileSource(partial(build_command_profile, scope, Path(cwd)), issue)
+        space = structural_scope(scope.project_root, current_layout().projects_root)
+        build = partial(build_command_profile, scope, Path(cwd))
+        source = ProfileSource(build, issue, dedicated=space.dedicated)
     acquired = await runner_broker.acquire(grant, source)
     request = ExecRequest(
         argv=tuple(argv), env=env, profile=acquired.profile, max_seconds=max_seconds
