@@ -661,6 +661,10 @@ class IsolationMonitor:
             return LevelDecision("none", issue, refused=True)
         return LevelDecision("executor") if attended else LevelDecision("none", PROJECT_UNATTENDED)
 
+    def dedicated_executor_issue(self) -> str | None:
+        """現在能不能把專用空間的專案交給執行器（清 HOME 前用；規則見下一個方法）."""
+        return self._dedicated_executor_issue(self.snapshot())
+
     def _dedicated_executor_issue(self, snap: IsolationSnapshot) -> str | None:
         """執行器層可用，而且 READY 的專案根正好是錨點；不併進 ``ready_issue``（只影響專案）."""
         if snap.level != "executor" or snap.executor is None:

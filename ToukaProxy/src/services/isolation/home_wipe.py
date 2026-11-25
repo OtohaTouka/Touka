@@ -7,7 +7,8 @@
   自己的 home、tmp 與 personal_drive。不是代理人的程式，所以不需要同意；只用執行器、不降級。
 - 部署預期是執行器時，執行器不能用、清不乾淨或逾時都拋 ``HomeWipeError``，呼叫端擋下刪除。
 - 專用空間的專案（``wipe_project_home``）：只有執行器那一層（``<state_root>/project/<資料夾名>``），
-  START 是 kind project（cwd 是專案根）；掃描不過也拒絕。登記前呼叫（清不掉就不登記）。
+  START 是 kind project（cwd 是專案根）；READY 的專案根不對或掃描不過都拒絕。登記前呼叫（清不掉
+  就不登記）。
 """
 
 from __future__ import annotations
@@ -97,8 +98,14 @@ async def _profile(
 
 
 async def wipe_project_home(name: str, project: Path) -> None:
-    """專用空間的資料夾被綁定前清掉它在執行器裡的 HOME／TMP；清不掉拋 ``HomeWipeError``."""
-    source = ProfileSource(partial(_project_profile, name, project), None, dedicated=True)
+    """專用空間的資料夾被綁定前清掉它在執行器裡的 HOME／TMP；清不掉拋 ``HomeWipeError``.
+
+    READY 的專案根不對（舊執行器、沒給 ``--project-root``）時不送 START：送了會被執行器拒絕，
+    relay 回報的拒絕會讓整台執行器暫時被判 none，任何能存專案的人都能反覆觸發。
+    """
+    await isolation_monitor.ensure_ready()
+    issue = isolation_monitor.dedicated_executor_issue()
+    source = ProfileSource(partial(_project_profile, name, project), issue, dedicated=True)
     try:
         acquired, plan = await _plan_wipe(source)
     except OSError as exc:

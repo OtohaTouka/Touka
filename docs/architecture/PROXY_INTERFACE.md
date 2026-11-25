@@ -6,14 +6,14 @@
 
 - 專用空間是 compose 的 named volume `touka-projects`，proxy 與執行器都掛在 `/app/workspace/touka-projects`；位置只從部署設定 `TOUKA_PROJECTS_DIR` 來（`profiles.configured_projects_root`），和工作區設定脫鉤。執行器由 `--project-root` 帶入、另外驗；READY 多一個 `project_root`（沒給或驗不過是 null，這時 kind `project` 一律拒絕，其他 kind 照常）。
 - 第一層的每個資料夾是一個專案。綁這種專案的對話，終端與互審的驗證指令只在執行器裡跑（kind `project`）：工作目錄是專案根，讀寫只有這個專案與它自己的 HOME／TMP（`state/project/<名稱>`，依專案分），看不到個人空間與其他專案。有人在場時是 `executor`；沒人在場是 `none`（`project_unattended`），照舊交給沒人在場的拒絕。
-- 檢查沒過（錨點本身、第二層以下、不安全的名稱、路上有連結、這個部署沒有專用空間卻用了這個名稱、執行器不可用、READY 的 `project_root` 是 null 或不同、掃描沒過）一律拒絕：任何模式都是 DENY、不跳卡、不降級；給模型的訊息分暫時（可以稍後再試）與永久。互審的驗證指令回 `NO_ISOLATED_ENVIRONMENT`。新原因碼（畫面文字，不在 `errors.json`）：`project_space_root`、`project_not_top_level`、`project_name_unsafe`、`project_linked`、`project_space_unavailable`、`executor_no_project_root`、`executor_project_root_mismatch`、`project_unattended`。
-- `POST /v1/ui/projects/save`（端點與模型不變）在專用空間多幾條規則，順序是權限 → 根目錄檢查 → 結構 → 工作區寫法 → 資料夾存在 → 重複 → 清 HOME → 寫入：
+- 檢查沒過（錨點本身、第二層以下、不安全的名稱、路上有連結、這個部署沒有專用空間卻用了這個名稱、執行器不可用、READY 的 `project_root` 是 null 或不同、掃描沒過）一律拒絕：任何模式都是 DENY、不跳卡、不降級；給模型的訊息分暫時（可以稍後再試）與永久。互審的驗證指令回 `NO_ISOLATED_ENVIRONMENT`。新原因碼（畫面文字，不在 `errors.json`）：`project_space_root`、`project_not_top_level`、`project_name_unsafe`、`project_linked`、`project_space_unavailable`、`executor_no_project_root`、`executor_project_root_mismatch`、`project_unattended`。判定本身出錯（`isolation_check_failed`，暫時的）也直接拒絕。執行器的讀寫根不能用 `touka-projects` 這個名稱（設定問題 `roots`，那個位置只經 `--project-root` 驗過才服務）。
+- `POST /v1/ui/projects/save`（端點與模型不變）在專用空間多幾條規則，順序是權限（拿到登記鎖之後再查一次）→ 根目錄檢查 → 結構 → 工作區寫法 → 資料夾存在 → 重複 → 清 HOME → 寫入：
   - 被拒的形狀、寫法不對：422 `VALIDATION_ERROR`，`detail.reason` 是上面五個結構原因之一或 `project_path_form`；
   - 資料夾還不存在：422 `PROJECT_FOLDER_MISSING`；
-  - 同一個資料夾已是別的專案（比解析出的資料夾名稱、不分大小寫，所有身分都一樣）：409 `PROJECT_FOLDER_TAKEN`；
-  - 第一次綁定（新列或改指到另一個資料夾）先清那個資料夾的 HOME，清不掉：503 `PROJECT_HOME_NOT_CLEARED`（`detail.reason` 是清除的原因，暫時的），不寫入。
-  `DELETE /v1/ui/projects/{id}`、刪使用者與自己清資料之後盡力清 HOME，失敗只記 log。專用空間以外的專案完全照舊。
-- 列檔：沒有 proxy 的 `core_list`（專案工具）與 `GET /v1/ui/projects/{id}/files` 都不跟隨連結、代理人資料夾剪掉；檔案清單頁連指向根裡的連結也不列。回應形狀不變。
+  - 同一個資料夾已是別的專案（比解析出的資料夾名稱、不分大小寫，所有身分都一樣）：409 `PROJECT_FOLDER_TAKEN`；只差大小寫的是另一個資料夾，改指過去照樣先清；
+  - 第一次綁定（新列或改指到另一個資料夾）先清那個資料夾的 HOME，清不掉：503 `PROJECT_HOME_NOT_CLEARED`，不寫入。`detail.reason` 是清除的原因：多半是暫時的；`protected_location`、`scan_limit`（掃描不過）與 `executor_no_project_root`、`executor_project_root_mismatch`（執行器設定不對）要人處理，專案頁說原因。READY 的專案根不對時不送 START。
+  `DELETE /v1/ui/projects/{id}`、刪使用者與自己清資料之後盡力清 HOME，失敗只記 log；拿到登記鎖時已經有別的專案登記了同一個資料夾就不清。專用空間以外的專案完全照舊。
+- 列檔：沒有 proxy 的 `core_list`（專案工具）與 `GET /v1/ui/projects/{id}/files` 都不跟隨連結、代理人資料夾剪掉；檔案清單頁連指向根裡的連結也不列，根在專用空間被拒的形狀（錨點本身、第二層以下、路上有連結）回 403。回應形狀不變。
 
 ## 刪掉的靈魂的封存與個人空間不給同名的新靈魂（2026-11-21，ADR-0328）
 

@@ -5,7 +5,7 @@
 ## 專案頁登記失敗的原因（ADR-0332）
 
 - `useProjects.saveProject` 回 `ProjectSaveResult`：成功是 `{ok: true}`；被拒絕是 `{ok: false, code?, reason?}`（`getResponseErrorCode`、`getResponseDetailString(res, "reason")`；斷線時兩個都沒有）。
-- `lib/project_save_wording.ts` 的 `projectSaveFailureText` 選一句：`VALIDATION_ERROR` 加專用空間的原因 → `projects.projects_view.space_reasons.<原因>`；`PROJECT_FOLDER_TAKEN`、`PROJECT_FOLDER_MISSING`、`PROJECT_HOME_NOT_CLEARED` → 錯誤碼自己的說明（`error.project.*`）；其他 → `projects.projects_view.save_failed`。表單保持開啟。
+- `lib/project_save_wording.ts` 的 `projectSaveFailureText` 選一句：`VALIDATION_ERROR` 加專用空間的原因 → `projects.projects_view.space_reasons.<原因>`；`PROJECT_HOME_NOT_CLEARED` 加不會自己好的原因（`protected_location`、`scan_limit`、`executor_no_project_root`、`executor_project_root_mismatch`）→ `projects.projects_view.home_reasons.<原因>`；`PROJECT_FOLDER_TAKEN`、`PROJECT_FOLDER_MISSING`、`PROJECT_HOME_NOT_CLEARED` → 錯誤碼自己的說明（`error.project.*`）；其他 → `projects.projects_view.save_failed`。表單保持開啟。
 - 審批卡的 `project_not_in_executor` 改說專案不在專用空間（`touka-projects`）與怎麼放進去。
 
 ## 刪掉的代理人的舊對話（ADR-0326 PR 3a）

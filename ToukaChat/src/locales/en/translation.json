@@ -2327,8 +2327,14 @@
         "project_not_top_level": "Projects in the project space must be a folder directly inside touka-projects, not a folder deeper down.",
         "project_name_unsafe": "This folder name can't be used (it starts or ends with a space, or is \".\" or \"..\"). Rename the folder, then register it.",
         "project_linked": "The path has a shortcut (link) or \"..\" in it. Projects in the project space need the real folder path.",
-        "project_space_unavailable": "This Touka has no project space (touka-projects) set up, so this location can't be registered. Update compose following the upgrade steps, then try again.",
+        "project_space_unavailable": "This Touka has no project space (touka-projects) set up, so this location can't be registered. Only Docker deployments have a project space; on Docker, update compose following the upgrade steps, then try again.",
         "project_path_form": "Register projects in the project space using the workspace root form, for example \"<workspace root>/touka-projects/<folder>\"."
+      },
+      "home_reasons": {
+        "protected_location": "This folder contains something that looks like Touka's data or code (for example a folder named soul, or Touka's own source code), or its path has a link. To protect Touka, commands here won't run. Move or rename those, then register it again.",
+        "scan_limit": "This folder couldn't be fully checked: it may be too large, or a folder inside had its permissions changed and can't be read. If it's too large, make the project smaller; for permissions, see the project space section of README_QUICKSTART.",
+        "executor_no_project_root": "The executor has no project space set up (compose wasn't updated after the upgrade, or the executor is still the old version). Update compose following the upgrade steps, rebuild, then try again.",
+        "executor_project_root_mismatch": "The executor's project space location doesn't match Touka's setting. Check the touka-projects settings in compose following the upgrade steps."
       }
     },
     "project_sidebar_view": {

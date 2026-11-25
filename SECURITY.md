@@ -1101,12 +1101,13 @@ openai SDK 3.24 為 Responses API 新加入（3b）；建構前就照 Claude 的
 |------|----------|----------|
 | `services/soul_prelude_service.py`、`services/soul_prelude_merge.py`、`services/mainline_service.py`、`middleware/layers/soul.py`、`services/dispatchers/group.py` | 子對話回報寫進前情之後，SNS 獨立頻道、家模式、群聊的請求（外人觸發）也會帶到，外人問得出私人子對話的內容；回報併進合併段之後同樣會漏 | SNS 請求（`sns_source`）的前情排除子對話回報；合併段吃進回報時來源欄記 `#child-reports`（再併也留著），SNS 連它一起排除，裡面的其他內容也不帶。剪裁摘要員的背景（前情最後一段）也不給有回報內容的段落，回報不會被摘要進 SNS 看得到的 `home_trim`。回歸測試 `tests/unit/test_mainline_service.py::test_sns_requests_leave_out_child_reports`、`tests/unit/test_soul_prelude_service.py::test_a_merged_entry_remembers_it_took_in_child_reports`、`tests/unit/test_home_handover.py::test_the_trim_summarizer_never_sees_child_reports`。殘留：靈魂在家裡的回覆如果提到回報內容，會跟著家原文進 SNS；家原文、剪裁摘要、舊家尾端照舊進 SNS（維護者決定）；回報與退任摘要的內容由摘要員寫，和其他前情一樣包歷史資料界線。 |
 
-### 專案的列檔不跟隨連結（2026-11-25，ADR-0332）
+### 專案的列檔不跟隨連結、登記的權限（2026-11-25，ADR-0332）
 
 | 位置 | 原有缺口 | 修復摘要 |
 |------|----------|----------|
 | `memory_server/tools/core_file_ops.py`（`core_list` 沒有 proxy 時；專案工具走這條） | 先問一項是不是連結，再用會跟隨連結的 `is_dir`／`iterdir` 遞迴：問完之後那一項被換成連結，就會列出專案根外面的名稱（內容讀不到） | 改用 `no_follow.tree_lines`（`walk_pruned`：lstat 判種類、不跟隨地開資料夾、代理人資料夾剪掉），和經 proxy 的列法共用 `render_tree`；`test_core_list_no_follow_security.py` |
-| `routers/ui_sessions.py`（`GET /ui/projects/{id}/files`） | 用「解析後還在根裡」決定要不要略過，之後 `is_dir`／`iterdir`／`stat` 都跟隨連結：判斷完被換成連結，就會列出根外面的檔名與大小 | 改經 `ResourceManager.tree_entries`（同上不跟隨、剪掉代理人資料夾，大小是 lstat 的），連結一律不列；`test_project_files_no_follow_security.py` |
+| `routers/ui_sessions.py`（`GET /ui/projects/{id}/files`） | 用「解析後還在根裡」決定要不要略過，之後 `is_dir`／`iterdir`／`stat` 都跟隨連結：判斷完被換成連結，就會列出根外面的檔名與大小 | 改經 `ResourceManager.tree_entries`（同上不跟隨、剪掉代理人資料夾，大小是 lstat 的），連結一律不列；另套專用空間的結構層：根是錨點本身、第二層以下，或路上有連結（含一般專案的根之後被換成連到專用空間的連結）一律 403。根本身仍先解析再走訪，檢查與走訪之間根被換成別處的窗口照舊（既有）；`test_project_files_no_follow_security.py` |
+| `routers/ui_sessions.py`（`POST /ui/projects/save`） | 權限只在寫入前查一次：同時有人用同一個新編號存檔時，後到的會改到先建好的別人專案（`ON CONFLICT DO UPDATE`；原本窗口很短，專用空間的清 HOME 讓它最長 60 秒） | 拿到登記鎖之後再查一次權限；`test_project_space_binding_security.py` |
 
 ## Out of Scope
 

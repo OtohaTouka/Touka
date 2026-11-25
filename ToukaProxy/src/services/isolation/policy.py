@@ -20,6 +20,8 @@ from src.services.isolation.consent import (
     consent_ledger,
     consent_subject,
 )
+from src.services.isolation.profiles import configured_projects_root
+from src.services.isolation.project_space import structural_scope
 from src.services.isolation.status import (
     BLOCK_PORTS_INCOMPLETE,
     CHECK_FAILED,
@@ -53,9 +55,11 @@ PROJECT_TOOLS = TERMINAL_TOOLS | {VERIFY_ACTION}
 _GENERIC_DENIAL_SUGGESTION = (
     "Do not retry this tool; explain the restriction to the user or use an allowed alternative."
 )
-# 專用空間被拒絕（ADR-0332）：這幾種通常會自己好（掃描、探測、封鎖埠、執行器重啟），其他的要人處理
+# 專用空間被拒絕（ADR-0332）：這幾種通常會自己好（掃描、探測、封鎖埠、執行器重啟、判定出錯），
+# 其他的要人處理
 _TEMPORARY_REFUSALS = frozenset(
-    {SCAN_LIMIT, PROBE_PENDING, BLOCK_PORTS_INCOMPLETE, EXECUTOR_UNREACHABLE, *RELAY_FAILURE_CODES}
+    {SCAN_LIMIT, PROBE_PENDING, BLOCK_PORTS_INCOMPLETE, EXECUTOR_UNREACHABLE, CHECK_FAILED}
+    | RELAY_FAILURE_CODES
 )
 
 
@@ -116,7 +120,14 @@ async def _decide(
         return isolation_monitor.local_level(), None
     project_root = await session_project_root(ctx, session_id) if tool in PROJECT_TOOLS else None
     attended = is_human_present(ctx)
-    decision = await isolation_monitor.level_for(identity, project_root, attended=attended)
+    try:
+        decision = await isolation_monitor.level_for(identity, project_root, attended=attended)
+    except Exception:
+        # 專用空間的專案判定出錯也直接拒絕、不跳卡（ADR-0332）；其他照舊交給外層當成 none
+        if not structural_scope(project_root, configured_projects_root()).dedicated:
+            raise
+        logger.exception("Isolation level check failed for a project space command (%s)", tool)
+        return LevelDecision("none", CHECK_FAILED, refused=True), project_root
     return decision, project_root
 
 

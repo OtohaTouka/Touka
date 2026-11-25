@@ -63,20 +63,31 @@ def _names_the_space(path: Path) -> bool:
     return any(part.casefold() == PROJECT_ROOT_NAME for part in path.parts)
 
 
+def _resolved(project_root: Path | str) -> Path | None:
+    """解析後的位置；連結迴圈之類解析不了回 None（3.12 的 ``resolve`` 會丟 ``RuntimeError``）."""
+    try:
+        return Path(project_root).resolve()
+    except (OSError, RuntimeError):
+        return None
+
+
 def structural_scope(project_root: Path | str | None, anchor: Path | None) -> ProjectScope:
     """專案根在不在專用空間（規則見模組說明）；``anchor`` 是版面的 ``projects_root``.
 
     字面位置與解析後的位置任一個在錨點底下就算在專用空間（``translate_path`` 不消 ``..``，
-    連結進來或連結出去都要擋）；之後路上有連結一律 ``refused``。
+    連結進來或連結出去都要擋）；之後路上有連結一律 ``refused``。解析不了（連結迴圈）時只看字面：
+    在錨點底下算路上有連結，其他照舊不算。
     """
     if project_root is None:
         return OUTSIDE
     literal = literal_path(project_root)
-    resolved = Path(project_root).resolve()
+    resolved = _resolved(project_root)
     if anchor is None:
         # 這個部署沒有專用空間：照名稱擋下，不讓它悄悄改用別的方式跑（README 寫明）
-        named = _names_the_space(literal) or _names_the_space(resolved)
+        named = any(_names_the_space(p) for p in (literal, resolved) if p is not None)
         return _refused(PROJECT_SPACE_UNAVAILABLE) if named else OUTSIDE
+    if resolved is None:
+        return _refused(PROJECT_LINKED) if literal.is_relative_to(anchor) else OUTSIDE
     inside = [path for path in (literal, resolved) if path.is_relative_to(anchor)]
     if not inside:
         return OUTSIDE

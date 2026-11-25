@@ -225,11 +225,14 @@ async def _project_text(monkeypatch, tmp_path, root: Path | None) -> str:
     anchor = (tmp_path / PROJECT_ROOT_NAME).resolve()
     (anchor / "repo" / "src").mkdir(parents=True)
 
-    async def _path(_project_id, _caller=None):
+    async def _path(_project_id):
         return None if root is None else str(anchor / root)
 
+    jailed = AsyncMock(side_effect=AssertionError)  # 只讀登記的根，不經工作區檢查（不每輪記警告）
+
     monkeypatch.setattr(context_layer, "get_project_context", AsyncMock(return_value="[P: repo]"))
-    monkeypatch.setattr(context_layer.resource_manager, "get_project_path", _path)
+    monkeypatch.setattr(context_layer, "get_project_root_path", _path)
+    monkeypatch.setattr(context_layer.resource_manager, "get_project_path", jailed)
     monkeypatch.setattr(context_layer, "configured_projects_root", lambda: anchor)
     request = SimpleNamespace(
         model="m", project_id="p1", ide_context=None, messages=[{"role": "user", "content": "hi"}]
@@ -251,3 +254,5 @@ async def test_only_dedicated_projects_say_commands_start_here(
     text = await _project_text(monkeypatch, tmp_path, root)
     assert "[P: repo]" in text
     assert ("use paths relative to it" in text) is starts_here
+    # 每輪說明寫明被擋時直接拒絕、不跳卡（一頁計畫）
+    assert ("refused outright (no approval card" in text) is starts_here

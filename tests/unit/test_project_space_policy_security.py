@@ -5,12 +5,14 @@
 - 拒絕訊息專用（模組層函式挑選，不在 ``execute_to_queue`` 加分支）：暫時的（掃描、探測、封鎖埠、
   執行器重啟）說可以稍後再試，其他說原因；不用通用的「不要再試這個工具」。
 - 政策層級帶「這次有人在場」（``is_human_present``），預設沒有。
+- 專用空間的專案判定出錯也直接拒絕（暫時的），不跳卡；其他專案照舊當成 none。
 """
 
 from __future__ import annotations
 
 import asyncio
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from src.models.identity import AgentIdentity
@@ -18,7 +20,7 @@ from src.models.policy import PolicyContext, PolicyDecision
 from src.models.safety import PROJECT_SPACE_DENY_PREFIX, _require_isolation
 from src.services import tool_executor as executor_module
 from src.services.isolation import policy as policy_module
-from src.services.isolation.status import LevelDecision
+from src.services.isolation.status import CHECK_FAILED, LevelDecision
 from src.utils.tool_events import TOOL_RESULT
 
 from tests.support.hook_wiring import SOUL, WAIT_S, Recorder, clean_approval_state, executor_with
@@ -82,7 +84,8 @@ def test_other_denials_keep_the_generic_text():
 
 
 @pytest.mark.parametrize(
-    "refused", ["scan_limit", "probe_pending", "block_ports_incomplete", "executor_unreachable"]
+    "refused",
+    ["scan_limit", "probe_pending", "block_ports_incomplete", "executor_unreachable", CHECK_FAILED],
 )
 def test_temporary_refusals_say_it_may_work_later(refused):
     message, suggestion = policy_module.denial_text(
@@ -138,6 +141,33 @@ async def test_the_policy_level_says_whether_a_human_is_present(
         identity, ctx, None, "call-1", tool="execute_command", args={"command": "ls"}
     )
     assert seen == [{"root": root, "attended": attended}]
+
+
+@pytest.mark.parametrize("in_space", [True, False])
+async def test_a_failed_check_of_a_space_project_is_still_refused(monkeypatch, tmp_path, in_space):
+    anchor = tmp_path / "touka-projects"
+    root = anchor / "repo" if in_space else tmp_path / "code"
+
+    async def _ready():
+        return None
+
+    broken = AsyncMock(side_effect=OSError)  # 掃描本身出錯
+
+    async def _root(_ctx, _session):
+        return root
+
+    monkeypatch.setattr(policy_module.isolation_monitor, "ensure_ready", _ready)
+    monkeypatch.setattr(policy_module.isolation_monitor, "level_for", broken)
+    monkeypatch.setattr(policy_module.isolation_monitor, "executor_scope_issue", lambda *_: None)
+    monkeypatch.setattr(policy_module, "session_project_root", _root)
+    monkeypatch.setattr(policy_module, "configured_projects_root", lambda: anchor)
+    identity = AgentIdentity.for_role("Alice", "Owner", capabilities=[])
+    decision = await policy_module.policy_level(
+        identity, {"resumable_stream": True}, None, "call-1",
+        tool="execute_command", args={"command": "ls"},
+    )
+    assert (decision.level, decision.reason) == ("none", CHECK_FAILED)
+    assert decision.refused is in_space  # 空間外的照舊交給審批卡
 
 
 async def test_the_executor_denies_a_refused_project_without_running_it(monkeypatch):

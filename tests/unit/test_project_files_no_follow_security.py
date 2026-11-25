@@ -3,7 +3,8 @@
 舊寫法用「解析後還在根裡」決定要不要略過一項，之後用會跟隨連結的 ``is_dir``／``iterdir``／
 ``stat``：判斷完才被換成連結，就會列出根外面的檔名與大小。現在經 ResourceManager 不跟隨地走訪：
 連結（指向根裡或根外）都不列也不進入，大小是 lstat 的，代理人資料夾剪掉。樹的形狀照舊：最多四層、
-隱藏名稱略過、資料夾在前、名稱不分大小寫排序。全部在 ``tmp_path`` 與測試沙盒的資料庫。
+隱藏名稱略過、資料夾在前、名稱不分大小寫排序。專用空間的規則照樣套用：錨點本身、第二層以下、
+根本身之後被換成連到專用空間的連結都不列。全部在 ``tmp_path`` 與測試沙盒的資料庫。
 """
 
 from __future__ import annotations
@@ -12,8 +13,11 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.routers import ui_sessions
+from src.services.isolation import project_binding
+from src.services.isolation.executor_session import PROJECT_ROOT_NAME
 from src.services.resource_manager import resource_manager
 from src.utils.async_db import init_db_async
 
@@ -100,6 +104,7 @@ async def test_tree_shape_depth_hidden_names_and_order(project):
     for hidden in (".env", "node_modules", "venv", "__pycache__", ".git"):
         (project / hidden).mkdir() if "." not in hidden[1:] else (project / hidden).write_text("")
     (project / "zeta.txt").write_text("z", encoding="utf-8")
+    (project / "sub" / ".env").write_text("TOKEN=x", encoding="utf-8")  # 隱藏的檔案（不是資料夾）
     tree = await _tree()
     assert [node["name"] for node in tree] == ["Alpha", "sub", "real.py", "zeta.txt"]
     nodes = _flatten(tree)
@@ -107,3 +112,30 @@ async def test_tree_shape_depth_hidden_names_and_order(project):
         "name": "d", "type": "directory", "path": "Alpha/b/c/d", "children": []
     }
     assert not any(part in nodes for part in (".env", "node_modules", "venv", "__pycache__"))
+    assert "sub/.env" not in nodes
+
+
+@pytest.mark.parametrize("where", ["link_into_the_space", "the_space_itself", "second_level"])
+async def test_project_space_shapes_are_not_listed(project, monkeypatch, where):
+    """一般專案的根之後被換成連到專用空間（或別人專案）的連結、錨點本身、第二層：都不列.
+
+    根目錄檢查不拒絕連結（只看解析後在不在工作區），所以這頁另外套結構層，和終端、檔案工具相同。
+    """
+    anchor = project.parent / PROJECT_ROOT_NAME
+    victim = anchor / "victim"
+    (victim / "src").mkdir(parents=True)
+    (victim / "secret.txt").write_text("s", encoding="utf-8")
+    view = project.parent / "view"
+    _make_dir_link(view, victim)
+    roots = {
+        "link_into_the_space": view, "the_space_itself": anchor, "second_level": victim / "src"
+    }
+
+    async def _root(_project_id):
+        return str(roots[where])
+
+    monkeypatch.setattr(project_binding, "configured_projects_root", lambda: anchor)
+    monkeypatch.setattr(ui_sessions, "get_project_root_path", _root)
+    with pytest.raises(ToukaException) as raised:
+        await _tree()
+    assert raised.value.detail["code"] == ErrorCode.AUTH_PERMISSION_DENIED.value

@@ -1180,6 +1180,12 @@ def test_duplicate_rw_root_names_are_a_config_problem():
     assert srv.config_problem(_config(rw=()), KERNEL, FakeView()) == "roots"
 
 
+def test_a_rw_root_named_like_the_project_space_is_a_config_problem():
+    """專用空間只經 ``--project-root`` 驗過才服務（ADR-0332）：讀寫根不能借它的名稱繞過那道驗證."""
+    config = _config(rw=(PD, MCP, "/srv/touka-projects"))
+    assert srv.config_problem(config, KERNEL, FakeView()) == "roots"
+
+
 @pytest.mark.parametrize("rw", [(PD,), (PD, "/srv/data/mcp_servers")])
 def test_without_the_managed_root_the_executor_does_not_serve(rw):
     """資料所在的 root 只認名稱是 ``managed`` 的（ADR-0293 PR 2 Q7），不退回第一個讀寫 root.

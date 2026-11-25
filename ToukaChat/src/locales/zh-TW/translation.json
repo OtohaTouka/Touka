@@ -2317,8 +2317,14 @@
         "project_not_top_level": "專用空間裡的專案必須是 touka-projects 底下第一層的資料夾，不能是更裡面的子資料夾。",
         "project_name_unsafe": "這個資料夾名稱不能用（開頭或結尾有空白，或是「.」「..」）。請改資料夾名稱再登記。",
         "project_linked": "路徑裡有捷徑（連結）或「..」：專用空間的專案要寫實際的資料夾路徑。",
-        "project_space_unavailable": "這個 Touka 沒有設定專用空間（touka-projects），所以不能登記這個位置。請照升級說明更新 compose 後再試。",
+        "project_space_unavailable": "這個 Touka 沒有設定專用空間（touka-projects），所以不能登記這個位置。專用空間只有 Docker 部署有；Docker 部署請照升級說明更新 compose 後再試。",
         "project_path_form": "專用空間的專案要用工作區根目錄的寫法登記，例如「<工作區根目錄>/touka-projects/<資料夾>」。"
+      },
+      "home_reasons": {
+        "protected_location": "這個資料夾裡有像 Touka 資料或程式的東西（例如叫 soul 的資料夾，或 Touka 自己的程式碼），或路徑上有連結；為了保護 Touka，這裡的指令不會執行。請移走或改名後再登記。",
+        "scan_limit": "這個資料夾檢查不完：可能太大，或裡面有資料夾的權限被改掉、讀不到。太大的話請縮小專案；權限的修法見 README_QUICKSTART 的「專用空間」一節。",
+        "executor_no_project_root": "執行器沒有設定專用空間（升級後 compose 沒更新，或執行器還是舊版）。請照升級說明更新 compose、重建後再試。",
+        "executor_project_root_mismatch": "執行器的專用空間位置和 Touka 的設定不一樣。請照升級說明檢查 compose 裡 touka-projects 的設定。"
       }
     },
     "project_sidebar_view": {

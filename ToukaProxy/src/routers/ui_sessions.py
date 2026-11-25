@@ -859,9 +859,21 @@ async def save_project(
     await _check_project_root(identity, project.root_path)
     # 專用空間（ADR-0332）：一資料夾一專案、綁定前先清 HOME；檢查到寫入整段一把鎖
     async with project_binding.binding_lock:
-        await project_binding.prepare_binding(project.id, project.root_path)
+        # 等鎖時（別人清 HOME 最長 60 秒）同一個編號可能已被別人建好：鎖裡再查一次權限
+        if not await _can_modify_project(identity, project.id):
+            raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+        try:
+            await project_binding.prepare_binding(project.id, project.root_path)
+        except project_binding.BindingRefusedError as exc:
+            raise _binding_refused(exc) from exc
         await _write_project(project, identity)
     return {"status": "success", "project_id": project.id}
+
+
+def _binding_refused(exc: project_binding.BindingRefusedError) -> ToukaException:
+    """專用空間的登記被拒（ADR-0332）轉成錯誤碼；原因只是代碼，畫面靠它挑說明."""
+    extra = {"reason": exc.reason} if exc.reason else {}
+    return ToukaException(ErrorCode[exc.code], detail_override=exc.detail, **extra)
 
 
 async def _write_project(project: ProjectModel, identity: AgentIdentity) -> None:
@@ -1047,6 +1059,10 @@ async def get_project_files(
 
     # A-fix: workspace 包含性檢查 (對 legacy / 非前端寫入的列做縱深防禦，非 admin 受限)。
     if not await _project_root_allowed(identity, root_path_raw):
+        raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+    # 專用空間的規則（ADR-0332）：錨點本身、第二層以下、路上有連結（含根本身之後被換成連到
+    # 專用空間的連結）一律不列，和終端、檔案工具相同
+    if (await project_binding.project_scope(root_path_raw)).kind == "refused":
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
 
     root_path_str = await resource_manager.translate_path(root_path_raw)

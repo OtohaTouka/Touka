@@ -280,7 +280,8 @@ def data_root(rw: Iterable[str]) -> str | None:
 def config_problem(config: ServerConfig, kernel: Kernel, view: FsView) -> str | None:
     """設定的問題代碼（沒有回 None），依檢查順序.
 
-    ``roots``：沒有讀寫 root 或名稱重複；``data_root``：沒有名稱是 ``managed`` 的讀寫 root；
+    ``roots``：沒有讀寫 root、名稱重複，或用了專用空間的名稱（只經 ``--project-root`` 驗過才服務，
+    ADR-0332）；``data_root``：沒有名稱是 ``managed`` 的讀寫 root；
     ``root_path``：root 不存在、不是資料夾或路上有連結；
     ``touka_root``：root 第一層像 Touka 資料根或帶標記（讀不到也算）；``nested``：roots、state、
     ipc 彼此巢狀；``socket_path``：socket 路徑超過 100 bytes；``private_dir``：state 或 ipc 不是
@@ -288,7 +289,7 @@ def config_problem(config: ServerConfig, kernel: Kernel, view: FsView) -> str | 
     """
     roots = (*config.rw, *config.ro)
     names = [PurePosixPath(p).name for p in config.rw]
-    if not config.rw or len(set(names)) != len(names):
+    if not config.rw or len(set(names)) != len(names) or es.PROJECT_ROOT_NAME in names:
         return "roots"
     if data_root(config.rw) is None:
         return "data_root"

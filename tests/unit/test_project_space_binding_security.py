@@ -1,11 +1,14 @@
 """專用空間的專案登記（ADR-0332）.
 
-- 一資料夾一專案：比對結構層解析出的資料夾名稱（不比字串）；所有身分都套用（含管理員）；
-  更新同一個專案不算重複。
+- 一資料夾一專案：比對結構層解析出的資料夾名稱（不比字串，不分大小寫）；所有身分都套用
+  （含管理員）；更新同一個專案不算重複。只有名稱完全相同才算自己的（HOME 依實際名稱分）。
 - 順序寫死：權限 → 根目錄檢查 → 結構層 → 寫法 → 資料夾存在 → 重複 → 清 HOME → 寫入。被拒的登記
-  不會清到任何 HOME；清不掉就不寫入（暫時原因）。整段一把鎖：同時兩個登記同一個資料夾只成一個。
+  不會清到任何 HOME；清不掉就不寫入。整段一把鎖：同時兩個登記同一個資料夾只成一個；拿到鎖後
+  再查一次權限（等鎖時同一個編號可能已被別人建好）。
 - 資料夾第一次被這個專案綁定（新列、或改指到另一個資料夾）才清；清除期間其他存檔不被資料庫鎖住。
-- 刪除（專案頁、刪使用者、自己清資料）之後盡力清，失敗只記 log、不擋刪除。
+- 刪除（專案頁、刪使用者、自己清資料）之後盡力清，失敗只記 log、不擋刪除；拿到鎖時別人已經
+  登記了同一個資料夾就不清。
+- 別處的專案根解析不了（連結迴圈）不會讓登記出錯。
 - 專用空間外的專案完全照舊（不清、不查重複）。
 全部在測試沙盒：工作區、錨點在 tmp_path，清除換成記錄用的替身。
 """
@@ -15,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 
 import pytest
@@ -25,8 +29,13 @@ from src.routers.ui_sessions import ProjectModel
 from src.services.isolation import project_binding, project_space
 from src.services.isolation.executor_session import PROJECT_ROOT_NAME
 from src.services.isolation.home_wipe import HomeWipeError
+from src.services.isolation.status import (
+    EXECUTOR_NO_PROJECT_ROOT,
+    EXECUTOR_PROJECT_ROOT_MISMATCH,
+)
 from src.services.resource_manager import resource_manager
 from src.utils.async_db import get_async_db, get_project_root_path, init_db_async
+from src.utils.touka_dirs import PROTECTED_LOCATION, SCAN_LIMIT
 
 USER = AgentIdentity.for_role(agent_id="bindUser", role="Base", is_human=True, capabilities=[])
 OTHER = AgentIdentity.for_role(agent_id="bindOther", role="Base", is_human=True, capabilities=[])
@@ -100,6 +109,38 @@ def _code(exc: ToukaException) -> str:
     return exc.detail["code"]
 
 
+async def _insert(project_id: str, root: str, owner: str) -> None:
+    """別人已經寫好的一列（不經存檔端點）."""
+    async with get_async_db() as db:
+        await db.execute(
+            "INSERT INTO projects (id, name, root_path, owner_user_id, updatedAt) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (project_id, project_id, root, owner, 1),
+        )
+        await db.commit()
+
+
+class _WatchedLock(asyncio.Lock):
+    """記下有沒有人在等鎖：測試要在對方等鎖的時候動手."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.waiting = asyncio.Event()
+
+    async def acquire(self) -> bool:
+        if self.locked():
+            self.waiting.set()
+        return await super().acquire()
+
+
+def _loop(path: Path) -> None:
+    """指向自己的連結（解析會遇到迴圈）；這台機器不能建連結就跳過（Linux CI 一定跑）."""
+    try:
+        os.symlink(path.name, path)
+    except OSError as exc:
+        pytest.skip(f"symlinks are not available here: {exc}")
+
+
 # --- 綁定與清除 ---------------------------------------------------------------------------
 
 
@@ -128,6 +169,33 @@ async def test_projects_outside_the_space_are_unchanged(space):
     outside.mkdir()
     await _save("bind-out", str(outside))
     await _save("bind-out2", str(outside))  # 空間外不查重複（照舊）
+    assert space.wipes.calls == []
+
+
+async def test_another_spelling_of_the_name_is_another_folder_and_is_wiped(space):
+    """只差大小寫的是另一個資料夾（HOME 依實際名稱分）：改指過去要清，只比大小寫會漏清."""
+    await _save("bind-a", space.folder("repo"))
+    await _save("bind-a", space.folder("Repo"))  # Windows 上是同一個資料夾，名稱照樣不同
+    assert [name for name, _path in space.wipes.calls] == ["repo", "Repo"]
+    exc = await _refused("bind-b", space.folder("REPO"), OTHER)
+    assert _code(exc) == ErrorCode.PROJECT_FOLDER_TAKEN.value  # 判重複仍不分大小寫
+
+
+async def test_a_project_created_while_waiting_for_the_lock_is_not_taken_over(
+    space, monkeypatch
+):
+    """等鎖時（別人清 HOME 最長 60 秒）同一個編號被別人建好：拿到鎖再查權限，不改別人的專案."""
+    lock = _WatchedLock()
+    monkeypatch.setattr(project_binding, "binding_lock", lock)
+    mine, bait = space.folder("repo"), space.folder("bait")
+    async with lock:
+        taking = asyncio.create_task(_save("bind-a", bait, OTHER))
+        await asyncio.wait_for(lock.waiting.wait(), 5)
+        await _insert("bind-a", mine, USER.agent_id)
+    with pytest.raises(ToukaException) as raised:
+        await taking
+    assert _code(raised.value) == ErrorCode.AUTH_PERMISSION_DENIED.value
+    assert await get_project_root_path("bind-a") == mine
     assert space.wipes.calls == []
 
 
@@ -228,6 +296,20 @@ async def test_deleting_a_project_wipes_its_home_best_effort(space, fail, caplog
     assert bool(fail and fail in caplog.text) is bool(fail)
 
 
+async def test_a_folder_bound_again_while_the_delete_waits_is_not_wiped(space, monkeypatch):
+    """刪除後要清 HOME，但等鎖時別人已經登記了同一個資料夾：那是新擁有者的 HOME，不清."""
+    root = space.folder("repo")
+    await _save("bind-a", root)
+    lock = _WatchedLock()
+    monkeypatch.setattr(project_binding, "binding_lock", lock)
+    async with lock:
+        deleting = asyncio.create_task(ui_sessions.delete_project("bind-a", identity=USER))
+        await asyncio.wait_for(lock.waiting.wait(), 5)
+        await _insert("bind-b", root, OTHER.agent_id)
+    assert (await deleting)["status"] == "success"
+    assert [name for name, _path in space.wipes.calls] == ["repo"]  # 只有第一次登記清過
+
+
 async def test_clearing_owned_projects_wipes_the_space_ones(space):
     await _save("bind-a", space.folder("repo"))
     outside = space.workspace / "code"
@@ -237,6 +319,49 @@ async def test_clearing_owned_projects_wipes_the_space_ones(space):
     assert await project_binding.clear_owned_projects(USER.agent_id) == 2
     assert [name for name, _path in space.wipes.calls] == ["repo", "repo"]
     assert await get_project_root_path("bind-a") is None
+
+
+# --- 解析不了的根 ---------------------------------------------------------------------------
+
+
+def test_a_root_that_cannot_be_resolved_is_linked_inside_and_outside_elsewhere(space):
+    """連結迴圈（3.12 的 resolve 會丟錯）：在錨點底下算路上有連結，別處照舊不算."""
+    inside, elsewhere = space.anchor / "loop", space.workspace / "loop"
+    _loop(inside)
+    _loop(elsewhere)
+    scope = project_space.structural_scope(inside, space.anchor)
+    assert (scope.kind, scope.reason) == ("refused", project_space.PROJECT_LINKED)
+    assert project_space.structural_scope(elsewhere, space.anchor).kind == "outside"
+    assert project_space.structural_scope(inside, None).kind == "refused"  # 名稱照樣擋
+
+
+@pytest.mark.parametrize("error", [RuntimeError, OSError])
+def test_a_root_whose_resolve_fails_is_linked_inside_and_outside_elsewhere(
+    space, monkeypatch, error
+):
+    """解析時丟錯（3.12 遇到連結迴圈丟 RuntimeError；這台不能建連結也驗得到）：同上，不往外丟."""
+    real = Path.resolve
+
+    def _resolve(self: Path, *args: object, **kwargs: object) -> Path:
+        if self.name == "loop":
+            raise error
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", _resolve)
+    scope = project_space.structural_scope(space.anchor / "loop", space.anchor)
+    assert (scope.kind, scope.reason) == ("refused", project_space.PROJECT_LINKED)
+    assert project_space.structural_scope(space.workspace / "loop", space.anchor).kind == "outside"
+
+
+async def test_a_looping_project_root_elsewhere_does_not_break_registration(space):
+    """別人的一般專案根是連結迴圈：查重複時逐列判定不出錯，其他人照樣登記得了."""
+    loop = space.workspace / "x" / "l"
+    loop.parent.mkdir()
+    _loop(loop)
+    await _insert("bind-loop", str(loop), OTHER.agent_id)
+    root = space.folder("repo")
+    await _save("bind-a", root)
+    assert await get_project_root_path("bind-a") == root
 
 
 # --- 畫面說得出原因 -------------------------------------------------------------------------
@@ -255,3 +380,13 @@ def test_every_refusal_reason_has_wording_on_the_projects_page(language):
     }
     catalog = json.loads((_LOCALES / language / "translation.json").read_text(encoding="utf-8"))
     assert reasons <= set(catalog["projects"]["projects_view"]["space_reasons"])
+
+
+@pytest.mark.parametrize("language", ["zh-TW", "en"])
+def test_reasons_a_wipe_will_not_outgrow_have_wording_on_the_projects_page(language):
+    """清 HOME 前被擋、等再久也不會好的原因（掃描、執行器設定）有自己的說明，不說「稍後再試」."""
+    reasons = {
+        PROTECTED_LOCATION, SCAN_LIMIT, EXECUTOR_NO_PROJECT_ROOT, EXECUTOR_PROJECT_ROOT_MISMATCH
+    }
+    catalog = json.loads((_LOCALES / language / "translation.json").read_text(encoding="utf-8"))
+    assert reasons <= set(catalog["projects"]["projects_view"]["home_reasons"])
