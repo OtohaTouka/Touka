@@ -87,6 +87,7 @@ tests/
 | `project_download.test.ts`、`useProjects.download.test.ts`、`ProjectsView.download.test.tsx`（ToukaChat） | **專案頁的下載**（ADR-0332 PR B）：每個被拒原因與錯誤碼有自己的說明（兩語），沒有權限說只有主人能下載；檔名安全；經 `fetchTouka` 拿 zip、過一會兒才收回網址；先跳提醒；打包時按鈕停用 |
 | `unit/test_project_files_no_follow_security.py` | **專案檔案清單頁不跟隨連結**（禁令 20）：指向根外或根裡的連結都不列也不進入；舊的判斷說「在根裡」也不跟隨；最多四層、隱藏名稱、資料夾在前；錨點本身、第二層、根之後被換成連到專用空間的連結都 403 |
 | `project_save_wording.test.ts`、`useProjects.save.test.ts`、`ProjectsView.saveFailure.test.tsx`（ToukaChat） | **專案頁說得出原因**：每個專用空間的原因與錯誤碼有自己的說明（兩語），其他是一般的「存不了」；`saveProject` 帶回錯誤碼與原因；被拒時表單保持開啟 |
+| `useEvolution.transport.test.ts`、`useEvolution.confirmInstall.test.ts`、`EvolutionModal.creation.test.tsx`（ToukaChat） | **確認安裝失敗說出原因**：不是管理員（403）、申請過期（404）、其他錯誤碼、沒有錯誤碼、斷線各自的錯誤碼與畫面文字，失敗時視窗不關；`useEvolution.transport.test.ts` 走真的 `fetchTouka`：申請過期時根路徑 404、改打 `/v1` 拿回通用 404，仍是 `TERMINAL_APPROVAL_NOT_FOUND`；不是管理員的 403 不重打 |
 
 既有測試照計畫放寬（只放過專用空間那一筆）：`test_executor_compose_security.py`（執行器多一個掛載，目標是 `--project-root`、來源是 `touka-projects`；proxy 同位置同 volume；映像預建）、`test_hard_floor_roots_security.py`（`mounts_separate` 的 `project_space`）、`test_executor_server_cli.py`、`test_executor_e2e_assets.py`；Linux 真核心 `integration/test_isolation_linux.py` 加三條；容器 `tests/docker/executor_check.py` 加六項。
 
