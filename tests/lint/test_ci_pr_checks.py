@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from lint_ratchet import RUFF_CHECK_ARGS  # scripts/ 由 tests/conftest.py 加進 sys.path
 
 from tests.support.zone_tripwire import FULL_RUN_ENV
 
@@ -24,7 +25,6 @@ WORKFLOW = ROOT / ".github/workflows/native-tool-contracts.yml"
 CONTRIBUTING = ROOT / "CONTRIBUTING.md"
 CI_LABEL = "（CI 會跑）"
 LOCAL_LABEL = "（維護者合併前補跑）"
-RUFF_CONFIG = "ruff.toml"
 PRODUCT_SOURCE_ROOTS = (
     "ToukaProxy/src",
     "ToukaMemory/src",
@@ -45,13 +45,9 @@ def test_product_sources_have_no_pyflakes_errors() -> None:
         [
             sys.executable,
             "-m",
-            "ruff",
-            "check",
-            "--no-cache",
+            *RUFF_CHECK_ARGS,
             "--select",
             "F",
-            "--config",
-            RUFF_CONFIG,
             "--output-format",
             "concise",
             *PRODUCT_SOURCE_ROOTS,
@@ -98,13 +94,11 @@ def test_ci_runs_locked_pyflakes_over_every_product_source_root() -> None:
     assert len(found) == 1, "CI must run exactly one `ruff check --select F` step"
     name, job, runs, index, argv = found[0]
     _assert_blocking(name, job)
-    assert argv[:3] == ["uv", "run", "--no-sync"], "use the ruff locked in uv.lock"
     assert any(run.startswith("uv sync --locked") for run in runs[:index])
-    assert argv[argv.index("--select") + 1] == "F"
-    assert argv[argv.index("--config") + 1] == RUFF_CONFIG
-    assert set(PRODUCT_SOURCE_ROOTS) <= set(argv)
-    loosening = {"--exit-zero", "--fix", "--exclude", "--extend-exclude", "--ignore", "||"}
-    assert not loosening & set(argv)
+    # The whole command is pinned: the locked ruff, the shared file-selection args,
+    # and nothing that could skip files or loosen rules (ADR-0278).
+    expected = ["uv", "run", "--no-sync", *RUFF_CHECK_ARGS, "--select", "F", *PRODUCT_SOURCE_ROOTS]
+    assert argv == expected
 
 
 def test_ci_runs_toukaide_checks_serially_on_the_pinned_node() -> None:

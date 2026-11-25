@@ -3,7 +3,7 @@
 - 狀態：✅ 已實作
 - 日期：2026-11-24
 - 決策者：維護者（總覽板第 102 項選甲、第 104 項核准一頁計畫）
-- 相關：[ADR-0278](0278-lint-ratchets-in-ci.md)（`lint_ratchet.py`、基準一起提交、在 CI 的 pytest 裡跑）、[ADR-0298](0298-rule-text-matches-checks.md)（vulture 單向清單；撤回時照它的做法標狀態）。
+- 相關：[ADR-0278](0278-lint-ratchets-in-ci.md)（`lint_ratchet.py`、基準一起提交、在 CI 的 pytest 裡跑；§8 用比對 git 清單的方式，讓另外三道 ruff 檢查也藏不了檔）、[ADR-0298](0298-rule-text-matches-checks.md)（vulture 單向清單；撤回時照它的做法標狀態）。
 - 影響範圍：`scripts/lint_ratchet.py`（`complexity`）、`tests/lint/complexity_baseline.json`、`tests/lint/test_complexity_ratchet.py`、`tests/lint/test_ci_pr_checks.py`、`CONTRIBUTING.md`「PR 前必做」第 2 項、`docs/handover/tests.md`。產品程式不動，守衛數量不變。
 
 ## 背景
