@@ -709,6 +709,10 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | 底線的掛載證明 | `utils/hard_floor.mounts_separate` 的 `project_space` 參數（呼叫端 `_project_space()`） |
 | 列樹的排版與預設隱藏 | ToukaMemory `utils/no_follow.render_tree`、`LIST_HIDDEN`、`tree_lines`；專案檔案清單頁經 `ResourceManager.tree_entries` |
 | 專案頁的原因說明 | `ToukaChat/src/lib/project_save_wording.ts`（`projectSaveFailureText`） |
+| 下載專案的上限、略過規則與報告（PR B） | `services/project_download.py`（`MAX_*`、`SKIP_*`、`REPORT_NAME`、同時一個的 `_DOWNLOAD_SLOT`）；名單 `utils/git_index.read_index`（index 的原因常數在同檔）；讀名單與走訪 `ResourceManager.read_git_index`、`project_walk`（`no_follow.walk_select_pruned`）；`.env` 判定 `utils/hard_floor.is_env_file_name` |
+| 下載的權限 | `routers/ui_sessions._can_download_project`（比讀取窄） |
+| 送完就刪的回應、zip 的時間範圍 | `utils/temp_file_response.TempFileResponse`；ToukaMemory `utils/no_follow._zip_time`（`zip_open_file` 共用） |
+| 下載的說明與檔名 | `ToukaChat/src/lib/project_download.ts`（`projectDownloadFailureText`、`projectDownloadFileName`）；呼叫 `hooks/useProjects.downloadProject` |
 
 ### 3-K. 資訊安全守衛層：登入憑證綁後端（ADR-0297）
 

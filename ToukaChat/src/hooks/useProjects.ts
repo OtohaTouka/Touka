@@ -1,9 +1,10 @@
 "use client";
 import { useState, useCallback } from 'react';
 import { getActiveProxyUrl, fetchTouka } from '@/lib/connections';
-import { getSystemEpoch } from '@/lib/time_utils';
+import { getSystemEpoch, getSystemNow } from '@/lib/time_utils';
 import { getResponseDetailString, getResponseErrorCode, logSSOTError } from '@/lib/error_handler';
 import type { ProjectSaveFailure } from '@/lib/project_save_wording';
+import { projectDownloadFileName, type ProjectDownloadFailure } from '@/lib/project_download';
 import type { Project } from '@/lib/types';
 
 // O-fix: Project is the SSOT type in lib/types; re-exported here so existing
@@ -13,6 +14,17 @@ export type { Project };
 
 /** 存專案的結果：成功，或被拒絕（帶伺服器給的錯誤碼與原因；斷線時兩個都沒有）。 */
 export type ProjectSaveResult = { ok: true } | ({ ok: false } & ProjectSaveFailure);
+
+/** 下載專案的結果：成功（已交給瀏覽器存檔），或被拒絕（帶錯誤碼與原因；斷線時兩個都沒有）。 */
+export type ProjectDownloadResult = { ok: true } | ({ ok: false } & ProjectDownloadFailure);
+
+/** 被拒絕的回應帶回錯誤碼與原因，畫面才說得出為什麼。 */
+async function responseFailure(res: Response) {
+    return {
+        code: await getResponseErrorCode(res),
+        reason: await getResponseDetailString(res, "reason"),
+    };
+}
 
 export interface FileNode {
     name: string;
@@ -85,10 +97,7 @@ export function useProjects() {
             // root_path 422、權限 403）仍回成功，使 UI 佯裝儲存成功（誤導使用者）。
             // 被拒絕時帶回錯誤碼與原因（專用空間的登記規則，ADR-0332），畫面才說得出為什麼。
             if (!res.ok) {
-                const failure = {
-                    code: await getResponseErrorCode(res),
-                    reason: await getResponseDetailString(res, "reason"),
-                };
+                const failure = await responseFailure(res);
                 logSSOTError(new Error(`projects/save failed: HTTP ${res.status}`), "useProjects:saveProject");
                 return { ok: false, ...failure };
             }
@@ -112,6 +121,33 @@ export function useProjects() {
         } catch (error) {
             logSSOTError(error, "useProjects:deleteProject");
             return false;
+        }
+    };
+
+    // 下載專用空間的專案（ADR-0332 PR B）：經 fetchTouka 帶登入拿 zip，交給瀏覽器存檔；
+    // 不做帶 token 的下載連結。
+    const downloadProject = async (project: Project): Promise<ProjectDownloadResult> => {
+        try {
+            const proxyUrl = getActiveProxyUrl();
+            const path = `/v1/ui/projects/${encodeURIComponent(project.id)}/download`;
+            const res = await fetchTouka(proxyUrl, path);
+            if (!res.ok) {
+                const failure = await responseFailure(res);
+                logSSOTError(new Error(`projects/download failed: HTTP ${res.status}`), "useProjects:downloadProject");
+                return { ok: false, ...failure };
+            }
+            const url = URL.createObjectURL(await res.blob());
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = projectDownloadFileName(project.name, getSystemNow());
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            return { ok: true };
+        } catch (error) {
+            logSSOTError(error, "useProjects:downloadProject");
+            return { ok: false };
         }
     };
 
@@ -173,6 +209,7 @@ export function useProjects() {
         fetchProjects,
         saveProject,
         deleteProject,
+        downloadProject,
         fetchProjectOverview,
         fetchProjectFiles,
         fetchWorkspaceRoot,

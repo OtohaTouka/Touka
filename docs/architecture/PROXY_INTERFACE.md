@@ -2,6 +2,12 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 從網頁下載專用空間的專案（2026-11-25，ADR-0332 PR B）
+
+- `GET /v1/ui/projects/{id}/download`（也有 `/ui/...`）回 `application/zip`（`Cache-Control: no-store`、`X-Content-Type-Options: nosniff`），送完就刪暫存檔、不支援續傳。只有專案的主人（人類本人）能下載；沒有主人的舊專案只給人類管理員；其他人（含非主人的管理員、管理員代打、靈魂、診斷身分）403。
+- 錯誤：沒有根目錄 404 `SESSION_NOT_FOUND`；不在專用空間 422 `VALIDATION_ERROR` `reason=not_dedicated_space`；結構層被拒 422 照它的原因（同登記）；根目錄檢查不過 403；資料夾不在 422 `PROJECT_FOLDER_MISSING`；git 的問題 422 `reason` 是 `no_git`／`git_is_link`／`git_not_folder`／`no_index`／`index_unsupported`／`index_invalid`，途中變成連結是 `project_linked`、遇到代理人資料夾是 `protected_location`；超過上限 413 `REQUEST_TOO_LARGE` `reason` 是 `index_too_large`／`too_many_files`／`too_large`／`walk_too_large`；同時只做一個，忙時 429 `PROJECT_DOWNLOAD_BUSY`（1228）。
+- zip 只放 `.git/index` 上的檔案（現在磁碟上的內容），在 `<專案資料夾>/` 底下；略過的（`.git`、Windows 不能用的名稱、雙向控制字元、捷徑類檔案、`.env`、不是 UTF-8、太長、大小寫重複、連結、子模組、硬連結、不是一般檔案、不見了、讀不到）寫進 zip 根的 `TOUKA_DOWNLOAD_REPORT.txt`，沒有略過就沒有報告。上限與規則見 ADR-0332 決定 9。
+
 ## 專用空間的專案在執行器裡跑（2026-11-25，ADR-0332）
 
 - 專用空間是 compose 的 named volume `touka-projects`，proxy 與執行器都掛在 `/app/workspace/touka-projects`；位置只從部署設定 `TOUKA_PROJECTS_DIR` 來（`profiles.configured_projects_root`），和工作區設定脫鉤。執行器由 `--project-root` 帶入、另外驗；READY 多一個 `project_root`（沒給或驗不過是 null，這時 kind `project` 一律拒絕，其他 kind 照常）。

@@ -43,7 +43,7 @@ from src.models.session_persistence import (
     SessionStreamStateResponse,
     UnknownResult,
 )
-from src.services import soul_prelude_service
+from src.services import project_download, soul_prelude_service
 from src.services.activity_registry import activity_registry
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import (
@@ -56,7 +56,7 @@ from src.services.handover_service import handover_service
 from src.services.hooks.lifecycle import notify_config_change
 from src.services.identity_router import get_verified_identity
 from src.services.identity_service import identity_service
-from src.services.isolation import profiles, project_binding
+from src.services.isolation import profiles, project_binding, project_space
 from src.services.process_registry import process_registry, terminate_processes
 from src.services.resource_manager import resource_manager
 from src.services.rhythm_service import rhythm_service
@@ -74,6 +74,7 @@ from src.utils.async_db import (
 from src.utils.auth_mode import AuthMode, authorize_auth_mode  # noqa: TC001
 from src.utils.history_manager import count_rounds_from_linear, get_linear_messages_from_tree
 from src.utils.task_utils import spawn_logged
+from src.utils.temp_file_response import TempFileResponse
 from src.utils.time_utils import get_current_epoch, get_current_epoch_ms
 from src.utils.touka_dirs import SCAN_LIMIT
 
@@ -1084,6 +1085,62 @@ async def get_project_files(
         raise ToukaException(ErrorCode.SYSTEM_ERROR) from e
     else:
         return {"tree": tree, "root_path": str(root_path)}
+
+
+_NOT_DEDICATED = "Only projects in the dedicated project space can be downloaded."
+
+
+async def _can_download_project(caller: AgentIdentity, project_id: str) -> bool:
+    """下載的權限（ADR-0332 PR B）：專案主人本人；沒有主人的舊專案只給人類管理員.
+
+    比讀取窄：管理員看得到別人的專案，但不能整包帶走；管理員代打、靈魂與診斷身分都不行。
+    """
+    if not caller.is_human:
+        return False
+    owner = await session_service.get_project_owner(project_id)
+    if owner:
+        return caller.agent_id == owner
+    return caller.is_admin_human()
+
+
+@router.get("/projects/{project_id}/download")
+async def download_project(
+    project_id: str,
+    identity: AgentIdentity = Depends(_require_authenticated),  # noqa: B008
+) -> TempFileResponse:
+    """下載專用空間的專案（ADR-0332 PR B）：只放 git 名單上的檔案，zip 送完就刪."""
+    if not await _can_download_project(identity, project_id):
+        raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+    root_path = await get_project_root_path(project_id)
+    if not root_path:
+        raise ToukaException(
+            ErrorCode.SESSION_NOT_FOUND, detail_override="Project root path not found"
+        )
+    scope = await project_binding.project_scope(root_path)
+    if scope.kind == "outside":
+        raise ToukaException(
+            ErrorCode.VALIDATION_ERROR,
+            detail_override=_NOT_DEDICATED,
+            reason=project_download.NOT_DEDICATED_SPACE,
+        )
+    if scope.kind == "refused":
+        raise ToukaException(ErrorCode.VALIDATION_ERROR, reason=scope.reason)
+    if not await _project_root_allowed(identity, root_path):
+        raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+    if not project_space.is_project_folder(scope) or scope.name is None or scope.path is None:
+        raise ToukaException(ErrorCode.PROJECT_FOLDER_MISSING)
+    archive = await project_download.download_project_zip(scope.name, scope.path)
+    logger.warning(
+        "AUDIT: %s downloaded project %s (%d files, %d skipped, %d bytes)",
+        identity.agent_id, project_id, archive.files, archive.skipped, archive.size,
+    )
+    return TempFileResponse(
+        archive.path,
+        remove=resource_manager.remove_file,
+        media_type="application/zip",
+        filename=f"{scope.name}.zip",
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.get("/mission")

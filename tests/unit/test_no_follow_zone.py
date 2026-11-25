@@ -374,6 +374,31 @@ def test_zip_open_file_writes_no_more_than_fstat_said(base):
         assert zf.read("growing.bin") == b"x" * 10
 
 
+@pytest.mark.parametrize(
+    ("mtime", "expected"),
+    [
+        pytest.param(0, (1980, 1, 1, 0, 0, 0), id="1970"),
+        pytest.param(-(10**12), (1980, 1, 1, 0, 0, 0), id="before-local-time-works"),
+        pytest.param(7_258_118_400, (2107, 12, 31, 23, 59, 58), id="2200"),
+        pytest.param(10**15, (2107, 12, 31, 23, 59, 58), id="after-local-time-works"),
+    ],
+)
+def test_zip_open_file_clamps_times_zip_cannot_store(base, mtime, expected):
+    """zip 只存得下 1980～2107 年：超出的夾到邊界，不讓整個打包失敗（ADR-0332 PR B）."""
+    source = base / "t.txt"
+    source.write_bytes(b"t")
+    with zipfile.ZipFile(base / "t.zip", "w") as zf, source.open("rb") as handle:
+        real = os.fstat(handle.fileno())
+        info = os.stat_result(
+            (real.st_mode, real.st_ino, real.st_dev, real.st_nlink, real.st_uid, real.st_gid,
+             real.st_size, mtime, mtime, mtime)
+        )
+        zip_open_file(zf, "t.txt", handle, info)
+    with zipfile.ZipFile(base / "t.zip") as zf:
+        assert zf.getinfo("t.txt").date_time == expected
+        assert zf.read("t.txt") == b"t"
+
+
 # --- 剪枝走訪（R5） ------------------------------------------------------------
 
 

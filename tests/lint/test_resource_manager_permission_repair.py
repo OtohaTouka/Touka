@@ -44,6 +44,7 @@ EXPECTED_RETRY = {
     "iter_files": True,
     "stat_files": True,
     "tree_entries": True,
+    "read_git_index": True,  # 下載專案的名單（ADR-0332 PR B）
     "list_directory": True,
     "list_child_names": True,
     "glob_search": True,
@@ -98,6 +99,7 @@ EXPECTED_EXEMPT = {
     "query_ui_conversations": ("delegates", "query_ui_conversations"),
     "zone_walk": ("generator", "走訪"),
     "zone_walk_open": ("generator", "開檔"),
+    "project_walk": ("generator", "開檔"),
     "zone_handoff": ("generator", "交出"),
     "handoff_cwd": ("generator", "交出"),
 }
@@ -125,7 +127,8 @@ WRITE_ATTRS = frozenset(
 )
 IO_HELPERS = frozenset(
     {"validate_no_symlink_escape", "ensure_no_links", "read_text_no_follow", "read_bytes_no_follow",
-     "kind_no_follow", "open_read_no_follow", "walk_no_follow", "walk_open_no_follow"}
+     "kind_no_follow", "open_read_no_follow", "walk_no_follow", "walk_open_no_follow",
+     "walk_select_pruned"}
 )
 WRITE_IO_HELPERS = frozenset(
     {"write_text_no_follow", "replace_text_no_follow", "remove_no_follow", "write_bytes_no_follow",

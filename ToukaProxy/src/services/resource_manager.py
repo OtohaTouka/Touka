@@ -47,6 +47,7 @@ from memory_server.utils.no_follow import (
     walk_open_no_follow,
     walk_open_pruned,
     walk_pruned,
+    walk_select_pruned,
     write_bytes_no_follow,
     write_text_no_follow,
     zip_open_file,
@@ -82,6 +83,7 @@ from src.config import HOST_WORKSPACE_ROOT, get_app_data_dir, settings
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.services.soul_service import soul_service
+from src.utils import git_index
 from src.utils.isolation_policy import is_skill_segment
 from src.utils.path_security import validate_no_symlink_escape
 from src.utils.permission_repair import permission_repair, permission_repair_exempt
@@ -1403,6 +1405,58 @@ class ResourceManager:
                 for entry in walk
                 if entry.kind in {"dir", "file"} and not hidden(entry.parts[-1])
             ]
+
+    @permission_repair(retry=True)
+    def read_git_index(self, root: Path | str, max_bytes: int) -> tuple[str, bytes]:
+        """讀專案的 ``.git/index``（下載專案的名單，ADR-0332 PR B）；根不解析、不跟隨連結.
+
+        回（狀態, 內容），``ok`` 才有內容；其他狀態：``no_git``（沒有 ``.git``）、``git_is_link``、
+        ``git_not_folder``（``.git`` 是檔案，例如 worktree 的指標）、``no_index``、``index_invalid``
+        （不是一般檔案）、``index_too_large``（超過 ``max_bytes``）。根或上層路上是連結、或檢查之後
+        才被換成連結，丟 ``LinkRefusedError``。
+        """
+        git = Path(_plain_tree(root, "read_git_index")) / ".git"
+        kind = kind_no_follow(git)
+        if kind != "dir":
+            missing = {"missing": git_index.NO_GIT, "link": git_index.GIT_IS_LINK}
+            return missing.get(kind, git_index.GIT_NOT_FOLDER), b""
+        index = git / "index"
+        kind = kind_no_follow(index)
+        if kind != "file":
+            return (git_index.NO_INDEX if kind == "missing" else git_index.INDEX_INVALID), b""
+        handle, info = open_read_no_follow(index)
+        with handle:
+            if info.st_size > max_bytes:
+                return git_index.INDEX_TOO_LARGE, b""
+            data = handle.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            return git_index.INDEX_TOO_LARGE, b""
+        return git_index.INDEX_OK, data
+
+    @permission_repair_exempt(category="generator", reason="走訪時才開檔，開不了的記進統計")
+    def project_walk(
+        self,
+        root: Path | str,
+        report: WalkReport,
+        *,
+        want: Callable[[WalkEntry], bool],
+        skip_dir: Callable[[tuple[str, ...]], bool],
+    ) -> Iterator[tuple[WalkEntry, IO[bytes] | None, os.stat_result | None]]:
+        """下載專案的走訪（ADR-0332 PR B）：根不解析、不跟隨連結（根或上層是連結就拒絕）.
+
+        每一項都給（連結也列出，種類 ``link``）；``want`` 為真的一般檔案不跟隨地開好（拿下一項前
+        關掉），開不了的種類改成 ``unreadable``。``skip_dir`` 為真的資料夾不列也不進入。
+        途中遇到代理人資料夾就整個拒絕（R4）。
+        """
+        text = _plain_tree(root, "project_walk")
+        walk = walk_select_pruned(
+            Path(text), current_roots(), report, want=want, skip_dir=skip_dir
+        )
+        with contextlib.closing(walk):
+            for item in walk:
+                _refuse_pruned(report, "project_walk")
+                yield item
+        _refuse_pruned(report, "project_walk")
 
     def _archive_should_exclude(self, rel: Path) -> bool:
         """判斷打包時是否排除此相對路徑 (建置產物/系統雜訊)."""

@@ -1002,6 +1002,19 @@ def _opened(
 
 
 _ZIP_CHUNK = 1024 * 8  # 和 ZipFile.write 一樣
+# zip 存得下的時間（DOS 日期：1980～2107 年；秒數只存偶數）
+_ZIP_EARLIEST = (1980, 1, 1, 0, 0, 0)
+_ZIP_LATEST = (2107, 12, 31, 23, 59, 58)
+
+
+def _zip_time(mtime: float) -> tuple[int, int, int, int, int, int]:
+    """檔案時間換成 zip 存得下的本機時間；超出範圍（或本機時間算不出來）的夾到邊界."""
+    try:
+        t = datetime.fromtimestamp(mtime).timetuple()
+    except (OverflowError, OSError, ValueError):
+        return _ZIP_EARLIEST if mtime < 0 else _ZIP_LATEST
+    stamp = (t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec)
+    return min(max(stamp, _ZIP_EARLIEST), _ZIP_LATEST)
 
 
 def zip_open_file(
@@ -1011,8 +1024,9 @@ def zip_open_file(
 
     時間（本機時間，和 ``ZipFile.write`` 相同）、權限、大小與壓縮方式都和 ``ZipFile.write`` 一樣；
     最多寫 ``info.st_size`` 位元組，檔案在寫的時候變大也不多讀（大小上限照 ``fstat`` 算）。
+    zip 存不下的時間（1980 年以前、2107 年以後）夾到邊界，不讓整個打包失敗（ADR-0332 PR B）。
     """
-    zinfo = zipfile.ZipInfo(arcname, datetime.fromtimestamp(info.st_mtime).timetuple()[:6])
+    zinfo = zipfile.ZipInfo(arcname, _zip_time(info.st_mtime))
     zinfo.external_attr = (info.st_mode & 0xFFFF) << 16
     zinfo.file_size = info.st_size
     zinfo.compress_type = zf.compression
@@ -1115,6 +1129,41 @@ def walk_open_pruned(
     """同 ``walk_pruned``，但只給不跟隨地開好的一般檔案（打包用，R4）；拿下一個前關掉上一個。"""
     settings = _pruned_settings(roots, report, anchors, skip_dir)
     yield from _opened(_walk(Path(root), settings), report)
+
+
+def walk_select_pruned(
+    root: Path | str,
+    roots: ZoneRoots,
+    report: WalkReport,
+    *,
+    want: Callable[[WalkEntry], bool],
+    anchors: Iterable[Anchor] = ENFORCED_ANCHORS,
+    skip_dir: Callable[[tuple[str, ...]], bool] | None = None,
+) -> Iterator[tuple[WalkEntry, IO[bytes] | None, os.stat_result | None]]:
+    """同 ``walk_pruned``（連結也列出），每一項都給；``want`` 為真的一般檔案另外不跟隨地開好.
+
+    開好的給（項目, 檔案, fstat），拿下一項前由這裡關掉；其他給（項目, None, None）。要開的在
+    開檔前被換成連結時種類改成 ``link``（計入 ``links``），開不了的改成 ``unreadable``（記進
+    ``errors``）。下載專案用（ADR-0332 PR B）：名單以外的不開。
+    """
+    settings = _pruned_settings(roots, report, anchors, skip_dir)
+    settings.show_links = True
+    for entry, opener in _walk(Path(root), settings):
+        if opener is None or not want(entry):
+            yield entry, None, None
+            continue
+        try:
+            fd = opener()
+        except LinkRefusedError:
+            report.links += 1
+            yield entry._replace(kind="link"), None, None
+            continue
+        except OSError as exc:
+            report.errors.append(("/".join(entry.parts), exc.errno or 0))
+            yield entry._replace(kind="unreadable"), None, None
+            continue
+        with os.fdopen(fd, "rb") as handle:
+            yield entry, handle, os.fstat(handle.fileno())
 
 
 def _pruned_settings(

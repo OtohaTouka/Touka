@@ -1,6 +1,6 @@
 # ADR-0332：專用空間的專案在執行器裡跑
 
-- 狀態：✅ 已實作（融合段 2 PR A：專用空間、執行器 kind `project`、登記規則、部署、兩個列檔不跟隨連結的小洞、專案頁的原因說明）。PR B（下載專案）之後在本文補一節。一頁計畫由維護者核准（2026-11-25，總覽板第 58 項全部照建議）；產品程式超過計畫的停止線，維護者 2026-11-25 決定照計畫做完（總覽板第 108 項）。
+- 狀態：✅ 已實作（融合段 2 PR B：從網頁下載專案〔決定 9〕；PR A：專用空間、執行器 kind `project`、登記規則、部署、兩個列檔不跟隨連結的小洞、專案頁的原因說明）。一頁計畫由維護者核准（2026-11-25，總覽板第 58 項全部照建議）；產品程式超過計畫的停止線，維護者 2026-11-25 決定照計畫做完（總覽板第 108 項）。
 - 日期：2026-11-25
 - 決策者：維護者
 - 相關：[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md)（執行器；本 ADR 修訂它「綁了專案一律不在執行器範圍」：只剩專用空間以外的專案）、[ADR-0292](0292-hooks.md)（決定 12：檔案動詞不跟隨連結）、[ADR-0293](0293-agent-folders-no-follow.md)（區與 ResourceManager 的區內方法）、[ADR-0326](0326-deleted-soul-leftovers-not-inherited.md)／[ADR-0328](0328-retired-archives-for-reused-soul-names.md)（同名不繼承）、[ADR-0331](0331-complexity-ratchet.md)（複雜度棘輪）
@@ -69,10 +69,21 @@ ADR-0272 之後，綁了專案的對話一律不在執行器裡跑：每條代�
 - `useProjects.saveProject` 回 `{ok, code?, reason?}`；`lib/project_save_wording.ts` 的 `projectSaveFailureText` 選說明：專用空間的原因 → 清不掉 HOME 且不會自己好的原因（`home_reasons`）→ 專用空間的三個錯誤碼 → 一般的「存不了」。兩語都有；後端的每個原因都有文案（測試釘住）。
 - 審批卡的 `project_not_in_executor` 改說「專案不在專用空間」與怎麼放進去。
 
+### 9. 從網頁下載專案（PR B）
+
+- `GET /ui/projects/{id}/download`（含 `/v1`）：只給專案的主人（人類本人）；沒有主人的舊專案只給人類管理員。比讀取窄：非主人的管理員、管理員代打、靈魂、診斷身分都 403。只有專用空間裡的專案：一般專案 422 `not_dedicated_space`，結構層 `refused` 照它的原因 422；之後套和檔案清單頁相同的根目錄檢查（403），資料夾不在是 `PROJECT_FOLDER_MISSING`。
+- 放哪些檔案只看 `.git/index`：`utils/git_index.py` 純 Python 讀（不跑 git，proxy 與執行器都不跑；index 是代理人寫得到的，跑 git 會讓它的設定跑程式）。支援 v2～v4（含延伸旗標、v4 前綴壓縮）；連結、子模組分開；split index（`link`）、sparse index（`sdir`、資料夾項目）、不認得的小寫擴充段、SHA-256 是 `index_unsupported`；壞掉是 `index_invalid`；沒有 `.git` 是 `no_git`，`.git` 是連結是 `git_is_link`、是檔案（worktree 的指標）是 `git_not_folder`，沒有 index 是 `no_index`。
+- 檔案經 `ResourceManager.project_walk` 從專案根不跟隨連結地走訪（根不解析，根或上層是連結就拒絕；途中遇到代理人資料夾整個拒絕）；名單以外的資料夾不進去、名單以外的檔案不開。名單由 `ResourceManager.read_git_index` 不跟隨連結地讀。
+- 略過並寫進 zip 根的 `TOUKA_DOWNLOAD_REPORT.txt`（兩語，名稱的控制、格式字元與解不開的位元組寫成跳脫碼，每個原因最多列 1,000 條）：`.git`（含 NTFS 短名稱、HFS 忽略字元、結尾的點與空白）、Windows 不能用的名稱（保留字元、控制字元、結尾點或空白、`CON`／`COM¹`／`CONIN$` 等保留名稱）、雙向控制字元、檔案總管會自動處理的捷徑類檔案（`desktop.ini`、`.lnk`、`.url`、`.scf`、`.library-ms`、`.searchconnector-ms`、`.theme`、`.website`）、`.env`（共用 `hard_floor.is_env_file_name`，不分大小寫；`.env.example` 等照放）、不是 UTF-8、路徑超過 200 字、只差大小寫的重複（留第一個）、名單上的連結與子模組、磁碟上的連結（含在連結底下）、硬連結（可能是別處的檔案）、不是一般檔案、不見了、讀不到。
+- zip 裡檔案在 `<專案資料夾>/` 底下；時間超出 zip 能存的範圍夾到 1980-01-01 或 2107-12-31（`zip_open_file` 共用，打包技能與 GDPR 匯出的個人空間檔案也受益）。
+- 上限（`services/project_download.py` 的模組常數）：名單 64 MiB、200,000 項（v4 展開後的名稱總長另有上限）；檔案 50,000 個、累計 512 MiB（依開檔時的 fstat）；走訪 1,000,000 項、走訪加打包 300 秒；超過是 413（`index_too_large`、`too_many_files`、`too_large`、`walk_too_large`）。同時只做一個下載（全系統），忙時 429 `PROJECT_DOWNLOAD_BUSY`（1228）。
+- zip 做在系統暫存資料夾；被拒時刪掉做一半的；請求取消時打包照樣做完（在執行緒裡），做完就刪；送出後一律刪掉（`utils/temp_file_response.TempFileResponse`：Starlette 的 `background` 在送到一半斷線或 Range 不合格時不跑）。回應 `Cache-Control: no-store`、`X-Content-Type-Options: nosniff`；稽核紀錄寫誰、哪個專案、幾個檔案、略過幾個、多大。
+- 前端：專案卡片一直看得到的下載按鈕；先跳提醒（zip 裡是代理人寫的程式，VS Code 選「不信任」），確認後 `useProjects.downloadProject` 經 `fetchTouka` 帶登入拿 zip、交給瀏覽器存檔（不做帶 token 的連結）；檔名是專案名稱（不安全的字元換掉、截短）加日期。被拒時 `lib/project_download.ts` 依原因說明（兩語）。
+
 ## 後果
 
 - 代理人可以在專用空間的專案裡長時間工作：有人在場時不用每條核准，看不到 Touka 的金鑰、設定、原始碼、其他專案與個人空間；專案之間的 HOME（例如 `~/.gitconfig`）不共用；換人登記拿不到上一個專案留下的暫存（上一個專案的指令都結束之後，見已知限制）。
-- 專用空間不在 Touka 的備份裡；`docker compose down -v` 會連同裡面所有專案一起刪掉。PR B 之前要拿回專案只能用 `docker cp`。
+- 專用空間不在 Touka 的備份裡；`docker compose down -v` 會連同裡面所有專案一起刪掉。PR B 之後可以從專案頁下載 git 追蹤的檔案（沒追蹤的仍要 `docker cp`）。
 - 已知限制：
   - 你在 Touka 裝了會讀專案內容的 lint 類 hook 時，那個 hook 以 Touka 的權限跑，不受隔離；放寬之後這件事風險變大。
   - 刪除或改指專案時，當下還在跑的指令不停掉（背景指令最長 600 秒，執行器上限 900 秒）。這段時間內有人登記同一個資料夾，舊指令仍可能在清除之後寫進 HOME（計畫已列），也讀寫得到新擁有者放進專案的檔案（審查補充）；新登記的清除擋不住。README 請換人時等 15 分鐘。
@@ -94,6 +105,20 @@ ADR-0272 之後，綁了專案的對話一律不在執行器裡跑：每條代�
   - READY 的專案根不符不併進一般的 READY 檢查（附錄有一處舊寫法寫成 `executor_roots_mismatch`），只讓專用空間的專案被拒。
   - `isolation_wording.ts` 不改：新原因不會出現在審批卡上（被拒絕的直接拒絕、沒人在場沒有卡）。
   - 不在 `touka-init` 加 chown：靠映像預建加 copy-up，容器端到端檢查核對根是 1001 的。
+- PR B 的已知限制：
+  - 放的是 git 追蹤的路徑「現在磁碟上的內容」（含還沒 commit 的修改）；還沒 `git add` 的新檔案不放。每個檔案是開檔那一刻的內容，打包途中被改的檔案之間可能不一致。
+  - zip 在 proxy 的暫存資料夾，最大約 512 MiB；同時只做一個（全系統），大專案會讓別人等。
+  - 走訪一個資料夾時先把它的名稱全部列進記憶體，項目上限在列完之後才算（和其他走訪相同）；時間上限在項目之間檢查，單一大檔的壓縮不中斷。
+  - 只差大小寫的判斷用 Unicode casefold，不是 NTFS 的對照表，極少數字元會判得不同。
+  - zip 裡是代理人寫的內容（例如 `.vscode/tasks.json` 的開資料夾就執行）：只靠下載前的提醒與 VS Code 的受限模式。
+  - 下載的回應不支援續傳（送一次就刪）。
+  - 既有的備份下載與 GDPR 匯出仍用 `BackgroundTask` 刪暫存檔，斷線時會留下（既有；不在本 PR 範圍）。
+- PR B 和計畫附錄不同、照實寫在這裡的地方：
+  - 多一個原因 `git_not_folder`（`.git` 是檔案，例如 worktree）；附錄只有 `git_is_link`。
+  - sparse index 的資料夾項目算 `index_unsupported`；split index 的項目名稱是空的，所以先看擴充段再判空名稱。另加單一名稱 4,096 位元組與 v4 展開後總長 64 MiB 的上限（審查前自己找到的：小檔案展開成巨量）。
+  - 送完刪暫存檔改用 `TempFileResponse`，不是附錄寫的 `BackgroundTask`（理由見上）。
+  - 走訪的時間上限包含打包（兩者交錯進行）。
+  - 下載時另套和檔案清單頁相同的根目錄檢查（非管理員 403）；資料夾不在沿用 `PROJECT_FOLDER_MISSING`，前端另有下載用的說明。
 
 ## 不採用
 
@@ -108,3 +133,4 @@ ADR-0272 之後，綁了專案的對話一律不在執行器裡跑：每條代�
 - 前端：`project_save_wording.test.ts`、`useProjects.save.test.ts`、`ProjectsView.saveFailure.test.tsx`。
 - Linux 真核心（`test_isolation_linux.py`）：專案裡讀寫、執行都可以；旁邊的專案（直接或經連結）、個人空間、錨點本身都碰不到；HOME 依專案分開；沒給 `--project-root` 時 kind `project` 被拒、其他照常。
 - 容器（`tests/docker/executor_check.py`、`isolation.compose.yml`）：READY 的專案根、有人／沒人在場的層級、volume 的根是 1001 的、uid／HOME／cwd、碰不到旁邊與個人空間、HOME 分開、執行器容器裡沒有 `.env` 與工作區其他內容。
+- PR B：`test_git_index_security.py`（手工組的 index 與真的 git 產生的 v2～v4、split index）、`test_project_download_security.py`（權限、範圍、名單問題、每一種略過與報告、上限、同時一個、取消與斷線時刪 zip）、`test_no_follow_zone.py` 與 `test_resource_manager_archive.py` 的時間夾邊界；前端 `project_download.test.ts`、`useProjects.download.test.ts`、`ProjectsView.download.test.tsx`。

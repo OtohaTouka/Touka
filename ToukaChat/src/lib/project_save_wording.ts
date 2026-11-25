@@ -8,8 +8,8 @@ export interface ProjectSaveFailure {
   reason?: string;
 }
 
-/** 專用空間（ADR-0332）的登記被拒絕的原因：每個都有自己的說明。 */
-const SPACE_REASONS: ReadonlySet<string> = new Set([
+/** 專用空間（ADR-0332）的登記被拒絕的原因：每個都有自己的說明（下載被拒時也用）。 */
+export const SPACE_REASONS: ReadonlySet<string> = new Set([
   "project_space_root",
   "project_not_top_level",
   "project_name_unsafe",
