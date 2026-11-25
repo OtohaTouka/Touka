@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -89,3 +91,13 @@ def structural_scope(project_root: Path | str | None, anchor: Path | None) -> Pr
     if not is_safe_segment(name):
         return _refused(PROJECT_NAME_UNSAFE)
     return ProjectScope("ok", name=name, path=anchor / name)
+
+
+def is_project_folder(scope: ProjectScope) -> bool:
+    """``ok`` 的專案資料夾真的在（是資料夾、不是連結）；登記前與刪除後清 HOME 用."""
+    if scope.kind != "ok" or scope.path is None:
+        return False
+    try:
+        return stat.S_ISDIR(os.lstat(scope.path).st_mode)
+    except OSError:
+        return False

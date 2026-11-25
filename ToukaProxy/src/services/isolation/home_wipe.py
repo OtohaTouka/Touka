@@ -1,4 +1,4 @@
-"""刪除靈魂前清掉它在隔離暫存區的 HOME／TMP：同 ID 的新靈魂不沿用舊檔案（ADR-0272 已知限制 26）.
+"""清掉隔離暫存區的 HOME／TMP：同 ID 的新靈魂、新登記的專案不沿用舊檔案（ADR-0272、ADR-0332）.
 
 - proxy 那一層（``ST/proxy/agents/<id>``，proxy 自己的 volume）：proxy 直接整個刪掉；路徑上有連結就
   拒絕，不跟過去。
@@ -6,6 +6,8 @@
   START（kind agents、owner 是這個 ID、cwd 是它的 personal_drive）跑固定的清除指令；Landlock 只給它
   自己的 home、tmp 與 personal_drive。不是代理人的程式，所以不需要同意；只用執行器、不降級。
 - 部署預期是執行器時，執行器不能用、清不乾淨或逾時都拋 ``HomeWipeError``，呼叫端擋下刪除。
+- 專用空間的專案（``wipe_project_home``）：只有執行器那一層（``<state_root>/project/<資料夾名>``），
+  START 是 kind project（cwd 是專案根）；掃描不過也拒絕。登記前呼叫（清不掉就不登記）。
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from src.services.execution_broker import spawn_exec
 from src.services.isolation.profiles import (
     ProfileError,
     build_agent_command_profile,
+    build_project_command_profile,
     current_layout,
     proxy_state_owner,
 )
@@ -44,8 +47,11 @@ from src.services.resource_manager import resource_manager
 from src.utils.isolation_policy import is_safe_segment
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from src.models.identity import AgentIdentity
     from src.services.isolation.profiles import Location, SandboxProfile
+    from src.services.isolation.runners import Acquired, LaunchPlan
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +96,63 @@ async def _profile(
     )
 
 
+async def wipe_project_home(name: str, project: Path) -> None:
+    """專用空間的資料夾被綁定前清掉它在執行器裡的 HOME／TMP；清不掉拋 ``HomeWipeError``."""
+    source = ProfileSource(partial(_project_profile, name, project), None, dedicated=True)
+    try:
+        acquired, plan = await _plan_wipe(source)
+    except OSError as exc:
+        raise HomeWipeError("project_unavailable") from exc
+    await _run_wipe(acquired, plan, await _spawn_wipe(acquired, plan))
+
+
+async def _project_profile(
+    name: str, project: Path, location: Location, executor_state: str | None
+) -> SandboxProfile:
+    return await build_project_command_profile(
+        name,
+        project,
+        agent_id=None,
+        layout=current_layout(),
+        location=location,
+        block_ports=isolation_monitor.block_ports(location),
+        executor_state=executor_state,
+    )
+
+
+async def _plan_wipe(
+    source: ProfileSource, before_plan: Callable[[], object] | None = None
+) -> tuple[Acquired, LaunchPlan]:
+    """取得執行器、組清除指令；組不出來拋 ``HomeWipeError``（``OSError`` 留給呼叫端分類）."""
+    try:
+        acquired = await runner_broker.acquire_maintenance(source)
+        if before_plan is not None:
+            before_plan()
+        env = acquired.profile.env_set
+        argv = ("/bin/sh", "-c", WIPE_SCRIPT, "touka-home-wipe", env["HOME"], env["TMPDIR"])
+        request = ExecRequest(
+            argv=argv, env={}, profile=acquired.profile,
+            max_seconds=executor_max_seconds(WIPE_SECONDS),
+        )
+        return acquired, acquired.runner.plan(request)
+    except (IsolationUnavailableError, ProfileError) as exc:
+        raise HomeWipeError(getattr(exc, "reason", None) or "isolation_unavailable") from exc
+
+
+async def _spawn_wipe(acquired: Acquired, plan: LaunchPlan) -> asyncio.subprocess.Process:
+    try:
+        return await spawn_exec(
+            *plan.argv, new_process_group=True, cwd=str(plan.cwd), env=plan.env,
+            pass_fds=plan.pass_fds, stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        acquired.runner.failure(plan.read_status())  # 沒啟動：狀態 fd 的讀端照樣關掉
+        raise HomeWipeError("spawn_failed") from exc
+    finally:
+        plan.release()
+
+
 async def _wipe_in_executor(identity: AgentIdentity) -> None:
     drive = resource_manager.soul_drive(identity)  # 個人空間（ADR-0293）
     if drive is None:
@@ -101,32 +164,17 @@ async def _wipe_in_executor(identity: AgentIdentity) -> None:
             cwd = handoff.enter_context(
                 resource_manager.zone_handoff(drive, HandoffKind.SUBPROCESS_CWD)
             )
-            acquired = await runner_broker.acquire_maintenance(
-                ProfileSource(partial(_profile, identity, Path(cwd)), issue)
-            )
-            resource_manager.zone_make_dir(drive)  # 刪除靈魂接著會整個刪掉
-            env = acquired.profile.env_set
-            argv = ("/bin/sh", "-c", WIPE_SCRIPT, "touka-home-wipe", env["HOME"], env["TMPDIR"])
-            request = ExecRequest(
-                argv=argv, env={}, profile=acquired.profile,
-                max_seconds=executor_max_seconds(WIPE_SECONDS),
-            )
-            plan = acquired.runner.plan(request)
-        except (IsolationUnavailableError, ProfileError) as exc:
-            raise HomeWipeError(getattr(exc, "reason", None) or "isolation_unavailable") from exc
+            source = ProfileSource(partial(_profile, identity, Path(cwd)), issue)
+            make_drive = partial(resource_manager.zone_make_dir, drive)  # 刪除靈魂接著會整個刪掉
+            acquired, plan = await _plan_wipe(source, make_drive)
         except OSError as exc:  # 含個人空間路上有連結
             raise HomeWipeError("drive_unavailable") from exc
-        try:
-            proc = await spawn_exec(
-                *plan.argv, new_process_group=True, cwd=str(plan.cwd), env=plan.env,
-                pass_fds=plan.pass_fds, stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-            )
-        except OSError as exc:
-            acquired.runner.failure(plan.read_status())  # 沒啟動：狀態 fd 的讀端照樣關掉
-            raise HomeWipeError("spawn_failed") from exc
-        finally:
-            plan.release()
+        proc = await _spawn_wipe(acquired, plan)
+    await _run_wipe(acquired, plan, proc)
+
+
+async def _run_wipe(acquired: Acquired, plan: LaunchPlan, proc: asyncio.subprocess.Process) -> None:
+    """等清除跑完；逾時、失敗代碼或結束碼不是 0 都拋 ``HomeWipeError``."""
     try:
         code = await asyncio.wait_for(proc.wait(), WIPE_SECONDS)
     except TimeoutError as exc:

@@ -20,8 +20,8 @@ from src.services.agent_reset.last_result import last_reset
 from src.services.agent_reset.orchestrator import reset_agent_data, scrub_rejected
 from src.services.auth_service import AuthService
 from src.services.authorization_gateway import require_admin_authority, require_admin_human
+from src.services.isolation.project_binding import clear_owned_projects
 from src.services.user_service import UserService
-from src.utils.async_db import session_service
 from src.utils.csrf_guard import verify_origin
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -131,7 +131,7 @@ async def delete_user(
     # a cleanup hiccup must not fail the request (mirrors delete_user's avatar cleanup);
     # failures are logged, not silent.
     try:
-        cleared = await session_service.clear_projects_owned_by(user_id)
+        cleared = await clear_owned_projects(user_id)  # 專用空間的另外盡力清 HOME
         logger.info("Cleared %d owned project(s) for deleted user %s", cleared, user_id)
     except Exception:
         logger.exception("Failed to clear owned projects for deleted user %s", user_id)

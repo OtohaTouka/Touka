@@ -578,7 +578,7 @@ async def build_project_command_profile(
     name: str | None,
     project: Path | None,
     *,
-    agent_id: str,
+    agent_id: str | None,
     layout: SandboxLayout,
     location: Location = "executor",
     block_ports: tuple[int, ...] | None = None,
@@ -588,7 +588,7 @@ async def build_project_command_profile(
 
     ``name``、``project`` 來自結構層（``project_space.structural_scope`` 的 ``ok``），這裡再核對
     位置正好是錨點第一層。不給個人空間與公開設定檔；掃描（``authorize_derived_path``）不過時
-    標成沒授權，broker 一律拒絕。``agent_id`` 只用在掃描的 owner。
+    標成沒授權，broker 一律拒絕。``agent_id`` 只用在掃描的 owner（系統維護清 HOME 時是 None）。
     """
     subject = name or "project"
     anchor = layout.projects_root

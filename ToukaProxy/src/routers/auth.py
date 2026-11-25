@@ -35,9 +35,9 @@ from src.models.user import User, UserCreate, UserOut  # noqa: TC001
 from src.services.auth_service import AuthService, access_token_is_stale
 from src.services.avatar_service import delete_avatar, save_avatar
 from src.services.gdpr_export_service import create_encrypted_export
+from src.services.isolation.project_binding import clear_owned_projects
 from src.services.resource_manager import resource_manager
 from src.services.user_service import UserService
-from src.utils.async_db import session_service
 from src.utils.csrf_guard import verify_origin
 from src.utils.rate_limiter import RateLimiter
 from src.utils.time_utils import get_current_epoch
@@ -373,7 +373,7 @@ async def clear_my_data(
         raise ToukaException(ErrorCode.AUTH_REAUTH_FAILED)
 
     # 1) Owned-project settings: delete rows + un-link sessions; keep physical folders.
-    cleared_projects = await session_service.clear_projects_owned_by(current_user.id)
+    cleared_projects = await clear_owned_projects(current_user.id)
     # 2) Profile fields (incl. avatar_url=None) — the reliable DB clear runs first so a
     #    locked/unremovable avatar FILE cannot leave the profile half-cleared.
     UserService().update_user_profile(

@@ -56,7 +56,7 @@ from src.services.handover_service import handover_service
 from src.services.hooks.lifecycle import notify_config_change
 from src.services.identity_router import get_verified_identity
 from src.services.identity_service import identity_service
-from src.services.isolation import profiles
+from src.services.isolation import profiles, project_binding
 from src.services.process_registry import process_registry, terminate_processes
 from src.services.resource_manager import resource_manager
 from src.services.rhythm_service import rhythm_service
@@ -858,6 +858,14 @@ async def save_project(
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     # A-fix: 非 admin 不得把專案根目錄指向工作區 jail 之外 (path disclosure 防護)。
     await _check_project_root(identity, project.root_path)
+    # 專用空間（ADR-0332）：一資料夾一專案、綁定前先清 HOME；檢查到寫入整段一把鎖
+    async with project_binding.binding_lock:
+        await project_binding.prepare_binding(project.id, project.root_path)
+        await _write_project(project, identity)
+    return {"status": "success", "project_id": project.id}
+
+
+async def _write_project(project: ProjectModel, identity: AgentIdentity) -> None:
     try:
         async with get_async_db() as db:
             updated_at = project.updatedAt or int(get_current_epoch() * 1000)
@@ -888,8 +896,6 @@ async def save_project(
     except Exception as e:
         logger.exception("Failed to save project %s", project.id)
         raise ToukaException(ErrorCode.SYSTEM_ERROR) from e
-    else:
-        return {"status": "success", "project_id": project.id}
 
 
 @router.delete("/projects/{project_id}")
@@ -903,6 +909,7 @@ async def delete_project(
         identity, project_id
     ):
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+    root_path = await get_project_root_path(project_id)
     try:
         async with get_async_db() as db:
             await db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
@@ -914,8 +921,8 @@ async def delete_project(
     except Exception as e:
         logger.exception("Failed to delete project %s", project_id)
         raise ToukaException(ErrorCode.SYSTEM_ERROR) from e
-    else:
-        return {"status": "success", "project_id": project_id}
+    await project_binding.forget_bindings([root_path])  # 專用空間：盡力清 HOME（ADR-0332）
+    return {"status": "success", "project_id": project_id}
 
 
 # --- Project Overview & Files ---
