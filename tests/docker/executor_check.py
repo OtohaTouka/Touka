@@ -451,9 +451,13 @@ async def connect(args: argparse.Namespace) -> Session | None:
     判定與執行器位置都不看本機 ST。data 根是已知例外：要和執行器共用 ``--data`` 那個資料夾，沙盒卻把
     RM 的 data 根換到自己的資料夾，所以版面另外指定（兩者不同時沒有檢查會擋）。
     """
+    base = current_layout()
+    # 鏡像根只放工作區掛載點（專用空間的上一層），和正式的 proxy 相同：容器裡 /app 底下的位置
+    # 靠它判定能不能授權（沒有時專案一律 protected_location）
+    mirrors = (base.projects_root.parent,) if base.projects_root is not None else ()
     layout = replace(
-        current_layout(), data_root=args.data, config_dir=args.config, kernel_dir=args.kernel,
-        executor_dir=args.ipc, mirror_roots=(), in_container=True,
+        base, data_root=args.data, config_dir=args.config, kernel_dir=args.kernel,
+        executor_dir=args.ipc, mirror_roots=mirrors, in_container=True,
     )
     monitor = IsolationMonitor(layout_provider=lambda: layout, start_background=False)
     snap = await monitor.ensure_ready()
