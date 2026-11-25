@@ -326,6 +326,24 @@ export const ERRORS = {
     msg: "A former home conversation cannot be deleted until its handover finishes",
     i18n: "error.session.old_home_not_deletable"
   },
+  PROJECT_FOLDER_TAKEN: {
+    id: 1225,
+    status: 409,
+    msg: "這個資料夾已經登記成另一個專案；一個資料夾只能是一個專案",
+    i18n: "error.project.folder_taken"
+  },
+  PROJECT_FOLDER_MISSING: {
+    id: 1226,
+    status: 422,
+    msg: "專用空間裡還沒有這個資料夾：請先把專案放進去再登記",
+    i18n: "error.project.folder_missing"
+  },
+  PROJECT_HOME_NOT_CLEARED: {
+    id: 1227,
+    status: 503,
+    msg: "清不掉這個資料夾上次留下的暫存資料（執行器可能還沒準備好），請稍後再試",
+    i18n: "error.project.home_not_cleared"
+  },
   TERMINAL_APPROVAL_NOT_FOUND: {
     id: 1208,
     status: 404,

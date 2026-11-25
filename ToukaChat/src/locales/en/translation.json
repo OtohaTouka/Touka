@@ -1782,7 +1782,7 @@
           "executor_restarted": "The executor restarted before this command started, so it wasn't handed over; Touka will recheck, which usually takes a few seconds.",
           "executor_rejected": "The executor refused this command (it and Touka disagree about this run's settings); Touka will recheck. If it keeps happening, run:\ndocker compose up -d --build",
           "agent_dir_not_in_executor": "This agent's folder isn't in the executor (for example custom models such as DebugAgent), so its commands can only run inside Touka's main container and each one needs your approval.",
-          "project_not_in_executor": "This conversation is bound to a project, and the project folder isn't mounted in the executor, so every command needs your approval; with nobody present it is refused.",
+          "project_not_in_executor": "This conversation is bound to a project outside the project space (touka-projects), and the executor can't see it, so every command needs your approval; with nobody present it is refused. To run it in the executor, put the project in the project space and register it there.",
           "block_ports_incomplete": "Touka can't read the custom connection settings (connections.json), or the file is broken, so it isn't sure which upstream ports to block. Once the file's content or permissions are fixed it recovers within about half a minute; if permissions need touka-init, follow the recovery steps in the upgrade guide (they already include a restart).",
           "block_ports_overflow": "More than 1024 ports would need blocking (too many upstream addresses in custom connections and MCP), so only Touka's own ports are blocked. Reduce the upstream addresses in custom connections or MCP, then restart Touka.",
           "interpreter_untrusted": "The Python that Touka uses to start isolation isn't trusted: in a container, it (or a folder on its path) isn't owned by root or can be changed by someone else; running directly on a host, the Python behind the venv can't be found. So this can't run isolated. With Docker, rebuild the image:\ndocker compose up -d --build\nRunning directly on a Linux host, check where Python is installed (the Python the venv points to still exists and its path resolves)."
@@ -2321,7 +2321,21 @@
       "updated_at": "Updated: {{date}}",
       "open_session_button": "Open Project Conversation",
       "about_title": "About Project Awareness",
-      "about_description": "Once a project is linked, Touka automatically tags the current working directory for agents behind the scenes. This means agents can read or modify code in that directory directly via the Terminal tool, without you manually copying paths. Make sure the absolute path you provide is correct."
+      "about_description": "Once a project is linked, Touka automatically tags the current working directory for agents behind the scenes. This means agents can read or modify code in that directory directly via the Terminal tool, without you manually copying paths. Make sure the absolute path you provide is correct.",
+      "space_reasons": {
+        "project_space_root": "You can't register the whole project space (touka-projects) as a project. Pick a folder inside it.",
+        "project_not_top_level": "Projects in the project space must be a folder directly inside touka-projects, not a folder deeper down.",
+        "project_name_unsafe": "This folder name can't be used (it starts or ends with a space, or is \".\" or \"..\"). Rename the folder, then register it.",
+        "project_linked": "The path has a shortcut (link) or \"..\" in it. Projects in the project space need the real folder path.",
+        "project_space_unavailable": "This Touka has no project space (touka-projects) set up, so this location can't be registered. Only Docker deployments have a project space; on Docker, update compose following the upgrade steps, then try again.",
+        "project_path_form": "Register projects in the project space using the workspace root form, for example \"<workspace root>/touka-projects/<folder>\"."
+      },
+      "home_reasons": {
+        "protected_location": "This folder contains something that looks like Touka's data or code (for example a folder named soul, or Touka's own source code), or its path has a link. To protect Touka, commands here won't run. Move or rename those, then register it again.",
+        "scan_limit": "This folder couldn't be fully checked: it may be too large, or a folder inside had its permissions changed and can't be read. If it's too large, make the project smaller; for permissions, see the project space section of README_QUICKSTART.",
+        "executor_no_project_root": "The executor has no project space set up (compose wasn't updated after the upgrade, or the executor is still the old version). Update compose following the upgrade steps, rebuild, then try again.",
+        "executor_project_root_mismatch": "The executor's project space location doesn't match Touka's setting. Check the touka-projects settings in compose following the upgrade steps."
+      }
     },
     "project_sidebar_view": {
       "no_project_linked": "This conversation is not yet linked to any project",
@@ -2672,6 +2686,11 @@
       "result_too_large": "The helper's result is too large.",
       "not_paired": "The helper is not paired yet.",
       "not_paired_human": "Only the person who created the pairing code can ask the helper to open a folder."
+    },
+    "project": {
+      "folder_taken": "This folder is already registered as another project. A folder can only be one project.",
+      "folder_missing": "This folder isn't in the project space yet. Put the project there first, then register it.",
+      "home_not_cleared": "Touka couldn't clear the temporary data this folder left from last time (the executor may not be ready yet). Try again in a little while."
     }
   }
 }

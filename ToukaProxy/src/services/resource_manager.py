@@ -25,8 +25,8 @@ from typing import TYPE_CHECKING, Any
 from memory_server.models.conversation_search import ConversationSearchError
 from memory_server.utils.drive_bound import same_drive
 from memory_server.utils.no_follow import (
-    LINK_NOT_FOLLOWED,
     LINK_REFUSED_MESSAGE,
+    LIST_HIDDEN,
     LinkRefusedError,
     WalkReport,
     ZoneLinkRefusedError,
@@ -40,6 +40,7 @@ from memory_server.utils.no_follow import (
     remove_no_follow,
     remove_tree_no_follow,
     rename_entry_no_follow,
+    render_tree,
     replace_text_no_follow,
     rglob_match,
     walk_no_follow,
@@ -129,7 +130,6 @@ def _archive_skips_dir(parts: tuple[str, ...]) -> bool:
 
 
 # list_directory／zone_list 一律隱藏的名稱（任何深度）
-_LIST_HIDDEN = frozenset({".git", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache"})
 # 個人空間裡的輸出與上傳資料夾（/v1/outputs 服務的就是這裡）
 _OUTPUTS_DIR = "outputs"
 _UPLOADS_DIR = "uploads"
@@ -159,47 +159,6 @@ def _removable(zp: ZonePath) -> None:
 
 def _norm_parts(parts: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(os.path.normcase(part) for part in parts)
-
-
-def _render_tree(
-    entries: list[WalkEntry], report: WalkReport, hidden: frozenset[str], max_depth: int
-) -> list[str]:
-    """把走訪結果排成 ``list_directory`` 的樹狀文字（同層依名稱排序；讀不到的照舊標示）."""
-    children: dict[tuple[str, ...], list[tuple[str, str]]] = {}
-    for entry in entries:
-        if entry.parts[-1] not in hidden:
-            children.setdefault(entry.parts[:-1], []).append((entry.parts[-1], entry.kind))
-    seen = {entry.parts for entry in entries}
-    unreadable: set[tuple[str, ...]] = set()
-    for rel, _code in report.errors:
-        parts = tuple(rel.split("/")) if rel else ()
-        unreadable.add(parts)
-        if parts and parts not in seen and parts[-1] not in hidden:
-            children.setdefault(parts[:-1], []).append((parts[-1], "dir"))
-
-    def build(parts: tuple[str, ...], depth: int, prefix: str) -> list[str]:
-        if depth > max_depth:
-            return [f"{prefix}... (max depth {max_depth} reached)"]
-        if parts in unreadable:
-            return [f"{prefix}└── [Permission Denied]"]
-        items = sorted(children.get(parts, []), key=lambda item: os.path.normcase(item[0]))
-        lines: list[str] = []
-        for i, (name, kind) in enumerate(items):
-            last = i == len(items) - 1
-            connector = "└── " if last else "├── "
-            if kind == "link":
-                lines.append(f"{prefix}{connector}{name} {LINK_NOT_FOLLOWED}")
-            elif kind == "dir":
-                lines.append(f"{prefix}{connector}{name}/")
-                inner = prefix + ("    " if last else "│   ")
-                lines.extend(build((*parts, name), depth + 1, inner))
-            else:
-                lines.append(f"{prefix}{connector}{name}")
-        if not items:
-            lines.append(f"{prefix}└── (empty)")
-        return lines
-
-    return build((), 1, "")
 
 
 def _plain(path: Path | str, method: str) -> str:
@@ -1025,7 +984,7 @@ class ResourceManager:
     ) -> list[str]:
         """同 ``list_directory`` 的樹狀格式（連結只列名稱）；根是連結就拒絕."""
         target = self._zone_target(zp, "zone_list")
-        hidden = _LIST_HIDDEN | exclude
+        hidden = LIST_HIDDEN | exclude
         report = WalkReport()
         with zone_errors(zp.display()):
             kind = kind_no_follow(target)
@@ -1046,7 +1005,7 @@ class ResourceManager:
                 if max_depth >= 1
                 else []
             )
-        return [f"📁 {target}:", *_render_tree(entries, report, hidden, max_depth)]
+        return [f"📁 {target}:", *render_tree(entries, report, hidden, max_depth)]
 
     def zone_rel_from_abs(self, base: ZonePath, text: str) -> ZonePath | None:
         """檔案動詞的絕對路徑：照字面（先消掉 ``..``、不解析連結）在 ``base`` 底下才回子路徑.
@@ -1421,6 +1380,30 @@ class ResourceManager:
         walk = _walk_plain(Path(text).resolve(), WalkReport(), skip_dir=skip)
         return _stat_rows(walk, exclude_globs, max_files)
 
+    @permission_repair(retry=True)
+    def tree_entries(
+        self, path: Path | str, *, hidden: Callable[[str], bool], list_depth: int
+    ) -> list[tuple[tuple[str, ...], str, int]]:
+        """樹狀清單用的（相對段落, 種類, 位元組數）：專案檔案清單頁（ADR-0332）.
+
+        根解析一次（人做的連結照舊跟隨），之後不跟隨也不列出 symlink 與 junction，代理人資料夾
+        剪掉（R4）。種類只有 ``dir``／``file``；``hidden`` 為真的名稱任何深度都不列（資料夾
+        不進入）；段落數到 ``list_depth`` 的資料夾只列出、不進入。路徑不是資料夾時回空清單。
+        """
+        text = _plain(path, "tree_entries")
+        if not Path(text).is_dir():
+            return []
+        walk = _walk_plain(
+            Path(text).resolve(), WalkReport(), skip_dir=lambda parts: hidden(parts[-1]),
+            list_depth=list_depth,
+        )
+        with contextlib.closing(walk):
+            return [
+                (entry.parts, entry.kind, entry.info.st_size)
+                for entry in walk
+                if entry.kind in {"dir", "file"} and not hidden(entry.parts[-1])
+            ]
+
     def _archive_should_exclude(self, rel: Path) -> bool:
         """判斷打包時是否排除此相對路徑 (建置產物/系統雜訊)."""
         if any(part in _ARCHIVE_EXCLUDE_DIRS for part in rel.parts):
@@ -1652,7 +1635,7 @@ class ResourceManager:
         text = _plain(path, "list_directory")
         if not Path(text).is_dir():
             return [f"Error: Directory not found: {path}"]
-        hidden = _LIST_HIDDEN | exclude
+        hidden = LIST_HIDDEN | exclude
         report = WalkReport()
         entries = (
             list(
@@ -1667,7 +1650,7 @@ class ResourceManager:
             if max_depth >= 1
             else []
         )
-        return [f"📁 {path or '/'}:", *_render_tree(entries, report, hidden, max_depth)]
+        return [f"📁 {path or '/'}:", *render_tree(entries, report, hidden, max_depth)]
 
     @permission_repair(retry=True)
     def glob_search(

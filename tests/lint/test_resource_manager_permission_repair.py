@@ -43,6 +43,7 @@ EXPECTED_RETRY = {
     "make_dir": True,
     "iter_files": True,
     "stat_files": True,
+    "tree_entries": True,
     "list_directory": True,
     "list_child_names": True,
     "glob_search": True,

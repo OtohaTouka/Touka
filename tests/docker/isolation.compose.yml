@@ -23,7 +23,8 @@ services:
               "--ipc-dir", "/app/ipc/executor", "--kernel-dir", "/opt/touka-sandbox",
               "--state-dir", "/app/executor_state",
               "--root", "rw:/app/data/personal_drive", "--root", "rw:/app/data/mcp_servers/managed",
-              "--root", "ro:/app/ToukaProxy/config/skills", "--require-foreign-peer"]
+              "--root", "ro:/app/ToukaProxy/config/skills",
+              "--project-root", "/app/workspace/touka-projects", "--require-foreign-peer"]
     user: "1001:1001"
     init: true
     read_only: true
@@ -42,6 +43,7 @@ services:
       - ${TOUKA_ISO_DATA:?set TOUKA_ISO_DATA to the fake data folder}/skills:/app/ToukaProxy/config/skills:ro
       - ipc:/app/ipc/executor
       - exec-state:/app/executor_state
+      - projects:/app/workspace/touka-projects
     networks:
       - exec
     sysctls:
@@ -67,10 +69,13 @@ services:
     security_opt: ["no-new-privileges:true"]
     environment:
       - PYTHONPATH=/iso:/app/ToukaProxy:/app/ToukaMemory:/app/ToukaMemory/src
+      # 專用空間（ADR-0332）：和正式的 proxy 一樣由設定帶入，和執行器同一個 volume、同一個位置
+      - TOUKA_PROJECTS_DIR=/app/workspace/touka-projects
     volumes:
       - ${TOUKA_ISO_REPO:-../..}:/iso:ro
       - ${TOUKA_ISO_DATA:?set TOUKA_ISO_DATA to the fake data folder}:/app/data
       - ipc:/app/ipc/executor
+      - projects:/app/workspace/touka-projects
     networks:
       - touka
     sysctls:
@@ -129,3 +134,5 @@ networks:
 volumes:
   ipc:
   exec-state:
+  # 專用空間：空 volume 第一次掛載時照映像複製擁有者（檢查程式核對是 1001）
+  projects:

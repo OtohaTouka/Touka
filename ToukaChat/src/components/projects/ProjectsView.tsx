@@ -10,6 +10,7 @@ import { getSystemEpoch, formatToTaipeiDate } from '@/lib/time_utils';
 
 import { toast } from 'sonner';
 import { useProjects, Project } from '@/hooks/useProjects';
+import { projectSaveFailureText } from '@/lib/project_save_wording';
 import { useConfirmToast } from '@/hooks/useConfirmToast';
 
 export function ProjectsView() {
@@ -34,18 +35,18 @@ export function ProjectsView() {
     const handleSave = async () => {
         if (!form.name || !form.root_path) return;
         
-        const success = await saveProject({
+        const result = await saveProject({
             id: `proj-${getSystemEpoch()}`,
             ...form
         });
-        
-        if (success) {
+
+        if (result.ok) {
             setIsAdding(false);
             setForm({ name: '', root_path: '', description: '' });
         } else {
             // D-fix: 後端拒絕（403 權限 / 422 越界 root_path / 5xx）時表單保持開啟並提示，
-            // 不再靜默假成功（saveProject 現依 res.ok 誠實回傳）。
-            toast.error(t('projects.projects_view.save_failed'));
+            // 不再靜默假成功；專用空間的登記規則（ADR-0332）說出被拒絕的原因。
+            toast.error(projectSaveFailureText(t, result));
         }
     };
 

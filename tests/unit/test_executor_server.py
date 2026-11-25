@@ -554,8 +554,9 @@ async def test_ready_reports_what_the_proxy_checks():
     assert kind == "READY"
     assert set(ready) == {
         "v", "abi", "enforced", "net", "features", "roots", "state_root", "kernel_digest",
-        "server_digest", "boot_id", "block_ports_digest", "uid", "repairs",
+        "server_digest", "boot_id", "block_ports_digest", "uid", "repairs", "project_root",
     }
+    assert ready["project_root"] is None  # 沒有驗過的專用空間根（ADR-0332）
     assert ready["v"] == kfr.PROTOCOL_VERSION and ready["abi"] == 6 and ready["enforced"] is True
     assert ready["features"] == es.landlock_features(6, None) and "tcp" in ready["features"]
     assert ready["roots"] == [
@@ -1177,6 +1178,12 @@ def test_duplicate_rw_root_names_are_a_config_problem():
     config = _config(rw=(PD, "/other/personal_drive"))
     assert srv.config_problem(config, KERNEL, FakeView()) == "roots"
     assert srv.config_problem(_config(rw=()), KERNEL, FakeView()) == "roots"
+
+
+def test_a_rw_root_named_like_the_project_space_is_a_config_problem():
+    """專用空間只經 ``--project-root`` 驗過才服務（ADR-0332）：讀寫根不能借它的名稱繞過那道驗證."""
+    config = _config(rw=(PD, MCP, "/srv/touka-projects"))
+    assert srv.config_problem(config, KERNEL, FakeView()) == "roots"
 
 
 @pytest.mark.parametrize("rw", [(PD,), (PD, "/srv/data/mcp_servers")])

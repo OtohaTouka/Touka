@@ -39,7 +39,11 @@ from memory_server.utils.zone_paths import HandoffKind, ZoneSegmentError
 from src.services import destructive_ops
 from src.services.evolution_security import EvolutionPathGuard
 from src.services.execution_broker import spawn_exec
-from src.services.isolation.agent_command import command_level, command_scope, prepare_command
+from src.services.isolation.agent_command import (
+    command_decision,
+    command_scope,
+    prepare_command,
+)
 from src.services.isolation.runners import IsolationUnavailableError, executor_max_seconds
 from src.services.permission_service import permission_service
 from src.services.process_registry import (
@@ -138,13 +142,17 @@ def policy_command_gate(
     DENY 與未知決策一律拒絕、不問人。REVIEW（Auto）由 ``reviewer``（Auto 審查員）決定：allow
     放行、deny 回 ``DENIED_BY_REVIEWER``、其餘照 CONFIRM 問人（沒有 reviewer 也照 CONFIRM）。
     問人時卡上帶審查員轉人的理由；HUMAN_ONLY 的卡標「只有人能核准」。分類用這條指令有看
-    專案的隔離層級（``project_root`` 只來自 session），不用全域預設。
+    專案的隔離層級（``project_root`` 只來自 session），不用全域預設；有 approver 才算有人在場。
+    專用空間的專案被拒絕（ADR-0332）時回 ``NO_ISOLATED_ENVIRONMENT``，不問人。
     """
+    attended = approver is not None
 
     async def _gate(cmd: str) -> str | None:
-        isolation = await command_level(identity, project_root)
+        decision = await command_decision(identity, project_root, attended=attended)
+        if decision.refused:
+            return NO_ISOLATED_ENVIRONMENT
         strategy = permission_service.classify_command(
-            cmd, identity, auth_level, isolation=isolation
+            cmd, identity, auth_level, isolation=decision.level
         )
         if strategy == "ALLOW":
             return None
@@ -214,7 +222,11 @@ async def _run_cmd(
     with resource_manager.zone_handoff(artifact_root, kind) as cwd:
         try:
             grant = consent(cmd) if consent is not None else None
-            scope = None if identity is None else await command_scope(identity, project_root, grant)
+            # review_loop 只在有人能回卡時給 consent：有它＝這次有人在場（ADR-0332）
+            attended = consent is not None
+            scope = None if identity is None else await command_scope(
+                identity, project_root, grant, attended=attended
+            )
             clean_env = EvolutionPathGuard.get_clean_env()
             prepared = await prepare_command(
                 scope, args, clean_env, Path(cwd), max_seconds=executor_max_seconds(timeout_seconds)

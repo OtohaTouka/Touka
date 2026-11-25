@@ -78,8 +78,9 @@ ENV PYTHONPATH=/app/ToukaProxy:/app/ToukaMemory:/app/ToukaMemory/src
 # venv 維持 root 擁有＝appuser 只讀執行——與舊映像「系統 site-packages root 擁有」等價。
 # sandbox state（named volume 的掛載點）預建成 appuser、0700：空 volume 第一次掛載時照映像複製擁有者。
 # 執行器的 ipc 與 state 同理（伺服器要求兩者都是自己的、0700，否則不服務）；/app/ipc 本身是 root 擁有。
+# 專用空間（ADR-0332，proxy 與執行器共用的 named volume）同理：volume 的根是 appuser 的。
 RUN chown appuser:appuser /app && install -d -o appuser -g appuser -m 0700 /app/sandbox_state \
-    /app/ipc/executor /app/executor_state
+    /app/ipc/executor /app/executor_state /app/workspace/touka-projects
 
 # 暴露 FastAPI 預設埠（dispatch 8083 是否對外由 DISPATCH_BIND_HOST 與 compose 發布決定）
 EXPOSE 8000

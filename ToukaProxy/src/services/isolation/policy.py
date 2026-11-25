@@ -13,12 +13,23 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from src.models.identity import AgentIdentity
+from src.models.safety import PROJECT_SPACE_DENY_PREFIX
+from src.sandbox_kernel.spec import RELAY_FAILURE_CODES
 from src.services.isolation.consent import (
     ConsentKey,
     consent_ledger,
     consent_subject,
 )
-from src.services.isolation.status import CHECK_FAILED, LevelDecision, isolation_monitor
+from src.services.isolation.profiles import configured_projects_root
+from src.services.isolation.project_space import structural_scope
+from src.services.isolation.status import (
+    BLOCK_PORTS_INCOMPLETE,
+    CHECK_FAILED,
+    EXECUTOR_UNREACHABLE,
+    PROBE_PENDING,
+    LevelDecision,
+    isolation_monitor,
+)
 from src.services.resource_manager import resource_manager
 from src.utils.async_db import PLACEHOLDER_PROJECT_ID, session_service
 from src.utils.isolation_policy import (
@@ -28,6 +39,8 @@ from src.utils.isolation_policy import (
     TERMINAL_TOOLS,
     VERIFY_ACTION,
 )
+from src.utils.presence import is_human_present
+from src.utils.touka_dirs import SCAN_LIMIT
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -39,6 +52,15 @@ logger = logging.getLogger(__name__)
 
 # 會在專案裡執行的指令（終端與互審的驗證指令）
 PROJECT_TOOLS = TERMINAL_TOOLS | {VERIFY_ACTION}
+_GENERIC_DENIAL_SUGGESTION = (
+    "Do not retry this tool; explain the restriction to the user or use an allowed alternative."
+)
+# 專用空間被拒絕（ADR-0332）：這幾種通常會自己好（掃描、探測、封鎖埠、執行器重啟、判定出錯），
+# 其他的要人處理
+_TEMPORARY_REFUSALS = frozenset(
+    {SCAN_LIMIT, PROBE_PENDING, BLOCK_PORTS_INCOMPLETE, EXECUTOR_UNREACHABLE, CHECK_FAILED}
+    | RELAY_FAILURE_CODES
+)
 
 
 async def session_project_id(
@@ -97,7 +119,16 @@ async def _decide(
     if tool == "scaffold_mcp":
         return isolation_monitor.local_level(), None
     project_root = await session_project_root(ctx, session_id) if tool in PROJECT_TOOLS else None
-    return await isolation_monitor.level_for(identity, project_root), project_root
+    attended = is_human_present(ctx)
+    try:
+        decision = await isolation_monitor.level_for(identity, project_root, attended=attended)
+    except Exception:
+        # 專用空間的專案判定出錯也直接拒絕、不跳卡（ADR-0332）；其他照舊交給外層當成 none
+        if not structural_scope(project_root, configured_projects_root()).dedicated:
+            raise
+        logger.exception("Isolation level check failed for a project space command (%s)", tool)
+        return LevelDecision("none", CHECK_FAILED, refused=True), project_root
+    return decision, project_root
 
 
 async def policy_level(
@@ -134,6 +165,23 @@ async def policy_level(
             executor_eligible=eligible,
         )
     return decision
+
+
+def denial_text(tool: str, role: str, reason: str | None) -> tuple[str, str]:
+    """政策拒絕給模型的（說明、建議）；專用空間被拒絕時說原因，暫時的說可以稍後再試."""
+    refused = (reason or "").removeprefix(PROJECT_SPACE_DENY_PREFIX)
+    if not reason or refused == reason:
+        return f"Tool '{tool}' was denied by policy for role '{role}'.", _GENERIC_DENIAL_SUGGESTION
+    message = (
+        f"Commands in this project cannot run ({refused}): projects in the dedicated project "
+        "space only run in the isolated executor, and this one did not pass its checks."
+    )
+    if refused in _TEMPORARY_REFUSALS:
+        return message, (
+            "This is usually temporary; you may try again in a few minutes. "
+            "It will not be run in any other way."
+        )
+    return message, "Do not retry the same command; tell the user the reason so they can fix it."
 
 
 def reviewer_level(tool: str, decision: LevelDecision, *, builtin: bool) -> IsolationLevel:

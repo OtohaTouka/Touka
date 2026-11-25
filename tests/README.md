@@ -69,6 +69,23 @@ tests/
 
 ## 一、單元測試 (`tests/unit/`)
 
+### 專用空間的專案在執行器裡跑（ADR-0332）
+
+| 檔案 | 說明 |
+|---|---|
+| `unit/test_executor_project_kind_security.py` | **執行器的 kind `project`**：`--project-root` 和讀寫根分開驗（不存在、連結、不是資料夾、名稱不對、巢狀時 READY 的 `project_root` 是 null、其他 kind 照常服務）；START 的目標、cwd、讀寫範圍與 `state/project/<名稱>`；`_prepare_dirs` 不修專案內容、`_maintain` 只修根本身；`parse_ready` 收 `project_root` |
+| `unit/test_project_space_scope_security.py` | **結構層**：錨點只從部署設定來；錨點外 `outside`、第一層 `ok`；錨點本身、第二層、不安全名稱、連結與 `..`、沒有專用空間卻用了這個名稱都是 `refused` |
+| `unit/test_isolation_project_level_security.py` | **執行層**：執行器層、READY 的專案根、掃描、在場都過才是 executor；任何一項不過是 `refused`；只有沒人在場是 none；READY 不符只影響專用空間的專案 |
+| `unit/test_project_space_policy_security.py` | **被拒時的政策**：任何模式都是 DENY、不跳卡；訊息分暫時與永久；政策層級帶「有人在場」；判定出錯時專用空間的專案照樣直接拒絕（暫時的） |
+| `unit/test_project_space_runner_security.py` | **profile 與 runner 的最後一道**：專案 profile 只在執行器位置、不給個人空間、掃描不過標成沒授權；組不出來一律拒絕；broker 有降級同意也不退回本機 |
+| `unit/test_project_space_commands_security.py` | **指令從哪裡開始**：終端（前景、背景）與互審驗證指令的 START cwd 是專案根、relay 從 kernel 資料夾啟動；在場一路帶到層級；被拒時互審回 `NO_ISOLATED_ENVIRONMENT`；專案說明多兩句（含被擋時直接拒絕），只讀登記的根、不經工作區檢查 |
+| `unit/test_project_space_binding_security.py` | **登記規則**：一資料夾一專案（三種寫法 × 三種身分）、順序（被拒的不清 HOME）、同時兩個存檔、第一次綁定才清、清不掉不寫入、清除期間資料庫不被鎖、刪除後盡力清（等鎖時已被別人登記就不清）；只差大小寫是另一個資料夾、拿到鎖再查權限、別處的連結迴圈不讓登記出錯；後端每個被拒原因與清不掉 HOME 的永久原因在專案頁都有兩語文案 |
+| `unit/test_core_list_no_follow_security.py` | **列檔案沒有 proxy 時也不跟隨連結**（禁令 20）：「是不是連結」問完才換成連結也不進入；和經 proxy 的列法同樣隱藏、深度與標示 |
+| `unit/test_project_files_no_follow_security.py` | **專案檔案清單頁不跟隨連結**（禁令 20）：指向根外或根裡的連結都不列也不進入；舊的判斷說「在根裡」也不跟隨；最多四層、隱藏名稱、資料夾在前；錨點本身、第二層、根之後被換成連到專用空間的連結都 403 |
+| `project_save_wording.test.ts`、`useProjects.save.test.ts`、`ProjectsView.saveFailure.test.tsx`（ToukaChat） | **專案頁說得出原因**：每個專用空間的原因與錯誤碼有自己的說明（兩語），其他是一般的「存不了」；`saveProject` 帶回錯誤碼與原因；被拒時表單保持開啟 |
+
+既有測試照計畫放寬（只放過專用空間那一筆）：`test_executor_compose_security.py`（執行器多一個掛載，目標是 `--project-root`、來源是 `touka-projects`；proxy 同位置同 volume；映像預建）、`test_hard_floor_roots_security.py`（`mounts_separate` 的 `project_space`）、`test_executor_server_cli.py`、`test_executor_e2e_assets.py`；Linux 真核心 `integration/test_isolation_linux.py` 加三條；容器 `tests/docker/executor_check.py` 加六項。
+
 ### 外部審查小修（2026-11-24）
 
 | 檔案 | 說明 |
@@ -463,10 +480,10 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_executor_framing.py` | 控制通道的 frame——類型、長度上限（看到標頭就拒絕）、截斷、重複鍵、NaN、不是物件、ERROR 代碼、`block_ports_digest` 排序去重 |
 | `test_relay.py` | （socketpair，Windows 也能跑）：請求格式、PDEATHSIG 與父行程核對、權杖每次從檔案讀（不跟連結，argv 與環境變數都沒有）、HELLO 的封鎖埠取 START 的 spec、`boot_id` 不同不送 START、EXIT 的代碼與信號、斷線與被拒的狀態碼、狀態 fd 設 CLOEXEC |
 | `test_owner_repair_pure.py` | `repair_chain` 只補擁有者位元、拿掉 setid、只修一條鏈、只走原路徑、遇到連結／換檔案系統／別人擁有／多連結／特殊檔就停、尾段不存在當完成、只在 Linux、真的有改才算；第 3 輪 +12：`private_mode`／`repair_private` 另外拿掉群組與其他人的位元、整條鏈都收回、連結與別人擁有的根不碰、只在 Linux |
-| `test_executor_server.py` ⭐ | （第 3 輪 +12：維護時自己的私有 inode 拿掉群組與其他人的位元、啟動時先收回再檢查〔設定其他項有錯時不碰〕、kernel 成員的參數名稱與種類和 Protocol 一致、背景工作遇到任何例外下一輪照常而取消會停；假 stream、假 spawn、`FsView`／`ProcessTable` 替身）：先查 peer 才算上限、HELLO 2 秒、權杖與版本、B 包含預設集合與上限、READY 欄位（和 `parse_ready`／`ready_issue` 的合約）、START 驗證矩陣（argv、env 允許清單與 `GIT_CONFIG_*`、讀寫只限目標與 state、cwd、`max_seconds`、`io`）、`parent_pid` 改寫、斷線＝STOP、規則集快取 2 份借出 dup、subreaper 判定、設定有錯時保持存活、清 tmp 不跟連結、伺服器端自癒、kernel 的 Protocol 成員核對 |
+| `test_executor_server.py` ⭐ | （第 3 輪 +12：維護時自己的私有 inode 拿掉群組與其他人的位元、啟動時先收回再檢查〔設定其他項有錯時不碰〕、kernel 成員的參數名稱與種類和 Protocol 一致、背景工作遇到任何例外下一輪照常而取消會停；假 stream、假 spawn、`FsView`／`ProcessTable` 替身）：先查 peer 才算上限、HELLO 2 秒、權杖與版本、B 包含預設集合與上限、READY 欄位（和 `parse_ready`／`ready_issue` 的合約）、START 驗證矩陣（argv、env 允許清單與 `GIT_CONFIG_*`、讀寫只限目標與 state、cwd、`max_seconds`、`io`）、`parent_pid` 改寫、斷線＝STOP、規則集快取 2 份借出 dup、subreaper 判定、設定有錯時保持存活、清 tmp 不跟連結、伺服器端自癒、kernel 的 Protocol 成員核對；讀寫根用了 `touka-projects` 這個名稱是設定問題 `roots`（ADR-0332） |
 | `test_executor_client.py` ⭐ | 健康檢查每次連線重讀權杖；READY 嚴格驗證（必要鍵、只容許 `repairs`、型別）；連不上、權杖、版本、格式各自的原因；`ready_issue` 逐項核對 |
 | `test_isolation_monitor_block_ports_security.py` ⭐ | monitor 的封鎖埠——「Touka 先開機、上游後開機，那個埠從頭到尾都在 B 裡」、只增不減、停用與探測失敗的連線也擋、三種讀取狀態（`exists()` 的例外不算不存在、執行緒失敗或取消不算讀到、結構不對算讀不到）、incomplete／overflow 判 none 且降級保留檔案隔離、溢位通知、健康檢查送實際的 B、SearXNG 不進執行器、金鑰不出現在 log／狀態／`GET /isolation`／例外訊息、新增連線（存檔、快照匯入、啟動補檔、系統還原）立刻進 B |
-| `test_soul_delete_sandbox_home_security.py` ⭐ | （ADR-0272 限制 26 補記；+3：補過權限仍刪不掉或列不出來時回清不掉、不無限重試，名稱不是安全路徑段的 ID 略過）：刪除靈魂前清隔離家目錄——執行器那一層經 START 跑固定清除指令（只清這個 ID、空環境、cwd 是它的 personal_drive）、proxy 那一層直接刪且別的 ID 不動（0555／000 資料夾與唯讀檔也刪、補權限只在樹裡且不跟連結）、沒有執行器時只清 proxy 那一層；執行器不能用（不在 data 留空資料夾）、結束碼非 0、啟動器失敗代碼、逾時與取消（收掉 relay）都拒絕；連結不跟（`ST/proxy/agents/<id>` 本身是連結時只刪連結，ADR-0293 PR 2）；重置報告的保留清單列出家目錄；`acquire_maintenance` 只准 home_wipe 用（AST）；端點先清再刪（`soul/` 已不在的孤兒也解析到 personal_drive）、清不掉 503 `SOUL_SANDBOX_HOME_NOT_CLEARED` 且什麼都不刪、密碼錯不會清 |
+| `test_soul_delete_sandbox_home_security.py` ⭐ | （ADR-0272 限制 26 補記；+3：補過權限仍刪不掉或列不出來時回清不掉、不無限重試，名稱不是安全路徑段的 ID 略過）：刪除靈魂前清隔離家目錄——執行器那一層經 START 跑固定清除指令（只清這個 ID、空環境、cwd 是它的 personal_drive）、proxy 那一層直接刪且別的 ID 不動（0555／000 資料夾與唯讀檔也刪、補權限只在樹裡且不跟連結）、沒有執行器時只清 proxy 那一層；執行器不能用（不在 data 留空資料夾）、結束碼非 0、啟動器失敗代碼、逾時與取消（收掉 relay）都拒絕；連結不跟（`ST/proxy/agents/<id>` 本身是連結時只刪連結，ADR-0293 PR 2）；重置報告的保留清單列出家目錄；`acquire_maintenance` 只准 home_wipe 用（AST）；端點先清再刪（`soul/` 已不在的孤兒也解析到 personal_drive）、清不掉 503 `SOUL_SANDBOX_HOME_NOT_CLEARED` 且什麼都不刪、密碼錯不會清；專用空間的專案（ADR-0332）：清除跑在那個專案、HOME 依專案分，READY 沒有專案根時不送 START |
 | `test_executor_runner_security.py` ⭐ | （+4：`acquire_maintenance` 只用執行器、不看 grant，網路設定不安全照樣在執行器、不退回 Landlock 或直接執行）：`ExecutorRunner` 的 relay argv 沒有權杖與指令、START 經 pipe、env 允許清單、`net_strict` 依 features、`max_seconds`；政策是 executor 時不在範圍或 READY 不見就拒絕（不退回 Landlock）；有同意時種類不低於卡片、features 包含卡片的；執行器降級去處與卡片的 `executor_eligible` |
 | `test_isolation_block_ports_security.py` ⭐ | profile 用呼叫端給的 B、超過上限拒絕不截斷、Touka 自己的埠不截斷、Settings 每個 `*_URL` 與每個 `route_url_attr` 都已歸類、registry 停用的遠端也擋、registry 讀不到只記型別 |
 | `test_permission_repair_security.py` ⭐ | （假掛鉤、假 EACCES，Windows 也能跑）：重試與不重試、只處理 Linux 上帶 filename 的 EACCES、巢狀只處理最外層、白名單（原路徑與 resolve 後都要過）與保護層、兩種政策拒絕（errno 是 None）、頻率限制與時間窗、`permission_relock`、`denied_burst` 與彙總告警、掛鉤出錯時原例外照丟、系統快照與記憶庫升級備份（ADR-0270）在白名單外、多執行緒計數 |

@@ -55,7 +55,7 @@
   - compose 的 proxy 帶 `sysctls` 之後，有兩種部署會**起不來**：把 proxy 改成 `network_mode: host`（Docker 不准在主機的網路命名空間設網路 sysctl），以及 `tcp_fastopen` 還沒分網路命名空間的舊核心（4.12 以前）。要用這兩種部署就得自己拿掉 `sysctls`，代理人指令會照上面的「不算隔離」處理。
   - **SMC**：Touka 沒處理 AF_SMC。【推測】SMC 連線退回 TCP 時，核心內部的 socket 可能不經過 Landlock 的埠檢查；Docker 預設的 seccomp 不擋 AF_SMC，而 `smc` 模組在一般 Linux 發行版上通常是可載入的模組，容器裡的程式建 AF_SMC socket 就可能讓主機自動載入它。Docker Desktop（WSL 核心）沒有 SMC，不受影響。一般 Linux 主機（Ubuntu、Debian、Fedora 等）建議封鎖這個模組：建立 `/etc/modprobe.d/touka-no-smc.conf`，內容 `install smc /bin/false`，再用 `lsmod | grep smc` 確認沒有載入（已載入時重開機或 `sudo modprobe -r smc`）。
 
-  合併隔離後，代理人指令只看得到自己的資料夾、隔離暫存區與對話綁定的專案：沒綁專案的對話（心跳的家對話、IDE、SNS、`/debug/execute`）看不到工作區裡其他資料夾，要碰某個專案就在對話裡綁定它。綁了專案的對話、DebugAgent 等自訂模型不在執行器裡跑：每條代理人指令都要人核准，核准後在 Touka 主容器內以檔案隔離執行。專案往下 3 層內有叫 `soul`、`personal_drive` 的資料夾，或叫 `ui_sessions.db` 的檔案（不分大小寫）時，那個專案會被當成 Touka 的資料，不能隔離：每條代理人指令都要人核准，核准後是未隔離。
+  合併隔離後，代理人指令只看得到自己的資料夾、隔離暫存區與對話綁定的專案：沒綁專案的對話（心跳的家對話、IDE、SNS、`/debug/execute`）看不到工作區裡其他資料夾，要碰某個專案就在對話裡綁定它。綁了專用空間以外專案的對話、DebugAgent 等自訂模型不在執行器裡跑（專用空間見下方「專用空間」一節）：每條代理人指令都要人核准，核准後在 Touka 主容器內以檔案隔離執行。專案往下 3 層內有叫 `soul`、`personal_drive` 的資料夾，或叫 `ui_sessions.db` 的檔案（不分大小寫）時，那個專案會被當成 Touka 的資料，不能隔離：每條代理人指令都要人核准，核准後是未隔離。
 
 從與映像相同的 source commit 取得 `docker-compose.ghcr.yml` 與 `.env.example`，放進安裝目錄；不要混用其他版本的 Compose。
 
@@ -175,6 +175,30 @@ C2-3 已把 MCP 伺服器與創建試跑接上隔離；決策見 ADR-0275。從�
 - 隔離啟動會先移除部分條目 env，只在 log 警告被移除的名稱、不記值。保留名稱不分大小寫：`HOME`、`TMPDIR`、`TMP`、`TEMP`、`GIT_CEILING_DIRECTORIES`、`PYTEST_ADDOPTS`、`TOUKA_EXEC_ID`、`HF_HOME`、`HF_HUB_CACHE`、`TRANSFORMERS_CACHE`、`TORCH_HOME`、`PIP_CACHE_DIR`、`UV_CACHE_DIR`、`UV_TOOL_DIR`、`UV_PYTHON_INSTALL_DIR`、`NPM_CONFIG_CACHE`、`NPM_CONFIG_PREFIX`，以及所有以 `XDG_`、`GIT_CONFIG_` 開頭的名稱；不是所有 `TMP*`、`UV_*` 或 `NPM_CONFIG_*` 都會移除。
 - 名稱任何位置含 `PYTHON`、`NODE_`、`JAVA_`、`GEM_`、`PERL`、`LD_`、`DYLD_` 也會移除，不分大小寫；例如 `NODE_ENV`、`MY_PYTHON_TOKEN`、`NODE_EXTRA_CA_CERTS` 都不會傳給目標。若伺服器支援，改用不衝突的名稱；若一定要用這些名稱，只能在原本規則允許的直接啟動路徑使用，填入 env 不會讓隔離自動降級。
 - **原生 Windows 開發模式**：第三方照舊未隔離啟動，設定頁會標示；只有這種未隔離台數時，側欄沒有 MCP 橫幅那一行。自建不自動啟動，有等待／暫停仍會提示。遠端 URL MCP 與 IDE 的 MCP 連線不受這套子程序隔離影響。
+
+### 專用空間：讓專案在執行器裡跑（ADR-0332）
+
+compose 多一個 named volume `touka-projects`，proxy 與執行器都掛在 `/app/workspace/touka-projects`。放在這裡第一層的專案，代理人指令在執行器裡跑：有人在場時不用每條核准，看不到 Touka 的金鑰、設定、其他專案與個人空間；每個專案有自己的 HOME。
+
+下面的指令是從原始碼跑的寫法；GHCR 安裝每一段都要加 `-f docker-compose.ghcr.yml`（例如 `docker compose -f docker-compose.ghcr.yml exec touka-proxy ...`）。
+
+- **建資料夾**：`docker compose exec touka-proxy mkdir /app/workspace/touka-projects/myapp`（以 Touka 的身分建，擁有者就對了）。代理人碰不到專用空間本身，資料夾要先由你建好。
+- **放內容**：建好、登記之後請代理人在裡面 `git clone <網址> .`；或從電腦複製：`docker compose cp ./myapp/. touka-proxy:/app/workspace/touka-projects/myapp`。複製進去的檔案是 root 的，代理人改不了，要照下一條改回來。
+- **修擁有者與權限**（複製之後，或權限被改壞時）：
+  - 從原始碼跑：`docker compose exec -u 0 touka-proxy sh -c 'chown -R 1001:1001 /app/workspace/touka-projects/myapp && chmod -R u+rwX /app/workspace/touka-projects/myapp'`
+  - GHCR：proxy 拿掉了所有特權（`cap_drop`），`exec -u 0` 也改不了，要用同一個映像另開一個暫時容器：先 `docker volume ls` 找名稱結尾是 `touka-projects` 的 volume（例如 `touka_touka-projects`），再 `docker run --rm -u 0 --entrypoint sh -v <那個 volume>:/p <proxy 的映像> -c 'chown -R 1001:1001 /p/myapp && chmod -R u+rwX /p/myapp'`（映像名稱與版本用 `docker compose -f docker-compose.ghcr.yml images touka-proxy` 查，就是正在跑的那個，不用另外下載）。
+  - 整個專用空間都打不開時，把路徑換成專用空間本身（`/app/workspace/touka-projects`；GHCR 是 `/p`）。
+- **登記**：專案頁的根目錄填 `/app/workspace/touka-projects/<資料夾>`。`.env` 有設 `WORKSPACE_ROOT` 時要用工作區根的寫法（例如工作區根是 `D:/Projects` 就填 `D:/Projects/touka-projects/myapp`），靈魂與子代理才過得了工作區檢查。只能是第一層的資料夾，資料夾要先存在，一個資料夾只能登記成一個專案（只差大小寫也算同一個）。登記時 Touka 會先清掉這個資料夾上次留下的 HOME；被拒絕時專案頁會說原因，只有執行器暫時不能用時才是「稍後再試」。
+- **擋不住改權限位元**：一個專案裡的指令可以改掉別的專案（或專用空間本身）的權限位元，讓它打不開（讀不到、也改不了內容）。代理人說專案「檢查不完」、或指令一直被拒時，照上面的修法改回來；專用空間本身執行器每分鐘會修一次。
+- **專案之間共用執行器的網路**：一個專案開在 `127.0.0.1` 的服務（開發伺服器、Jupyter 這類），別的專案的指令連得到。不要在專案裡開不設密碼的服務。
+- **名稱**：專用空間第一層不要有叫 `soul`、`personal_drive`、`ui_sessions.db` 的資料夾或檔案（不分大小寫），否則所有專案都被拒；專案裡有 Touka 的標記（例如把 Touka 自己的 repo 放進來）時，那個專案被拒。
+- **沒人在場**（心跳、SNS）時，這些專案的指令照舊不跑。用你的帳號權杖打聊天端點的腳本算有人在場。
+- **刪除或改指專案**：當下還在跑的指令不會被停掉（背景指令最長 10 分鐘），這段時間它還讀寫得到那個資料夾與 HOME；要換人用同一個資料夾，等 15 分鐘再登記。
+- **不在備份裡**：`docker compose down -v` 會連同裡面所有專案一起刪掉，不要把唯一的一份放在這裡；要拿回來用 `docker compose cp touka-proxy:/app/workspace/touka-projects/myapp ./myapp`。
+- 工作區掛載點的來源裡會多一個空的 `touka-projects` 資料夾（Docker 建的掛載點）。**放在這裡的東西容器裡看不到**（被 volume 蓋住），專案要照上面放進 volume。
+- 沒有執行器的部署（原生 Windows 開發模式）：路徑用了 `touka-projects` 的專案一律拒絕，不會改用別的方式跑。
+- 你在 Touka 裝了會讀專案內容的 lint 類 hook 時，那個 hook 以 Touka 的權限跑，不受隔離。
+- 升級：從原始碼在 repo 根執行 `docker compose up -d --build`；GHCR 照一般升級。
 
 ## 4. 升級與備份
 

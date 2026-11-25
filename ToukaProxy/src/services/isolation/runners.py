@@ -36,7 +36,12 @@ from src.sandbox_kernel.spec import (
     parse_status,
     trusted_interpreter,
 )
-from src.services.isolation.executor_session import IO_MODES, MAX_SECONDS, MCP_KIND
+from src.services.isolation.executor_session import (
+    IO_MODES,
+    MAX_SECONDS,
+    MCP_KIND,
+    PROJECT_KIND,
+)
 from src.services.isolation.profiles import (
     EXECUTOR_KINDS,
     PYTEST_ADDOPTS,
@@ -250,10 +255,12 @@ class ProfileSource:
     """``acquire`` 的 profile 來源.
 
     ``executor_issue``：這次不在執行器範圍的原因（None：在範圍內）。
+    ``dedicated``：專用空間的專案（ADR-0332）：只用執行器，profile 有沒授權的就拒絕。
     """
 
     build: ProfileFactory
     executor_issue: str | None
+    dedicated: bool = False
 
     @classmethod
     def fixed(cls, profile: SandboxProfile) -> ProfileSource:
@@ -447,6 +454,10 @@ class LandlockRunner:
         return SandboxFailure(code) if code is not None else None
 
 
+# 本機 relay 從 kernel 資料夾啟動的 kind（見 ``ExecutorRunner.plan``）
+_KERNEL_CWD_KINDS = frozenset({MCP_KIND, PROJECT_KIND})
+
+
 class ExecutorRunner:
     """執行器：本機 relay；指令、cwd、env 與 spec 都在請求的 START 裡（經 pipe 傳）.
 
@@ -511,11 +522,12 @@ class ExecutorRunner:
             "--request-fd", str(request_fd), "--status-fd", str(status_fd),
             "--boot-id", self._boot_id,
         )
-        # kind mcp 的 home 只在執行器容器的 state（proxy 沒掛）：relay 在本機從唯讀的
-        # kernel 資料夾跑（依路徑載入、不用 cwd）；伺服器的 cwd 照 START，執行器強制是 home
+        # kind mcp 的 home 只在執行器容器的 state（proxy 沒掛）；kind project 的專案是代理人寫得到
+        # 的資料夾，本機不 chdir 進去（禁令 68 ③）：relay 在本機從唯讀的 kernel 資料夾跑（依路徑
+        # 載入、不用 cwd）；伺服器的 cwd 照 START（kind mcp 強制是 home，kind project 是專案根）
         return LaunchPlan(
             argv=argv,
-            cwd=self._relay.parent if kind == MCP_KIND else profile.cwd,
+            cwd=self._relay.parent if kind in _KERNEL_CWD_KINDS else profile.cwd,
             env={},
             preexec_fn=None,
             pass_fds=(request_fd, status_fd),
@@ -579,6 +591,8 @@ class RunnerBroker:
             ready = self._monitor.snapshot().executor
             if plan.kind == "executor" and ready is not None and needed <= plan.features:
                 return await self._executor(ready, plan.features, source)
+        if source.dedicated:  # 專用空間的專案只用執行器（ADR-0332），有同意也不退回
+            raise IsolationUnavailableError(source.executor_issue or ISOLATION_UNAVAILABLE)
         if floor > KIND_RANK["landlock"]:
             raise IsolationUnavailableError(ISOLATION_UNAVAILABLE)
         profile = await source.build("proxy", None)
@@ -642,6 +656,8 @@ class RunnerBroker:
         if layout.executor_dir is None:
             raise IsolationUnavailableError(ISOLATION_UNAVAILABLE)
         profile = await source.build("executor", ready.state_root)
+        if source.dedicated and profile.ungranted:  # 只限專用空間；自建 MCP 的照舊啟動
+            raise IsolationUnavailableError(profile.ungranted[0])
         runner = ExecutorRunner(
             kernel, layout.executor_dir, ready.boot_id, features, python=self._interpreter(layout)
         )

@@ -102,6 +102,9 @@ services:
       - TOUKA_SANDBOX_STATE_DIR=/app/sandbox_state
       # iso-c2：執行器的控制通道（和 touka-executor 共用的 volume）；proxy 不等執行器，靠背景重探。
       - TOUKA_EXECUTOR_DIR=/app/ipc/executor
+      # ADR-0332：專用空間（named volume，見下方 volumes；和執行器掛在同一個位置）。只有這裡
+      # 第一層的專案，指令會在執行器裡跑；位置在工作區掛載點正下方，靈魂登記的路徑才過得了工作區檢查。
+      - TOUKA_PROJECTS_DIR=/app/workspace/touka-projects
     volumes:
       # 聖域資料（Agent 記憶、靈魂、對話）——使用者資料夾即備份單位
       - type: bind
@@ -122,6 +125,8 @@ services:
       # permission_init 的四個角色固定（ADR-0221），不處理這個 volume。
       - touka-sandbox-state:/app/sandbox_state
       - touka-exec-ipc:/app/ipc/executor
+      # ADR-0332：專用空間（工作區掛載點底下的子掛載；不在 Touka 的備份裡）
+      - touka-projects:/app/workspace/touka-projects
     networks:
       - touka-net
     # iso-c2：關掉 TCP Fast Open（核心有 MPTCP 時另加 net.mptcp.enabled: 0，見根目錄 compose）
@@ -204,7 +209,8 @@ services:
               "--ipc-dir", "/app/ipc/executor", "--kernel-dir", "/opt/touka-sandbox",
               "--state-dir", "/app/executor_state",
               "--root", "rw:/app/data/personal_drive", "--root", "rw:/app/data/mcp_servers/managed",
-              "--root", "ro:/app/ToukaProxy/config/skills", "--require-foreign-peer"]
+              "--root", "ro:/app/ToukaProxy/config/skills",
+              "--project-root", "/app/workspace/touka-projects", "--require-foreign-peer"]
     user: "1001:1001"
     init: true
     read_only: true
@@ -237,6 +243,8 @@ services:
           subpath: skills
       - touka-exec-ipc:/app/ipc/executor
       - touka-executor-state:/app/executor_state
+      # ADR-0332：專用空間（和 proxy 同一個 volume、同一個位置；伺服器另外驗，見 --project-root）
+      - touka-projects:/app/workspace/touka-projects
     networks:
       - touka-exec-net
     sysctls:
@@ -267,3 +275,6 @@ volumes:
   # 擁有者（appuser、0700）；permission_init 的四個角色固定（ADR-0221），不處理它們。
   touka-exec-ipc:
   touka-executor-state:
+  # ADR-0332：專用空間（代理人的專案，proxy 與執行器共用）。不在 Touka 的備份裡，
+  # `docker compose down -v` 會連同裡面所有專案一起刪掉，要先下載。
+  touka-projects:

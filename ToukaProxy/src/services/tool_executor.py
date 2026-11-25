@@ -48,7 +48,12 @@ from src.services.hooks.tool_hooks import (
     run_post_tool_hooks,
     run_pre_tool_hooks,
 )
-from src.services.isolation.policy import policy_level, reviewer_level, session_project_id
+from src.services.isolation.policy import (
+    denial_text,
+    policy_level,
+    reviewer_level,
+    session_project_id,
+)
 from src.services.local_bridge import ACTION_NEEDING_CONFIRM
 from src.services.permission_service import permission_service
 from src.services.soul_service import soul_service
@@ -874,6 +879,7 @@ class ToolExecutor:
                 "tool_action": policy_action,
                 "floor_action": floor_tool_action(name, args),  # F5 動詞，不看設定檔
                 "isolation": isolation.level,
+                "isolation_refused": isolation.refused_reason,  # 專用空間（ADR-0332）
                 "human_present": is_human_present(ctx),
                 "read_only_run": bool(ctx.get("subagent_read_only")),
             },
@@ -896,13 +902,13 @@ class ToolExecutor:
 
         if mcp_rbac_denied or decision.effect == "DENY":
             deny_reason = "mcp_tool_rbac" if mcp_rbac_denied else (decision.reason or "policy")
+            denied_message, denied_suggestion = denial_text(
+                name, identity.display_role, deny_reason
+            )
             result_text = tool_errors.build_tool_error(
                 tool_errors.PERMISSION_DENIED,
-                f"Tool '{name}' was denied by policy for role '{identity.display_role}'.",
-                suggestion=(
-                    "Do not retry this tool; explain the restriction to the user "
-                    "or use an allowed alternative."
-                ),
+                denied_message,
+                suggestion=denied_suggestion,
                 denied_tool=name,
                 reason=deny_reason,
             )

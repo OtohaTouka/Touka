@@ -234,6 +234,8 @@ class Settings(BaseSettings):
     TOUKA_SANDBOX_STATE_DIR: str = ""
     TOUKA_SANDBOX_KERNEL_DIR: str = ""
     TOUKA_EXECUTOR_DIR: str = ""
+    # 專用空間（ADR-0332）：compose 設成 proxy 與執行器共同的掛載位置；沒設就沒有專用空間
+    TOUKA_PROJECTS_DIR: str = ""
     # compose 對外埠（`.env` 可改）；字串避免空值或打錯讓啟動崩潰，由封鎖埠集合解析
     PROXY_PORT: str = ""
     HEARTBEAT_PORT: str = ""

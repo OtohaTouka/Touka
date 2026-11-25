@@ -207,7 +207,7 @@ def test_data_kinds_have_no_code_folder_even_with_a_managed_rox_rule():
 
 
 def test_kind_list_and_layout_targets_include_mcp():
-    assert es.KINDS == ("agents", "evolution", "mcp")
+    assert es.KINDS == ("agents", "evolution", "project", "mcp")  # project：ADR-0332
     assert LAYOUT.state_dirs("mcp", SEG) == (HOME, TMP)
     assert LAYOUT.target("mcp", SEG) == (STATE, HOME)  # 沒有資料的目標：目標（cwd）就是 home
     assert LAYOUT.target("agents", "Alice") == (PD, f"{PD}/Alice")
@@ -409,8 +409,11 @@ def test_runner_refuses_an_unknown_io_mode(tmp_path, io):
 
 def test_profile_kinds_map_onto_the_executor_kinds():
     """proxy 的 state 分自建與第三方兩個父目錄；執行器的 kind ``mcp`` 只放自建."""
-    assert get_args(profiles.StateKind) == ("agents", "evolution", "mcp_self", "mcp_third")
+    assert get_args(profiles.StateKind) == (
+        "agents", "evolution", "mcp_self", "mcp_third", "project",
+    )
     assert dict(profiles.EXECUTOR_KINDS) == {
         "agent_command": "agents", "evolution": "evolution", "mcp_self": "mcp",
+        "project_command": "project",
     }
     assert set(get_args(profiles.ExecutorKind)) == set(es.KINDS)

@@ -40,7 +40,7 @@
   - **MCP 現況由 C2-3 接續**：自建依層級隔離啟動，第三方／scaffold 看本機 Landlock；創建卡依實際層級，部署能力禁止再演化。來源分檔、手動同意與不可用時的處理見本檔最前面的 C2-3 項目。
   - 設定讀不到時不放寬：`auth_policies.json` 啟動讀不到全部拒絕、`autonomy.json` 讀不到取最嚴（這時不要在安全設定頁按存檔）、MCP 設定讀不到時寫入改丟錯；側欄 `system_notices` 寫原因與恢復方法（AGENTS §11 一句）。代理人工作區權限被改時依白名單補回擁有者位元，Touka 自己的資料夾不修（`touka-init`＋重啟）。
   - **升級要做的事**（細節見 ADR-0272 的升級說明）：`docker compose up -d --build`，以後每次更新都要 `--build`；約 90 秒內確認 `touka-executor` 是 healthy，而且 `docker compose logs touka-executor` 沒有 `Executor is not serving`；聊天分頁先重新整理再看橫幅；Manual 下讓代理人跑 `id -u; echo $HOME`，看到 `1001` 與 `/app/executor_state/agents/…`。回復：`docker rm -f touka-executor` 後切回舊版再 `up -d --build`。
-  - **會改變的行為**：心跳、SNS 等無人在場的執行不能在專案跑指令；綁專案的對話與 DebugAgent 每條要人核准、在主容器內以檔案隔離跑；代理人在執行器裡起的服務，主容器的工具與 MCP（例如 Fetch）連不到（目前不支援，C2-3 之後再評估）；`~` 換到執行器的暫存區；多三個 volume 與 `touka-exec-net` 網路，dev compose 的映像改名 `touka-proxy:local`。
+  - **會改變的行為**：心跳、SNS 等無人在場的執行不能在專案跑指令；綁專用空間以外專案的對話與 DebugAgent 每條要人核准、在主容器內以檔案隔離跑（專用空間的專案在執行器裡跑，ADR-0332）；代理人在執行器裡起的服務，主容器的工具與 MCP（例如 Fetch）連不到（目前不支援，C2-3 之後再評估）；`~` 換到執行器的暫存區；多三個 volume 與 `touka-exec-net` 網路，dev compose 的映像改名 `touka-proxy:local`。
   - CI：新增 `.github/workflows/isolation.yml`（`landlock` job 每個 PR、push、手動都跑；`container` job 在 PR 改到隔離路徑時自動跑、`isolation` 標籤強制跑），還沒在 GitHub 上跑過。AGENTS.md §2 隔離層級、§11 一句、禁令 66；SECURITY.md 多列；NOQA `IO_PRISON_VIOLATION` +3、`S314` +1；openapi、`api.ts` 重產。經對抗式審查，沒有未解的 BLOCKING／HIGH。
 
 ## 待排小項

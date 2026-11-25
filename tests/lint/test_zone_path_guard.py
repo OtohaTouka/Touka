@@ -2459,6 +2459,14 @@ G1_TEXT_SITES: dict[str, tuple[dict[str, int], str]] = {
         },
         _TF_PROFILE,
     ),
+    f"{_PROFILES}:build_project_command_profile": (
+        {
+            f"{_PROFILES}:_resolve": 1,
+            f"{_PROFILES}:_state": 1,
+            f"{_PROFILES}:sandbox_env": 1,
+        },
+        _TF_PROFILE,
+    ),
     f"{_PROFILES}:build_evolution_profile": (
         {
             f"{_PROFILES}:_resolve": 3,
@@ -2467,6 +2475,10 @@ G1_TEXT_SITES: dict[str, tuple[dict[str, int], str]] = {
             f"{_PROFILES}:sandbox_env": 1,
         },
         _TF_PROFILE,
+    ),
+    f"{_PROFILES}:configured_projects_root": (
+        {f"{_PROFILES}:_resolve": 1},
+        _TF_RESOLVE,
     ),
     f"{_PROFILES}:current_layout": (
         {f"{_PROFILES}:_resolve": 7},

@@ -229,7 +229,7 @@ async def test_review_request_without_a_level_reads_none():
 async def test_command_reviewer_takes_the_agent_level(monkeypatch):
     asked: list[tuple[AgentIdentity, Any]] = []
 
-    async def _level_for(identity, project_root):
+    async def _level_for(identity, project_root, **_kw):
         asked.append((identity, project_root))
         # 和 ReviewRequest 的預設 none、conftest 的 landlock 都不同
         return LevelDecision("executor")
@@ -293,7 +293,7 @@ def _executor(monkeypatch: pytest.MonkeyPatch, name: str, handler: Any) -> ToolE
 def agent_level_none(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     asked: list[Any] = []
 
-    async def _level_for(_identity, project_root):
+    async def _level_for(_identity, project_root, **_kw):
         asked.append(project_root)
         return LevelDecision("none", "native_platform")
 
@@ -448,7 +448,7 @@ async def test_mcp_tool_named_like_an_isolation_action_skips_the_ledger(monkeypa
     """不經 runner：不看專案層級、不記帳本，卡片沒有隔離標示；決策表照全域層級。"""
     asked: list[Any] = []
 
-    async def _level_for(_identity, project_root):
+    async def _level_for(_identity, project_root, **_kw):
         asked.append(project_root)
         return LevelDecision("none", "protected_location")
 
@@ -738,7 +738,9 @@ async def test_verification_gate_classifies_with_the_project_level(
     project = tmp_path / "proj"
     asked: list[Any] = []
 
-    async def _level_for(_identity: AgentIdentity, project_root: Any) -> LevelDecision:
+    async def _level_for(
+        _identity: AgentIdentity, project_root: Any, **_kw: Any
+    ) -> LevelDecision:
         asked.append(project_root)
         return LevelDecision(project_level if project_root == project else "landlock")
 
@@ -760,7 +762,9 @@ async def test_command_scope_rechecks_the_monitor_before_spawn(monkeypatch, tmp_
         calls.append("ready")
         return isolation_monitor.snapshot()
 
-    async def _level_for(_identity: AgentIdentity, project_root: Any) -> LevelDecision:
+    async def _level_for(
+        _identity: AgentIdentity, project_root: Any, **_kw: Any
+    ) -> LevelDecision:
         calls.append(project_root)
         return LevelDecision("landlock")
 

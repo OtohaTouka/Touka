@@ -25,6 +25,7 @@ from src.config import (
     get_config_dir,
     resolve_env_file_path,
 )
+from src.services.isolation.profiles import configured_projects_root
 from src.services.resource_manager import resource_manager
 
 FloorCategory = Literal["F1", "F2", "F3", "F4", "F5", "F6", "F7"]
@@ -424,11 +425,17 @@ def _read_mountinfo() -> str:
         return ""
 
 
-def mounts_separate(mountinfo: str, workspace: str, anchors: tuple[str, ...]) -> bool:
+def mounts_separate(
+    mountinfo: str, workspace: str, anchors: tuple[str, ...], project_space: str | None = None
+) -> bool:
     """純函式：mountinfo 能不能證明工作區的宿主來源和每個 anchor 都不重疊。
 
     工作區掛載項和它底下的子掛載都要和每個 anchor 證明分開（見 ``_apart``）。解析失敗、
     工作區不是一個獨立掛載項、anchor 找不到掛載項，都算證明不了（False）。
+
+    ``project_space`` 是專用空間（ADR-0332）的掛載點：正好掛在那裡、又是實體區塊裝置上的 Docker
+    volume 的子掛載，和 anchor 在不同裝置時算分開（主機共享不可能包含 VM 磁碟裡的 volume）；
+    同裝置仍比路徑。其他子掛載照舊。
     """
     mounts: list[tuple[str, PurePosixPath, _AbsPath | None]] = []
     for line in mountinfo.splitlines():
@@ -439,9 +446,18 @@ def mounts_separate(mountinfo: str, workspace: str, anchors: tuple[str, ...]) ->
     ws, point = _mount_source(mounts, workspace, exact=True), _abs_path(workspace)
     if ws is None or point is None:
         return False
-    parts = [ws, *((d, r) for d, r, p in mounts if p and p != point and _related(p, point))]
+    space = _abs_path(project_space) if project_space else None
+    subs = [((d, r), p == space) for d, r, p in mounts if p and p != point and _related(p, point)]
+    parts = [(ws, False), *((source, at and _docker_volume(source)) for source, at in subs)]
     found = [_mount_source(mounts, a) for a in anchors]
-    return all(a is not None and all(_apart(w, a) for w in parts) for a in found)
+    return all(a is not None and all(_part_apart(w, a, v) for w, v in parts) for a in found)
+
+
+def _part_apart(
+    part: tuple[str, PurePosixPath], anchor: tuple[str, PurePosixPath], space_volume: bool
+) -> bool:
+    """工作區的一個掛載和 anchor 分開；專用空間的 volume 在不同裝置時直接算分開（ADR-0332）."""
+    return (space_volume and part[0] != anchor[0]) or _apart(part, anchor)
 
 
 def _apart(one: tuple[str, PurePosixPath], other: tuple[str, PurePosixPath]) -> bool:
@@ -501,7 +517,7 @@ def _protected_roots() -> tuple[tuple, ...]:
     space, aliases = _as_roots([mount] if mount is not None else []), ()
     if container is not None:
         anchors = tuple(map(str, (data, env_dir, config_dir)))
-        if not mounts_separate(_read_mountinfo(), str(container), anchors):
+        if not mounts_separate(_read_mountinfo(), str(container), anchors, _project_space()):
             space, roots[2] = (), (*roots[2], *_as_roots([container]))
     elif mount is not None:
         try:
@@ -515,6 +531,12 @@ def _protected_roots() -> tuple[tuple, ...]:
         ):
             space = ()  # 和受保護根目錄重疊（本身、底下或上層）：交給甲
     return roots[0], roots[1], space, roots[2], aliases
+
+
+def _project_space() -> str | None:
+    """專用空間的掛載點（部署設定 ``TOUKA_PROJECTS_DIR``，ADR-0332）；沒有就是 None."""
+    root = configured_projects_root()
+    return str(root) if root is not None else None
 
 
 def _resolved(paths: list[Any]) -> tuple[_AbsPath, ...]:

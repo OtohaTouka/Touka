@@ -2150,6 +2150,103 @@ async def test_executor_runs_an_isolated_command_through_the_relay(executor):
         assert stat.S_IMODE(os.lstat(dirs.ipc / name).st_mode) == 0o600
 
 
+_READS_PROBE = """
+import errno, json, os, sys
+out = {"cwd": os.getcwd(), "home": os.environ.get("HOME")}
+for path in sys.argv[1:]:
+    try:
+        os.listdir(path) if os.path.isdir(path) else open(path, "rb").read()
+        out[path] = "ok"
+    except OSError as exc:
+        out[path] = errno.errorcode.get(exc.errno, str(exc.errno))
+print(json.dumps(out))
+"""
+
+
+def _project_space(dirs: SimpleNamespace) -> Path:
+    """專用空間（ADR-0332）：alpha、beta 兩個專案；beta 有祕密，alpha 有指向 beta 的連結."""
+    space = dirs.pd.parent.parent / exe.PROJECT_ROOT_NAME
+    for name in ("alpha", "beta"):
+        (space / name).mkdir(parents=True)
+    (space / "beta" / "secret.txt").write_text("beta\n", encoding="utf-8")
+    (space / "alpha" / "link").symlink_to("../beta")
+    return space
+
+
+def _project_start(server, name: str, argv: list[str]) -> dict:
+    """kind ``project`` 的 START：讀寫只有這個專案與它的 HOME／TMP（同 proxy 的專案 profile）."""
+    start = _exec_start(server, "Alice", argv)
+    agent = {*server.layout.state_dirs("agents", "Alice")}
+    agent.add(server.layout.target("agents", "Alice")[1])
+    home, tmp = server.layout.state_dirs("project", name)
+    target = server.layout.target("project", name)[1]
+    rules = [rule for rule in start["spec"]["rules"] if rule["path"] not in agent]
+    rules += [{"path": p, "access": "rwx"} for p in (target, home, tmp)]
+    spec = {**start["spec"], "profile": "project_command", "rules": rules}
+    env = {**start["env"], "HOME": home, "TMPDIR": tmp}
+    return {**start, "spec": spec, "env": env, "cwd": target, "kind": "project", "owner": name}
+
+
+async def test_project_command_reads_writes_and_runs_only_inside_its_project(executor):
+    """專案裡讀寫、執行都可以；旁邊的專案（直接或經連結）、個人空間、錨點本身都碰不到."""
+    space = _project_space(executor.dirs)
+    server, started = await executor.start("--project-root", str(space))
+    assert started, server.problem
+    assert server.ready(frozenset())["project_root"] == str(space)
+    script = "echo own > own && printf '#!/bin/sh\\necho ran\\n' > run.sh"
+    script += " && chmod +x run.sh && ./run.sh"
+    start = _project_start(server, "alpha", ["sh", "-c", script])
+    code, out, status = await _relay(executor, server, start)
+    assert (code, status, out.strip()) == (0, b"", "ran")
+    assert (space / "alpha" / "own").read_text(encoding="utf-8").strip() == "own"
+    dirs = executor.dirs
+    paths = ["../beta/secret.txt", "link/secret.txt", str(dirs.pd / "Bob" / "secret.txt")]
+    paths += [str(dirs.pd / "Alice"), str(space)]
+    code, out, status = await _relay(
+        executor, server, _project_start(server, "alpha", [*PY, _READS_PROBE, *paths])
+    )
+    assert (code, status) == (0, b""), out
+    report = _last_json(out)
+    assert report.pop("cwd") == str(space / "alpha")
+    assert report.pop("home") == server.layout.state_dirs("project", "alpha")[0]
+    assert report == dict.fromkeys(paths, "EACCES")
+
+
+async def test_project_homes_are_separate(executor):
+    """alpha 寫進 HOME 的檔，beta 看不到；beta 也讀不到 alpha 的專案."""
+    space = _project_space(executor.dirs)
+    server, started = await executor.start("--project-root", str(space))
+    assert started, server.problem
+    write = ["sh", "-c", 'printf alpha > "$HOME/.gitconfig"']
+    code, out, status = await _relay(executor, server, _project_start(server, "alpha", write))
+    assert (code, status) == (0, b""), out
+    alpha_home, beta_home = (server.layout.state_dirs("project", n)[0] for n in ("alpha", "beta"))
+    own = str(Path(beta_home) / ".gitconfig")
+    paths = [str(Path(alpha_home) / ".gitconfig"), "../alpha"]
+    probe = [*PY, _READS_PROBE, own, *paths]
+    code, out, status = await _relay(executor, server, _project_start(server, "beta", probe))
+    assert (code, status) == (0, b""), out
+    report = _last_json(out)
+    assert report["home"] == beta_home != alpha_home
+    assert report[own] == "ENOENT"  # 自己的 HOME 讀得到，只是沒有這個檔
+    assert {path: report[path] for path in paths} == dict.fromkeys(paths, "EACCES")
+
+
+async def test_without_a_project_root_kind_project_is_refused_and_agents_still_run(executor):
+    """沒給 ``--project-root``：READY 是 null、kind ``project`` 一律拒絕；其他 kind 照常服務."""
+    space = _project_space(executor.dirs)
+    server, started = await executor.start()
+    assert started, server.problem
+    assert server.ready(frozenset())["project_root"] is None
+    start = _exec_start(server, "Alice", ["sh", "-c", "echo agent"])
+    touch = {**start, "argv": ["sh", "-c", "echo own > own"]}
+    project = {**touch, "kind": "project", "owner": "alpha", "cwd": str(space / "alpha")}
+    code, out, status = await _relay(executor, server, project)
+    assert (code, status) != (0, b"") and not (space / "alpha" / "own").exists()
+    code, out, status = await _relay(executor, server, start)
+    assert (code, status, out.strip()) == (0, b"", "agent")
+
+
 _SOCKET_PROBE = """
 import json, socket, sys
 sock = socket.socket(socket.AF_UNIX)

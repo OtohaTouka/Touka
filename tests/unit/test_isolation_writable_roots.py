@@ -77,6 +77,9 @@ CONSTRUCTIONS = {
         "services/isolation/mcp_profiles.py:build_mcp_third_party_profile": 1,
         "services/isolation/profiles.py:build_agent_command_profile": 1,
         "services/isolation/profiles.py:build_evolution_profile": 1,
+        # 專用空間的專案（ADR-0332）：讀寫只有專案本身與它的 state
+        # （test_project_space_runner_security 核對）
+        "services/isolation/profiles.py:build_project_command_profile": 1,
     },
     "PathRule": {
         "services/isolation/mcp_profiles.py:_reference_rule": 2,
@@ -85,6 +88,7 @@ CONSTRUCTIONS = {
         "services/isolation/mcp_profiles.py:build_mcp_third_party_profile": 2,
         "services/isolation/profiles.py:build_agent_command_profile": 3,
         "services/isolation/profiles.py:build_evolution_profile": 2,
+        "services/isolation/profiles.py:build_project_command_profile": 3,
         "services/isolation/profiles.py:public_config_rules": 1,
         "services/isolation/profiles.py:system_rules": 4,
     },
@@ -487,8 +491,14 @@ def test_the_executor_mounts_only_anchors_writable(tmp_path):
     assert writable == anchors
     assert layout.data_root / "mcp_servers" / "managed" in writable
     bases = {PurePosixPath(name).name for name in map(anchor_dirname, ALL_ANCHORS) if name}
-    for top, middle in executor_session.KIND_LAYOUT.values():
-        assert top in bases and middle == ()
+    for kind, (top, middle) in executor_session.KIND_LAYOUT.items():
+        assert middle == ()
+        if kind == executor_session.PROJECT_KIND:
+            # 只有專用空間（ADR-0332）不是錨點：它不在 data 裡、只走 --project-root，伺服器另外驗
+            # （名稱固定、不經連結、不和其他根巢狀），START 只給第一層的一個資料夾
+            assert top == executor_session.PROJECT_ROOT_NAME
+            continue
+        assert top in bases
 
 
 def test_one_level_repair_roots_are_anchors_or_above_them(tmp_path):

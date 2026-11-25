@@ -2,6 +2,19 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 專用空間的專案在執行器裡跑（2026-11-25，ADR-0332）
+
+- 專用空間是 compose 的 named volume `touka-projects`，proxy 與執行器都掛在 `/app/workspace/touka-projects`；位置只從部署設定 `TOUKA_PROJECTS_DIR` 來（`profiles.configured_projects_root`），和工作區設定脫鉤。執行器由 `--project-root` 帶入、另外驗；READY 多一個 `project_root`（沒給或驗不過是 null，這時 kind `project` 一律拒絕，其他 kind 照常）。
+- 第一層的每個資料夾是一個專案。綁這種專案的對話，終端與互審的驗證指令只在執行器裡跑（kind `project`）：工作目錄是專案根，讀寫只有這個專案與它自己的 HOME／TMP（`state/project/<名稱>`，依專案分），看不到個人空間與其他專案。有人在場時是 `executor`；沒人在場是 `none`（`project_unattended`），照舊交給沒人在場的拒絕。
+- 檢查沒過（錨點本身、第二層以下、不安全的名稱、路上有連結、這個部署沒有專用空間卻用了這個名稱、執行器不可用、READY 的 `project_root` 是 null 或不同、掃描沒過）一律拒絕：任何模式都是 DENY、不跳卡、不降級；給模型的訊息分暫時（可以稍後再試）與永久。互審的驗證指令回 `NO_ISOLATED_ENVIRONMENT`。新原因碼（畫面文字，不在 `errors.json`）：`project_space_root`、`project_not_top_level`、`project_name_unsafe`、`project_linked`、`project_space_unavailable`、`executor_no_project_root`、`executor_project_root_mismatch`、`project_unattended`。判定本身出錯（`isolation_check_failed`，暫時的）也直接拒絕。執行器的讀寫根不能用 `touka-projects` 這個名稱（設定問題 `roots`，那個位置只經 `--project-root` 驗過才服務）。
+- `POST /v1/ui/projects/save`（端點與模型不變）在專用空間多幾條規則，順序是權限（拿到登記鎖之後再查一次）→ 根目錄檢查 → 結構 → 工作區寫法 → 資料夾存在 → 重複 → 清 HOME → 寫入：
+  - 被拒的形狀、寫法不對：422 `VALIDATION_ERROR`，`detail.reason` 是上面五個結構原因之一或 `project_path_form`；
+  - 資料夾還不存在：422 `PROJECT_FOLDER_MISSING`；
+  - 同一個資料夾已是別的專案（比解析出的資料夾名稱、不分大小寫，所有身分都一樣）：409 `PROJECT_FOLDER_TAKEN`；只差大小寫的是另一個資料夾，改指過去照樣先清；
+  - 第一次綁定（新列或改指到另一個資料夾）先清那個資料夾的 HOME，清不掉：503 `PROJECT_HOME_NOT_CLEARED`，不寫入。`detail.reason` 是清除的原因：多半是暫時的；`protected_location`、`scan_limit`（掃描不過）與 `executor_no_project_root`、`executor_project_root_mismatch`（執行器設定不對）要人處理，專案頁說原因。READY 的專案根不對時不送 START。
+  `DELETE /v1/ui/projects/{id}`、刪使用者與自己清資料之後盡力清 HOME，失敗只記 log；拿到登記鎖時已經有別的專案登記了同一個資料夾就不清。專用空間以外的專案完全照舊。
+- 列檔：沒有 proxy 的 `core_list`（專案工具）與 `GET /v1/ui/projects/{id}/files` 都不跟隨連結、代理人資料夾剪掉；檔案清單頁連指向根裡的連結也不列，根在專用空間被拒的形狀（錨點本身、第二層以下、路上有連結）回 403。回應形狀不變。
+
 ## 刪掉的靈魂的封存與個人空間不給同名的新靈魂（2026-11-21，ADR-0328）
 
 - `POST /v1/souls`、`POST /v1/souls/{soul_id}`（用編輯建立新資料夾）：名字不屬於任何代理人時，最後一步把殘留的 `legacy/<名字>` 搬到 `data/retired/legacy/<毫秒時間>-<名字>`、刪掉殘留的 `personal_drive/<名字>`（根是連結只刪連結）。封存是連結、搬不走或刪不掉回 500 `SOUL_VAULT_ERROR`，什麼都不建（前面清掉的排程、機器人、身分設定、統計、對話是舊的，不復原）。
@@ -528,7 +541,7 @@ ABI≥4 但 Fast Open 或 MPTCP 沒關時，上表前兩列改成 `none`（`net_
 ## 隔離第二批（iso-c2）第二段：執行器容器與隔離狀態（ADR-0272）
 
 - 範圍：預期是執行器（`TOUKA_EXECUTOR_DIR`，compose 設成 `/app/ipc/executor`）時，終端、互審驗證指令、演化改經本機 relay 交給 `touka-executor` 容器執行；呼叫方式、背景、停止、逾時不變（執行器端的上限是本機逾時＋30 秒、最多 900 秒）。控制通道是 ipc volume 裡的 unix socket（frame 格式的 SSOT 是 `sandbox_kernel/framing.py`），不是 HTTP 端點，也不在 OpenAPI 裡。
-- 層級 `executor` 要 READY 的版本、kernel 雜湊、伺服器程式雜湊、封鎖埠雜湊、roots、自測、ABI≥3 全部相符；ABI≥4 時網路設定也要安全、封鎖埠不能擋不全。ABI 3 的執行器仍判 `executor`、features 只有 `fs`。不在執行器範圍（綁了專案、代理人資料夾是 `custom/<id>/drive`）時那次判 `none`。
+- 層級 `executor` 要 READY 的版本、kernel 雜湊、伺服器程式雜湊、封鎖埠雜湊、roots、自測、ABI≥3 全部相符；ABI≥4 時網路設定也要安全、封鎖埠不能擋不全。ABI 3 的執行器仍判 `executor`、features 只有 `fs`。不在執行器範圍（綁了專用空間以外的專案、代理人資料夾是 `custom/<id>/drive`）時那次判 `none`；專用空間的專案見 ADR-0332。
 - 審批事件的 `isolation`：多一律帶的 `expected`（部署預期的層級），有值才帶 `net`（降級去處那一層的網路設定問題）、`block_ports_issue`（`block_ports_incomplete`／`block_ports_overflow`）、`local_issue`（讓降級只能 `direct` 的本機原因）；`fallback` 多 `executor`（核准後在執行器裡執行，features 不含 `tcp`），`isolation_ack` 照卡片送 `executor`。核准後的 runner 種類不能低於卡片、features 要包含卡片的。
 - 新原因碼（卡片、`GET /isolation`、工具錯誤；畫面文字，不在 `errors.json`）：
 
@@ -539,7 +552,7 @@ ABI≥4 但 Fast Open 或 MPTCP 沒關時，上表前兩列改成 `none`（`net_
 | `executor_roots_mismatch` | 執行器掛的資料夾和預期不同（compose 不一致） |
 | `executor_selftest_failed` | 執行器的自測沒有通過 |
 | `executor_restarted`、`executor_rejected` | relay 經狀態 fd 回報：執行器在這條指令前重啟過、START 被拒（monitor 照這個原因判 `none` 到下一次健康檢查） |
-| `agent_dir_not_in_executor`、`project_not_in_executor` | 這次不在執行器範圍：代理人資料夾不在執行器裡、對話綁了專案 |
+| `agent_dir_not_in_executor`、`project_not_in_executor` | 這次不在執行器範圍：代理人資料夾不在執行器裡、對話綁了專用空間以外的專案 |
 | `block_ports_incomplete` | `connections.json` 還沒讀成功或讀不到（任何一條連線的 `url` 是空字串也算：可能代表用預設端點，不知道要擋哪個埠；連線頁存檔從 2026-06-18 起拒收空網址，設定快照匯入不檢查）；修好後約半分鐘自動恢復 |
 | `block_ports_overflow` | 封鎖埠超過 1,024 個；只擋核心的埠，要重新啟動才恢復 |
 | `interpreter_untrusted` | 可信直譯器不合格（容器裡擁有者鏈不是 root 或可被別人寫）；降級只能 `direct` |

@@ -1045,6 +1045,65 @@ def walk_pruned(
         yield entry
 
 
+# 列檔案時預設不顯示的名稱（任何深度）
+LIST_HIDDEN = frozenset({".git", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache"})
+
+
+def render_tree(
+    entries: list[WalkEntry], report: WalkReport, hidden: frozenset[str], max_depth: int
+) -> list[str]:
+    """把走訪結果排成 ``list_directory`` 的樹狀文字（同層依名稱排序；讀不到的照舊標示）."""
+    children: dict[tuple[str, ...], list[tuple[str, str]]] = {}
+    for entry in entries:
+        if entry.parts[-1] not in hidden:
+            children.setdefault(entry.parts[:-1], []).append((entry.parts[-1], entry.kind))
+    seen = {entry.parts for entry in entries}
+    unreadable: set[tuple[str, ...]] = set()
+    for rel, _code in report.errors:
+        parts = tuple(rel.split("/")) if rel else ()
+        unreadable.add(parts)
+        if parts and parts not in seen and parts[-1] not in hidden:
+            children.setdefault(parts[:-1], []).append((parts[-1], "dir"))
+
+    def build(parts: tuple[str, ...], depth: int, prefix: str) -> list[str]:
+        if depth > max_depth:
+            return [f"{prefix}... (max depth {max_depth} reached)"]
+        if parts in unreadable:
+            return [f"{prefix}└── [Permission Denied]"]
+        items = sorted(children.get(parts, []), key=lambda item: os.path.normcase(item[0]))
+        lines: list[str] = []
+        for i, (name, kind) in enumerate(items):
+            last = i == len(items) - 1
+            connector = "└── " if last else "├── "
+            if kind == "link":
+                lines.append(f"{prefix}{connector}{name} {LINK_NOT_FOLLOWED}")
+            elif kind == "dir":
+                lines.append(f"{prefix}{connector}{name}/")
+                inner = prefix + ("    " if last else "│   ")
+                lines.extend(build((*parts, name), depth + 1, inner))
+            else:
+                lines.append(f"{prefix}{connector}{name}")
+        if not items:
+            lines.append(f"{prefix}└── (empty)")
+        return lines
+
+    return build((), 1, "")
+
+
+def tree_lines(root: Path, max_depth: int, hidden: frozenset[str]) -> list[str]:
+    """``root`` 底下的樹狀文字（專案的列檔案，ADR-0332）：同 ``walk_pruned``，連結只列名稱.
+
+    根由呼叫端查過；根或上層是連結照樣拒絕。``hidden`` 的名稱任何深度都不列也不進入。
+    """
+    report = WalkReport()
+    walk = walk_pruned(
+        root, current_roots(), report, skip_dir=lambda parts: parts[-1] in hidden,
+        show_links=True, list_depth=max_depth,
+    )
+    entries = list(walk) if max_depth >= 1 else []
+    return render_tree(entries, report, hidden, max_depth)
+
+
 def walk_open_pruned(
     root: Path | str,
     roots: ZoneRoots,

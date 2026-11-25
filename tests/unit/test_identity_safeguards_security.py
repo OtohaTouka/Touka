@@ -244,7 +244,7 @@ def executor_env(monkeypatch: pytest.MonkeyPatch) -> None:
             return None
         return {"id": session_id, "project_id": "bound-project"}
 
-    async def _level_for(_identity: Any, _project_root: Any) -> LevelDecision:
+    async def _level_for(_identity: Any, _project_root: Any, **_kw: Any) -> LevelDecision:
         return LevelDecision("none", "native_platform")
 
     monkeypatch.setattr(session_service, "get_session_by_id", _session)

@@ -4,7 +4,8 @@
   ``restart`` 不同（測的才是正式的形狀）；
 - 兩個網路都是 internal（不連網），``iso-exec`` 和 Touka 內部服務的替身 ``iso-internal``
   不共用網路；
-- ``iso-client`` 是 proxy 的形狀，和執行器共用同一個 ipc volume、同一份資料；
+- ``iso-client`` 是 proxy 的形狀，和執行器共用同一個 ipc volume、同一份資料，以及同一個專用空間
+  （ADR-0332：同一個 volume、同一個位置，位置由設定帶入）；
 - 映像名稱與資料夾可以從外面給（CI 用 ``ghcr.io/ci/touka-proxy:ci``、
   ``$RUNNER_TEMP/compose/data``）；
 - 檢查程式一律經 ``sandboxed.py`` 先開 smoke 沙盒才載入專案程式（ADR-0214、禁令 63）。
@@ -118,6 +119,16 @@ def test_client_is_proxy_shaped_and_shares_the_executor_ipc_and_data():
     assert "env_file" not in client
 
 
+def test_client_shares_the_executor_project_space_from_the_settings():
+    client, iso = _service(CLIENT), _service(EXEC)
+    space = iso["command"][iso["command"].index("--project-root") + 1]
+    assert Mount("volume", "projects", space, False) in _mounts(iso)
+    assert Mount("volume", "projects", space, False) in _mounts(client)
+    assert f"TOUKA_PROJECTS_DIR={space}" in client["environment"]
+    overrides = _layout_overrides(DOCKER / "executor_check.py")
+    assert "projects_root" not in overrides  # 照設定拿錨點，不自己組
+
+
 @pytest.mark.parametrize("name", [CLIENT, LANDLOCK])
 def test_checks_run_through_the_sandbox_launcher_from_a_read_only_repo(name):
     service = _service(name)
@@ -194,4 +205,4 @@ def test_compose_documents_the_ci_parameters():
     text = (ROOT / E2E).read_text(encoding="utf-8")
     for needle in ("TOUKA_ISO_IMAGE", "ghcr.io/ci/touka-proxy:ci", "TOUKA_ISO_DATA", "touka-iso-"):
         assert needle in text
-    assert yaml.safe_load(text)["volumes"] == {"ipc": None, "exec-state": None}
+    assert yaml.safe_load(text)["volumes"] == {"ipc": None, "exec-state": None, "projects": None}

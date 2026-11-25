@@ -62,9 +62,9 @@ if TYPE_CHECKING:
 
 Location = Literal["proxy", "executor"]
 # proxy 位置的 state 種類（``ST/proxy/<kind>/<owner>``）；MCP 自建與第三方分開父目錄，段名不會撞
-StateKind = Literal["agents", "evolution", "mcp_self", "mcp_third"]
+StateKind = Literal["agents", "evolution", "mcp_self", "mcp_third", "project"]
 # 執行器 START 的 kind（伺服器的 ``executor_session.KINDS``；kind mcp 只放自建）
-ExecutorKind = Literal["agents", "evolution", "mcp"]
+ExecutorKind = Literal["agents", "evolution", "mcp", "project"]
 
 SYSTEM_EXEC_PATHS = ("/usr", "/bin", "/sbin", "/lib", "/lib64")
 SYSTEM_READ_PATHS = ("/etc", "/proc")
@@ -76,6 +76,7 @@ BLOCK_PORTS_OVERFLOW = "block_ports_overflow"
 # 執行器 START 的 kind（依 profile 名稱）
 EXECUTOR_KINDS: Mapping[str, ExecutorKind] = {
     "agent_command": "agents", "evolution": "evolution", "mcp_self": "mcp",
+    "project_command": "project",
 }
 
 
@@ -106,6 +107,8 @@ class SandboxLayout:
     in_container: bool
     # 設定裡的 data 根寫法（人做的連結未解析）；字面比對同時看它和解析後的寫法（ADR-0293 決定 17）
     data_root_literal: Path | None = None
+    # 專用空間的位置（ADR-0332，``configured_projects_root``）；沒有是 None
+    projects_root: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -142,6 +145,20 @@ def _resolve(path: Path | str) -> Path:
 def _literal(path: Path | str) -> Path:
     """絕對、以字面消掉 ``..``，不跟隨連結：授與只用這個位置（ADR-0293 決定 16）。"""
     return Path(os.path.normpath(Path(path).absolute()))
+
+
+def literal_path(path: Path | str) -> Path:
+    """``_literal`` 給別的模組用（專用空間的結構層，ADR-0332）。"""
+    return _literal(path)
+
+
+def configured_projects_root() -> Path | None:
+    """專用空間的位置（ADR-0332）：只從部署設定 ``TOUKA_PROJECTS_DIR`` 來（解析後），沒設是 None.
+
+    不跟著工作區設定走：管理員改工作區設定不會讓它和實際掛載對不上。
+    """
+    raw = settings.TOUKA_PROJECTS_DIR
+    return _resolve(raw) if raw else None
 
 
 def _within(path: Path, root: Path) -> bool:
@@ -182,6 +199,7 @@ def current_layout() -> SandboxLayout:
         mirror_roots=tuple(sorted(_resolve(m) for m in mirrors)),
         in_container=in_container,
         data_root_literal=_literal(configured_data_root),
+        projects_root=configured_projects_root(),
     )
 
 
@@ -553,6 +571,49 @@ async def build_agent_command_profile(
         project_root=granted_project,
         ungranted=ungranted,
         owner=identity.agent_id,
+    )
+
+
+async def build_project_command_profile(
+    name: str | None,
+    project: Path | None,
+    *,
+    agent_id: str | None,
+    layout: SandboxLayout,
+    location: Location = "executor",
+    block_ports: tuple[int, ...] | None = None,
+    executor_state: str | None = None,
+) -> SandboxProfile:
+    """專用空間的專案指令（ADR-0332）：只在執行器位置；讀寫只有這個專案與它自己的 state.
+
+    ``name``、``project`` 來自結構層（``project_space.structural_scope`` 的 ``ok``），這裡再核對
+    位置正好是錨點第一層。不給個人空間與公開設定檔；掃描（``authorize_derived_path``）不過時
+    標成沒授權，broker 一律拒絕。``agent_id`` 只用在掃描的 owner（系統維護清 HOME 時是 None）。
+    """
+    subject = name or "project"
+    anchor = layout.projects_root
+    if location != "executor" or anchor is None or name is None or project is None:
+        raise ProfileError(subject)
+    if not is_safe_segment(name) or _literal(project) != anchor / name:
+        raise ProfileError(subject)
+    target = anchor / name
+    ports = checked_ports(block_ports, location)
+    home, tmp = _state(layout, location, "project", name, executor_state)
+    rules = system_rules()
+    rules.append(PathRule(_resolve(layout.config_dir) / "skills", "rox", optional=True))
+    rules += [PathRule(p, "rwx") for p in (home, tmp)]
+    verdict = await authorize_derived_path(target, layout, agent_id)
+    if verdict is None:
+        rules.append(PathRule(target, "rwx"))
+    return SandboxProfile(
+        name="project_command",
+        cwd=target,
+        rules=tuple(dict.fromkeys(rules)),
+        block_ports=ports,
+        env_set=sandbox_env(home, tmp, [anchor]),
+        project_root=target,
+        ungranted=() if verdict is None else (verdict,),
+        owner=name,
     )
 
 

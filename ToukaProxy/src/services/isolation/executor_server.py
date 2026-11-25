@@ -1,7 +1,8 @@
 """執行器伺服器（iso-c2 C2-2）：在 ``touka-executor`` 容器裡替 proxy 的 relay 跑代理人指令.
 
 ``python -m src.services.isolation.executor_server --ipc-dir D --kernel-dir K --state-dir S
---root rw:P … --root ro:P … [--require-foreign-peer]``（PYTHONPATH 來自映像的 ENV）。只用標準
+--root rw:P … --root ro:P … [--project-root P] [--require-foreign-peer]``（PYTHONPATH 來自映像
+的 ENV）。只用標準
 函式庫、``execution_broker`` 與 ``executor_session``；kernel 從 ``--kernel-dir`` 依路徑載入；不讀
 環境變數、不載入 ``src.config``。
 
@@ -184,6 +185,8 @@ class ServerConfig:
     rw: tuple[str, ...]  # 讀寫掛載根；名稱不能重複（``personal_drive``、``managed``）
     ro: tuple[str, ...]  # 唯讀掛載根（技能）
     require_foreign_peer: bool  # 只服務別的 pid namespace 來的連線（proxy 的 relay）
+    # 專用空間（ADR-0332）：和讀寫根分開驗（``checked_project_root``），驗過才併進 Layout
+    project_root: str | None = None
 
 
 def parse_cli(argv: Iterable[str]) -> ServerConfig:
@@ -193,6 +196,7 @@ def parse_cli(argv: Iterable[str]) -> ServerConfig:
         parser.add_argument(name, required=True)
     parser.add_argument("--root", action="append", default=[])
     parser.add_argument("--require-foreign-peer", action="store_true")
+    parser.add_argument("--project-root", default=None)
     try:
         args = parser.parse_args(list(argv))
     except (argparse.ArgumentError, SystemExit) as exc:
@@ -200,11 +204,13 @@ def parse_cli(argv: Iterable[str]) -> ServerConfig:
     roots = [root.partition(":")[::2] for root in args.root]
     if any(access not in {"rw", "ro"} or not path for access, path in roots):
         raise ConfigError("usage")
+    if args.project_root == "":
+        raise ConfigError("usage")
     rw, ro = (tuple(path for access, path in roots if access == want) for want in ("rw", "ro"))
     foreign = args.require_foreign_peer
     return ServerConfig(
         ipc=args.ipc_dir, kernel=args.kernel_dir, state=args.state_dir, rw=rw, ro=ro,
-        require_foreign_peer=foreign,
+        require_foreign_peer=foreign, project_root=args.project_root,
     )
 
 
@@ -274,7 +280,8 @@ def data_root(rw: Iterable[str]) -> str | None:
 def config_problem(config: ServerConfig, kernel: Kernel, view: FsView) -> str | None:
     """設定的問題代碼（沒有回 None），依檢查順序.
 
-    ``roots``：沒有讀寫 root 或名稱重複；``data_root``：沒有名稱是 ``managed`` 的讀寫 root；
+    ``roots``：沒有讀寫 root、名稱重複，或用了專用空間的名稱（只經 ``--project-root`` 驗過才服務，
+    ADR-0332）；``data_root``：沒有名稱是 ``managed`` 的讀寫 root；
     ``root_path``：root 不存在、不是資料夾或路上有連結；
     ``touka_root``：root 第一層像 Touka 資料根或帶標記（讀不到也算）；``nested``：roots、state、
     ipc 彼此巢狀；``socket_path``：socket 路徑超過 100 bytes；``private_dir``：state 或 ipc 不是
@@ -282,7 +289,7 @@ def config_problem(config: ServerConfig, kernel: Kernel, view: FsView) -> str | 
     """
     roots = (*config.rw, *config.ro)
     names = [PurePosixPath(p).name for p in config.rw]
-    if not config.rw or len(set(names)) != len(names):
+    if not config.rw or len(set(names)) != len(names) or es.PROJECT_ROOT_NAME in names:
         return "roots"
     if data_root(config.rw) is None:
         return "data_root"
@@ -301,6 +308,23 @@ def config_problem(config: ServerConfig, kernel: Kernel, view: FsView) -> str | 
     if len(socket_path.encode("utf-8")) > MAX_SOCKET_PATH_BYTES:
         return "socket_path"
     return _private_problem(view, config.state) or _private_problem(view, config.ipc)
+
+
+def checked_project_root(config: ServerConfig, view: FsView) -> str | None:
+    """驗過的專用空間根（ADR-0332）；沒給或有問題回 None，伺服器照常服務其他 kind.
+
+    要是絕對路徑、名稱是 ``touka-projects``、不經連結的資料夾，而且和讀寫根、唯讀根、state、ipc
+    都不巢狀。不看第一層內容（每個專案由 proxy 掃描）。
+    """
+    path = config.project_root
+    if path is None or not PurePosixPath(path).is_absolute():
+        return None
+    if PurePosixPath(path).name != es.PROJECT_ROOT_NAME or _canonical_dir(view, path) is None:
+        return None
+    others = (*config.rw, *config.ro, config.state, config.ipc)
+    if any(es.within(path, other) or es.within(other, path) for other in others):
+        return None
+    return path
 
 
 class RepairBudget:
@@ -508,6 +532,7 @@ class ExecutorServer:
         self.config, self.kernel, self.hooks = config, kernel, hooks or Hooks()
         self.framing, self.spec = kernel.framing, kernel.spec
         self.layout = es.Layout(config.rw, config.ro, config.state, es.system_exec_paths())
+        self.project_root: str | None = None  # 啟動時驗過才有（``adopt_project_root``）
         self.server_pid, self.boot_id = os.getpid(), secrets.token_hex(16)
         self.view: FsView = PosixView()
         self.uid = self.view.uid
@@ -561,7 +586,19 @@ class ExecutorServer:
             "server_digest": self._digests[1], "boot_id": self.boot_id,
             "block_ports_digest": self.framing.block_ports_digest(ports), "uid": self.uid,
             "repairs": {name: self.repairs[name] for name in REPAIR_COUNTERS},
+            "project_root": self.project_root,
         }
+
+    def adopt_project_root(self) -> None:
+        """驗過的專案根併進 Layout 的讀寫根（``config.rw`` 不動）.
+
+        有問題就不回報（READY 的 ``project_root`` 是 null），kind ``project`` 一律拒絕。
+        """
+        self.project_root = checked_project_root(self.config, self.view)
+        rw = (*self.config.rw, self.project_root) if self.project_root else self.config.rw
+        self.layout = es.Layout(rw, self.config.ro, self.config.state, self.layout.exec_paths)
+        if self.config.project_root and self.project_root is None:
+            logger.warning("Executor project root is not usable; dedicated projects are refused")
 
     # ── 連線 ─────────────────────────────────────────────────────────────────────────
 
@@ -626,7 +663,9 @@ class ExecutorServer:
                     return "state_dir"
         except OSError:
             return "state_dir"
-        if plan.cwd in allowed and plan.cwd not in (plan.home, plan.tmp):
+        # 專案（ADR-0332）的內容是代理人的檔案：不沿路修擁有者位元，資料夾不對就照實拒絕
+        repair_cwd = plan.kind != es.PROJECT_KIND and plan.cwd not in (plan.home, plan.tmp)
+        if plan.cwd in allowed and repair_cwd:
             self._repair(plan.root, plan.cwd)
         if plan.code is not None and plan.code_root is not None and plan.code in allowed:
             self._repair(plan.code_root, plan.code)
@@ -705,6 +744,7 @@ class ExecutorServer:
             self._maintain(roots=False, alive=False)  # 先收回兩個私有資料夾再檢查
         self.problem = self._claim_ipc() or self._check_config()
         if self.problem is None:
+            self.adopt_project_root()
             self._maintain(roots=True, alive=False)
             self._clean_state_tmp()
             self._clean_stale_selftests()
@@ -874,6 +914,7 @@ class ExecutorServer:
         chains = list(private)
         if roots:
             chains += [(root, root) for root in self.config.rw]
+            chains += [(root, root) for root in (self.project_root,) if root]  # 只修根本身
         for root, target in chains:
             self._repair(root, target)
         close = self.hooks.repair_private or self.kernel.owner_repair.repair_private

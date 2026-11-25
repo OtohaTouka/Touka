@@ -18,6 +18,7 @@ import contextlib
 import os
 import stat
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -32,12 +33,14 @@ from src.routers import souls
 from src.services.agent_reset.primitives import RETAINED_STORES
 from src.services.auth_service import AuthService
 from src.services.identity_router import get_verified_identity
-from src.services.isolation import home_wipe
+from src.services.isolation import home_wipe, profiles
 from src.services.isolation.profiles import current_layout, state_dirs
-from src.services.isolation.runners import Acquired, IsolationUnavailableError
+from src.services.isolation.runners import Acquired, IsolationUnavailableError, RunnerBroker
+from src.services.isolation.status import EXECUTOR_NO_PROJECT_ROOT
 from src.services.resource_manager import resource_manager
 from src.tools import terminal
 
+from tests.support.isolation import PinnedMonitor
 from tests.support.links import CHANGED_ANYWAY, LINK_FOLLOWED, make_dir_link
 from tests.support.zone_roots import point_zone_roots
 
@@ -105,6 +108,7 @@ def wiring(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):  # noqa: ANN201
         ensure_ready=AsyncMock(return_value=SimpleNamespace(expected="executor")),
         block_ports=Mock(return_value=()),
         executor_scope_issue=Mock(return_value=None),
+        dedicated_executor_issue=Mock(return_value=None),
         report_failure=Mock(),
     )
     proc = SimpleNamespace(wait=AsyncMock(return_value=0), returncode=0)
@@ -456,3 +460,55 @@ def test_wrong_password_does_not_reach_the_wipe(admin, monkeypatch) -> None:
 
     assert _delete(admin, password="WRONG").status_code == 403
     wipe.assert_not_awaited()
+
+
+# ── 專用空間的專案（ADR-0332）：綁定前清它在執行器裡的 HOME／TMP ─────────────────────────
+
+
+@pytest.fixture
+def space(wiring, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):  # noqa: ANN201
+    """錨點在 tmp_path 的版面（專案 ``repo``）；掃描一律過（掃描本身另有測試）."""
+    anchor = tmp_path / "touka-projects"
+    (anchor / "repo").mkdir(parents=True)
+    layout = replace(home_wipe.current_layout(), projects_root=anchor)
+    monkeypatch.setattr(home_wipe, "current_layout", lambda: layout)
+
+    async def _scan_ok(*_args: object) -> None:
+        return None
+
+    monkeypatch.setattr(profiles, "authorize_derived_path", _scan_ok)
+    return SimpleNamespace(anchor=anchor, **vars(wiring))
+
+
+async def test_project_wipe_runs_the_fixed_script_for_that_project_only(space) -> None:
+    await home_wipe.wipe_project_home("repo", space.anchor / "repo")
+
+    (request,) = space.broker.runner.requests
+    profile = request.profile
+    home, tmp = profile.env_set["HOME"], profile.env_set["TMPDIR"]
+    assert request.argv == ("/bin/sh", "-c", home_wipe.WIPE_SCRIPT, "touka-home-wipe", home, tmp)
+    assert Path(home) == Path(STATE_ROOT) / "project" / "repo" / "home"  # 依專案分，不依靈魂
+    assert dict(request.env) == {}
+    assert profile.owner == "repo" and profile.cwd == space.anchor / "repo"
+    (source,) = space.broker.sources
+    assert source.dedicated and source.executor_issue is None  # 只用執行器、不降級
+    space.spawn.assert_awaited_once()
+
+
+async def test_project_wipe_is_not_started_when_ready_has_no_project_root(
+    space, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """READY 沒有專案根（舊執行器、沒給 --project-root）：不送 START.
+
+    送了會被執行器拒絕，relay 回報的拒絕讓整台執行器暫時被判 none（所有代理人的指令都停），
+    任何能存專案的人都能反覆觸發。這裡用真的 broker：原因沒交給它就會去要執行器。
+    """
+    space.monitor.dedicated_executor_issue.return_value = EXECUTOR_NO_PROJECT_ROOT
+    monitor = PinnedMonitor(executor_features=frozenset())
+    monkeypatch.setattr(home_wipe, "runner_broker", RunnerBroker(monitor))
+    with pytest.raises(home_wipe.HomeWipeError) as raised:
+        await home_wipe.wipe_project_home("repo", space.anchor / "repo")
+    assert raised.value.reason == EXECUTOR_NO_PROJECT_ROOT
+    space.spawn.assert_not_awaited()
+    assert monitor.failures == []
+    space.monitor.report_failure.assert_not_called()

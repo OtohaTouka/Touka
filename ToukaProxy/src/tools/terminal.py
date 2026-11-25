@@ -56,7 +56,7 @@ from src.utils.command_safety import (
     has_chaining_metacharacters,
 )
 from src.utils.isolation_policy import IsolationLevel
-from src.utils.presence import blocked_call_suggestion
+from src.utils.presence import blocked_call_suggestion, is_human_present
 from src.utils.time_utils import get_current_epoch
 from src.utils.tool_events import tool_stream_event
 
@@ -633,8 +633,9 @@ async def execute_command(
         tool="execute_command",
         args={"command": command, "env": env},
     )
-    project_root = await session_project_root(kwargs.get("_ctx") or {}, session_id)
-    scope = await command_scope(identity, project_root, grant)
+    ctx = kwargs.get("_ctx") or {}
+    project_root = await session_project_root(ctx, session_id)
+    scope = await command_scope(identity, project_root, grant, attended=is_human_present(ctx))
 
     # --- 🛡️ 統一安全政策核查 (SSOT Permission Gate) ---
     auth_level = kwargs.get("auth_level", "Manual")
