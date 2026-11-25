@@ -19,6 +19,7 @@ complexity 記每個超過 15 的函式（ADR-0331），兩個方向都紅：變
 import ast
 import json
 import re
+import shutil
 import subprocess
 import sys
 from collections import Counter
@@ -34,6 +35,13 @@ PRODUCT_SOURCE_ROOTS = (
     "ToukaDispatch",
     "ToukaLocal",
 )
+# 完整 ruff 和 CI F 步驟共用的挑檔參數；挑檔照 ruff.toml，檔案藏不藏得起來由
+# tests/lint/test_ruff_sees_every_file.py 比對 git 的清單把關（ADR-0278）。
+RUFF_CHECK_ARGS = ("ruff", "check", "--no-cache", "--config", "ruff.toml")
+# 這些副檔名都會被當成 Python 執行；比對前先轉小寫，`.PY` 在 Windows 也 import 得到。
+PYTHON_SUFFIXES = (".py", ".pyi", ".pyw")
+# git 的連結（120000）和子模組（160000）：ruff 不跟進去，裡面的檔就藏起來了。
+HIDING_GIT_MODES = frozenset({"120000", "160000"})
 RUFF_BASELINE = PROJECT_ROOT / "tests" / "lint" / "ruff_baseline.json"
 PYREFLY_BASELINE = PROJECT_ROOT / "tests" / "lint" / "pyrefly_baseline.json"
 VULTURE_BASELINE = PROJECT_ROOT / "tests" / "lint" / "vulture_baseline.json"
@@ -84,10 +92,10 @@ def _only_info_logs(stderr: str) -> bool:
     return all(line.startswith(PYREFLY_LOG_PREFIX) for line in lines)
 
 
-def _run_tool_module(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-    """在 repo 根目錄（或指定資料夾）用目前的直譯器跑檢查工具模組，不經 shell。"""
-    return subprocess.run(  # noqa: S603 - fixed tool module argv, no shell
-        [sys.executable, "-m", *args],
+def _run(argv: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    """在 repo 根目錄（或指定資料夾）跑一個固定的指令，不經 shell；不看結束碼。"""
+    return subprocess.run(  # noqa: S603 - fixed argv (tool module or git), no shell
+        argv,
         cwd=cwd or PROJECT_ROOT,
         capture_output=True,
         text=True,
@@ -97,20 +105,65 @@ def _run_tool_module(args: list[str], cwd: Path | None = None) -> subprocess.Com
     )
 
 
+def _run_tool_module(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    """用目前的直譯器跑檢查工具模組。"""
+    return _run([sys.executable, "-m", *args], cwd)
+
+
+def _git(args: list[str], cwd: Path) -> str:
+    """跑 git，回傳 stdout；只看結束碼，git 把提示和換行警告也寫在 stderr。"""
+    git = shutil.which("git")
+    if git is None:
+        message = "git not found on PATH"
+        raise RuntimeError(message)
+    result = _run([git, *args], cwd)
+    if result.returncode != 0:
+        message = f"git {args[0]} failed (exit {result.returncode}): {result.stderr[-1500:]}"
+        raise RuntimeError(message)
+    return result.stdout
+
+
+def unchecked_python_files(
+    roots: tuple[str, ...] | list[str], root: Path | None = None
+) -> list[str]:
+    """找出 git 會收、ruff 挑檔時卻沒看到的 Python 檔；回傳 git 給的 `/` 相對路徑。
+
+    「git 會收」是已追蹤的檔加上還沒 add、也沒被忽略的檔；只比對檔名清單，不讀檔案內容。
+    任何一步異常都丟錯，不當成「全部看得到」。
+    """
+    root = root or PROJECT_ROOT
+    missing = [name for name in roots if not (root / name).is_dir()]
+    if missing:
+        message = f"ruff coverage: source roots missing: {missing}"
+        raise RuntimeError(message)
+    staged = _git(["ls-files", "-z", "-s", "--", *roots], root).split("\0")
+    hiding = [entry for entry in staged if entry.split(" ", 1)[0] in HIDING_GIT_MODES]
+    if hiding:
+        message = f"ruff coverage: links or submodules in scope, ruff skips them: {hiding}"
+        raise RuntimeError(message)
+    listed = _git(["ls-files", "-z", "-c", "-o", "--exclude-standard", "--", *roots], root)
+    expected = {
+        (root / name).resolve(): name
+        for name in set(listed.split("\0"))
+        if Path(name).suffix.lower() in PYTHON_SUFFIXES and (root / name).is_file()
+    }
+    if not expected:
+        message = f"ruff coverage: git listed no Python files under {list(roots)}"
+        raise RuntimeError(message)
+    result = _run_tool_module([*RUFF_CHECK_ARGS, "--show-files", *roots], cwd=root)
+    if result.returncode != 0:
+        message = (
+            f"ruff --show-files did not finish (exit {result.returncode}): {result.stderr[-1500:]}"
+        )
+        raise RuntimeError(message)
+    seen = {Path(line.strip()).resolve() for line in result.stdout.splitlines() if line.strip()}
+    return sorted(name for path, name in expected.items() if path not in seen)
+
+
 def collect_ruff() -> Counter[str]:
     """跑完整 ruff 規則，回傳 {規則代號: 數量}。只讀 JSON 結果，不理會警告。"""
     result = _run_tool_module(
-        [
-            "ruff",
-            "check",
-            "--no-cache",
-            "--config",
-            "ruff.toml",
-            "--output-format",
-            "json",
-            "--exit-zero",
-            *PRODUCT_SOURCE_ROOTS,
-        ]
+        [*RUFF_CHECK_ARGS, "--output-format", "json", "--exit-zero", *PRODUCT_SOURCE_ROOTS]
     )
     if result.returncode != 0:
         message = f"ruff did not finish (exit {result.returncode}): {result.stderr[-1500:]}"

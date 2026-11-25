@@ -285,7 +285,7 @@ ADR-0293 移除個人空間的備援 I/O：`MemoryManager.get_personal_drive_dir
 
 | 路徑／接點 | 規則 | 原因與限制 |
 | --- | --- | --- |
-| `scripts/lint_ratchet.py::_run_tool_module` | `S603` ×1 | ADR-0278、ADR-0298、ADR-0331：ruff、pyrefly、vulture、複雜度共用的子程序入口，以 `sys.executable -m <工具>` 跑固定 argv（ruff：五個產品資料夾、`--no-cache`、JSON 輸出；pyrefly：`--config pyproject.toml`、目前的直譯器、JSON 輸出；vulture：五個產品資料夾加白名單、固定門檻與排除的裝飾器；複雜度：ruff C901 的固定參數 `COMPLEXITY_ARGS`，可在暫存小專案的資料夾跑），`shell=False`、有逾時；工具異常結束就失敗，不當成 0 個違規。 |
+| `scripts/lint_ratchet.py::_run` | `S603` ×1 | ADR-0278、ADR-0298、ADR-0331：ruff、pyrefly、vulture、複雜度與 git 共用的子程序入口。git 用 `shutil.which` 解析出的執行檔跑固定 argv：比對時只跑 `ls-files`（ADR-0278 §8，找不到 git 或異常結束就失敗），測試在暫存小 repo 另跑 `init`、`add -f`、`hash-object -w`、`update-index`；工具以 `sys.executable -m <工具>` 跑固定 argv（ruff：五個產品資料夾、`--no-cache`、JSON 輸出；pyrefly：`--config pyproject.toml`、目前的直譯器、JSON 輸出；vulture：五個產品資料夾加白名單、固定門檻與排除的裝飾器；複雜度：ruff C901 的固定參數 `COMPLEXITY_ARGS`，可在暫存小專案的資料夾跑），`shell=False`、有逾時；工具異常結束就失敗，不當成 0 個違規。 |
 | `tests/lint/test_tests_readme_listing.py::git_ls_files` | `S603` ×1 | ADR-0278：以 `shutil.which` 解析出的 git 跑固定 argv `ls-files -z -- <pathspec>`（`tests` 或全 repo），`shell=False`、`check=True`；找不到 git 就失敗、不跳過。 |
 | `tests/lint/test_release_licensing.py::_dockerfiles` | `S603` ×1 | 映像授權檢查：以 `shutil.which` 解析出的 git 跑固定 argv `ls-files -z`，從結果挑出版控中的 Dockerfile，`shell=False`、`check=True`；找不到 git 就失敗、不跳過。 |
 | `scripts/list_theme_violations.py`、`scripts/summarize_theme_violations.py` 的固定shell命令 | `S602` ×2 | 保留既有命令／診斷語義；不接收自由shell輸入。 |
