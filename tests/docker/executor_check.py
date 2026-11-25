@@ -6,6 +6,10 @@ READY 要和 proxy 的預期完全相同）、真 ``RunnerBroker``／``ExecutorR
 執行器容器裡以 Landlock 隔離執行。每一項寫一行 JSON（``check``、``ok`` 與細節）到 stdout；
 全部通過才 exit 0。
 
+專用空間（ADR-0332）：proxy 與執行器掛同一個 volume，位置照設定（``TOUKA_PROJECTS_DIR``）；
+專案指令用專案的 profile（來源標成 dedicated）在執行器裡跑：碰不到旁邊的專案、個人空間，
+連結逃不出去，HOME 依專案分開；執行器容器裡沒有 ``.env`` 與工作區的其他內容。
+
 沙盒會封鎖本行程連外網（audit hook），所以 proxy 這邊「連得到 Touka 內部服務」的對照在子行程做。
 需要從主機控制 Docker 的項目（執行器重啟後 boot_id 換掉、升級順序、OOM）不在這裡，交 U2j 手動做。
 """
@@ -30,7 +34,11 @@ from src.sandbox_kernel.framing import SOCKET_NAME, TOKEN_NAME
 from src.sandbox_kernel.spec import DEFAULT_BLOCK_PORTS
 from src.services.execution_broker import spawn_exec
 from src.services.isolation.consent import ExecutionGrant
-from src.services.isolation.profiles import build_agent_command_profile, current_layout
+from src.services.isolation.profiles import (
+    build_agent_command_profile,
+    build_project_command_profile,
+    current_layout,
+)
 from src.services.isolation.runners import ExecRequest, ProfileSource, RunnerBroker
 from src.services.isolation.status import IsolationMonitor
 
@@ -49,6 +57,13 @@ COMMAND_SECONDS = 60.0
 DISCONNECT_AFTER_SECONDS = 3.0  # 本機逾時：殺掉 relay，執行器要收掉遠端
 STOP_WITHIN_SECONDS = 2.0  # 遠端要在這段時間內停下
 MAX_SECONDS = 2  # 執行器端的上限（START 的 max_seconds）
+PROJECT, NEIGHBOUR = "alpha", "beta"  # 專用空間裡的兩個專案
+NEIGHBOUR_CONTENT = "only-beta-may-read-this"
+HOME_MARK = "[user]\n\tname = alpha\n"
+# 執行器容器裡不該有的東西（金鑰與工作區的其他內容）
+ABSENT_IN_EXECUTOR = (
+    "/app/workspace/.env", "/app/host_root", "/app/workspace/ToukaProxy", "/app/workspace/data",
+)
 
 _CONTROL_PROBE = """
 import json, socket, sys
@@ -116,6 +131,19 @@ urllib.request.urlopen(f"http://{name}:{port}/", timeout=5).read(1)
 print(ip)
 """
 
+# 每個路徑讀一次（資料夾就列內容），回錯誤碼名稱；``ok`` 表示讀到了
+_READ_PROBE = """
+import errno, json, os, sys
+out = {}
+for path in sys.argv[1:]:
+    try:
+        os.listdir(path) if os.path.isdir(path) else open(path, "rb").read()
+        out[path] = "ok"
+    except OSError as exc:
+        out[path] = errno.errorcode.get(exc.errno, str(exc.errno))
+print(json.dumps(out))
+"""
+
 _COUNTER = "i=0; while :; do i=$((i+1)); echo $i > {name}; sleep 0.2; done"
 
 
@@ -143,6 +171,12 @@ class Session:
         """代理人的資料夾（proxy 與執行器掛的是同一個實體資料夾）。"""
         return self.layout.data_root / "personal_drive" / owner
 
+    def project(self, name: str) -> Path:
+        """專用空間裡的專案（同一個 volume、同一個位置；``connect`` 確認過錨點有設）。"""
+        anchor = self.layout.projects_root
+        assert anchor is not None
+        return anchor / name
+
 
 def emit(check: str, ok: bool, **detail: object) -> bool:
     """寫一行結果；回傳 ``ok``。"""
@@ -167,7 +201,32 @@ async def run_agent(
             block_ports=session.monitor.block_ports(location), executor_state=executor_state,
         )
 
-    acquired = await session.broker.acquire(session.grant, ProfileSource(build, None))
+    source = ProfileSource(build, None)
+    return await _run(session, source, argv, timeout=timeout, max_seconds=max_seconds)
+
+
+async def run_project(session: Session, name: str, argv: tuple[str, ...]) -> Outcome:
+    """專用空間的專案指令（ADR-0332）：專案的 profile、來源標成 dedicated（只用執行器）."""
+
+    async def build(location: str, executor_state: str | None) -> SandboxProfile:
+        return await build_project_command_profile(
+            name, session.project(name), agent_id=OWNER, layout=session.layout,
+            location=location, block_ports=session.monitor.block_ports(location),
+            executor_state=executor_state,
+        )
+
+    return await _run(session, ProfileSource(build, None, dedicated=True), argv)
+
+
+async def _run(
+    session: Session,
+    source: ProfileSource,
+    argv: tuple[str, ...],
+    *,
+    timeout: float = COMMAND_SECONDS,
+    max_seconds: int | None = None,
+) -> Outcome:
+    acquired = await session.broker.acquire(session.grant, source)
     request = ExecRequest(
         argv=argv, env={"PATH": AGENT_PATH}, profile=acquired.profile, max_seconds=max_seconds
     )
@@ -302,6 +361,77 @@ async def check_git(session: Session) -> bool:
     return emit("git_without_dubious_ownership", ok, output=outcome.output[-300:])
 
 
+async def check_project_space_ready(session: Session) -> bool:
+    """READY 的專案根就是設定的錨點；有人在場是執行器層，沒人在場照今天的規則（不是 refused）."""
+    identity = AgentIdentity.for_role(OWNER, "Owner", capabilities=[])
+    ready = session.monitor.snapshot().executor
+    reported = ready.project_root if ready is not None else None
+    project = session.project(PROJECT)
+    attended = await session.monitor.level_for(identity, project, attended=True)
+    alone = await session.monitor.level_for(identity, project, attended=False)
+    ok = reported == str(session.layout.projects_root) and attended.level == "executor"
+    ok = ok and not attended.refused and alone.level == "none" and not alone.refused
+    return emit(
+        "project_space_ready", ok, reported=reported, attended=attended.level,
+        alone=alone.reason, refused=attended.refused_reason,
+    )
+
+
+async def check_project_space_owner(session: Session) -> bool:
+    """空 volume 第一次掛載時照映像複製擁有者：根是 1001 的（proxy 與執行器都寫得進去）."""
+    info = os.stat(session.project(PROJECT).parent)
+    return emit("project_space_owner", (info.st_uid, info.st_gid) == (1001, 1001), uid=info.st_uid)
+
+
+async def check_project_identity(session: Session) -> bool:
+    script = 'id -u; printf "%s\\n" "$HOME"; pwd'
+    outcome = await run_project(session, PROJECT, ("sh", "-c", script))
+    home = str(PurePosixPath(session.state_root, "project", PROJECT, "home"))
+    expected = ["1001", home, str(session.project(PROJECT))]
+    lines = outcome.output.split()
+    return emit("project_uid_home_cwd", outcome.code == 0 and lines == expected, lines=lines)
+
+
+async def check_project_boundary(session: Session) -> bool:
+    """旁邊的專案（直接、經連結）、個人空間、錨點本身都讀不到."""
+    paths = (
+        f"../{NEIGHBOUR}/secret.txt", "link/secret.txt", str(session.drive(OTHER) / "secret.txt"),
+        str(session.drive(OWNER)), str(session.project(PROJECT).parent),
+    )
+    result = _last_json((await run_project(session, PROJECT, _python(_READ_PROBE, *paths))).output)
+    ok = result == dict.fromkeys(paths, "EACCES")
+    return emit("project_boundary", ok, **result)
+
+
+async def check_project_writes_and_home(session: Session) -> bool:
+    """專案裡寫得進去；HOME 依專案分開：alpha 寫的 ``~/.gitconfig`` beta 看不到."""
+    script = 'echo own > own && printf "%s" "$MARK" > "$HOME/.gitconfig" && echo wrote'
+    wrote = await run_project(session, PROJECT, ("sh", "-c", f"MARK='{HOME_MARK}'; {script}"))
+    peek = await run_project(session, NEIGHBOUR, ("sh", "-c", 'cat "$HOME/.gitconfig"; echo end'))
+    own = session.project(PROJECT) / "own"
+    ok = wrote.code == 0 and own.read_text(encoding="utf-8").strip() == "own"
+    ok = ok and "alpha" not in peek.output and peek.output.strip().endswith("end")
+    return emit("project_writes_and_separate_home", ok, wrote=wrote.output[-200:], peek=peek.output)
+
+
+async def check_no_secrets_in_the_executor(session: Session) -> bool:
+    script = "; ".join(f'test -e "{p}" && echo "present:{p}"' for p in ABSENT_IN_EXECUTOR)
+    outcome = await run_project(session, PROJECT, ("sh", "-c", f"{script}; echo checked"))
+    ok = outcome.output.strip() == "checked"
+    return emit("executor_has_no_env_or_workspace", ok, output=outcome.output[-300:])
+
+
+def _prepare_projects(session: Session) -> None:
+    """兩個專案、beta 的祕密、alpha 裡指向 beta 的連結；清掉上一輪留下的檔."""
+    for name in (PROJECT, NEIGHBOUR):
+        session.project(name).mkdir(exist_ok=True)
+    (session.project(NEIGHBOUR) / "secret.txt").write_text(NEIGHBOUR_CONTENT, encoding="utf-8")
+    link = session.project(PROJECT) / "link"
+    link.unlink(missing_ok=True)
+    link.symlink_to(f"../{NEIGHBOUR}")
+    (session.project(PROJECT) / "own").unlink(missing_ok=True)
+
+
 def _prepare(session: Session) -> None:
     """測試資料：兩個代理人的資料夾、B 的祕密；清掉上一輪留下的計數檔與 repo."""
     for owner in (OWNER, OTHER):
@@ -327,6 +457,7 @@ async def connect(args: argparse.Namespace) -> Session | None:
     snap = await monitor.ensure_ready()
     ready = snap.executor
     ok = snap.level == "executor" and ready is not None and "tcp" in snap.features
+    ok = ok and layout.projects_root is not None  # 專用空間照設定（TOUKA_PROJECTS_DIR）
     emit("executor_level", ok, level=snap.level, reason=snap.reason, features=sorted(snap.features))
     if not ok or ready is None:
         return None
@@ -341,6 +472,12 @@ async def run_checks(args: argparse.Namespace) -> int:
         return 1
     _prepare(session)
     checks: list[Callable[[], Awaitable[bool]]] = [
+        lambda: check_project_space_owner(session),
+        lambda: _prepared_ready(session),
+        lambda: check_project_identity(session),
+        lambda: check_project_boundary(session),
+        lambda: check_project_writes_and_home(session),
+        lambda: check_no_secrets_in_the_executor(session),
         lambda: check_identity(session),
         lambda: check_control_channel(session, args.ipc),
         lambda: check_other_agent(session),
@@ -359,6 +496,12 @@ async def run_checks(args: argparse.Namespace) -> int:
         except Exception as exc:  # 一項壞掉不擋後面的；照實記下型別與訊息
             results.append(emit("error", False, error=f"{type(exc).__name__}: {exc}"))
     return 0 if all(results) else 1
+
+
+async def _prepared_ready(session: Session) -> bool:
+    """建好測試專案（要先確認根是 1001 的）再看層級：掃描要看得到專案資料夾."""
+    _prepare_projects(session)
+    return await check_project_space_ready(session)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

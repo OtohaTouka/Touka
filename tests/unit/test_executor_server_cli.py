@@ -103,7 +103,7 @@ async def test_compose_command_line_parses_and_stays_alive_without_serving(tmp_p
     assert str(LIVE_KERNEL) in args and "--require-foreign-peer" in args
     # 容器路徑一個都不留：在剛好有 /app、/opt 的 Linux 主機上也只碰這次的暫存區
     paths = {a for a in command[3:] if PurePosixPath(a.partition(":")[2] or a).is_absolute()}
-    assert len(paths) == 6 and not paths & set(args)  # ipc、kernel、state、三個 root
+    assert len(paths) == 7 and not paths & set(args)  # ipc、kernel、state、三個 root、專用空間
     line, alive = await _run_module(*args)
     assert line == NOT_SERVING + "private_dir"
     assert alive

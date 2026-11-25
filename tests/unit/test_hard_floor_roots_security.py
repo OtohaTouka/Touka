@@ -22,6 +22,7 @@ from src.models.identity import AgentIdentity
 from src.models.policy import PolicyContext
 from src.models.safety import AuthPoliciesConfig
 from src.services import resource_manager as rm_module
+from src.services.isolation.executor_session import PROJECT_ROOT_NAME
 from src.utils import hard_floor
 from src.utils.hard_floor import classify_hard_floor, mounts_separate
 
@@ -582,6 +583,59 @@ def _pure_mounts(
 )
 def test_mounts_separate_proof(label, text, separate):
     assert mounts_separate(text, f"{_MP}/workspace", _ANCHORS) is separate, label
+
+
+_SPACE = f"{_MP}/workspace/touka-projects"  # 專用空間（ADR-0332）：工作區底下的 volume 子掛載
+_SPACE_VOLUME = "/docker-data/volumes/touka_touka-projects/_data"
+_NINE_P = _pure_mounts("/Projects/foo", ws_dev="0:60", anchor_dev="0:60")  # 工作區另外放
+_SAME_DISK = _pure_mounts("/Projects/foo")
+
+
+def _with_space(text: str, dev: str = "8:1", root: str = _SPACE_VOLUME, point: str = _SPACE) -> str:
+    return f"{text}\n34 30 {dev} {root} {point} rw - ext4 /dev/vda1 rw"
+
+
+@pytest.mark.parametrize(
+    ("label", "text", "space", "separate"),
+    [
+        ("n 沒有專用空間的子掛載（照舊）", _NINE_P, _SPACE, True),
+        ("n 專用空間是實體裝置上的 volume", _with_space(_NINE_P), _SPACE, True),
+        ("n 沒告訴它專用空間在哪", _with_space(_NINE_P), None, False),
+        ("o 子掛載不在它的位置", _with_space(_NINE_P, point=f"{_MP}/workspace/x"), _SPACE, False),
+        ("o 不是 volume 佈局", _with_space(_NINE_P, root="/srv/touka-projects"), _SPACE, False),
+        ("o volume 在 major 0", _with_space(_NINE_P, dev="0:61"), _SPACE, False),
+        ("p 同裝置、和錨點不重疊", _with_space(_SAME_DISK), _SPACE, True),
+        (
+            "p 同裝置仍比路徑：volume 佈局在錨點底下",
+            _with_space(_SAME_DISK, root="/Touka/data/volumes/touka_touka-projects/_data"),
+            _SPACE,
+            False,
+        ),
+    ],
+)
+def test_mounts_separate_with_the_project_space(label, text, space, separate):
+    """專用空間的 volume 不讓「工作區另外放」的證明失效；只放過正好在它位置上的 volume."""
+    assert mounts_separate(text, f"{_MP}/workspace", _ANCHORS, space) is separate, label
+
+
+@pytest.mark.parametrize(("space_known", "expected"), [(True, None), (False, "F4")])
+def test_project_space_volume_keeps_a_separate_workspace_proven(
+    layout, monkeypatch, space_known, expected
+):
+    """呼叫端帶部署設定的專用空間：工作區另外放（9p）時，專案指令照常放行."""
+    _compose_project(layout, monkeypatch)
+    space = layout.workspace / PROJECT_ROOT_NAME
+    text = _mountinfo(
+        ("0:60", "/Projects/foo", layout.workspace),
+        ("0:60", "/Touka", layout.host_root),
+        ("0:60", "/Touka/data", layout.data),
+        ("0:60", "/Touka/ToukaProxy/config", layout.app / "ToukaProxy" / "config"),
+        ("8:1", _SPACE_VOLUME, space),
+    )
+    monkeypatch.setattr(hard_floor, "_read_mountinfo", lambda: text)
+    known = space if space_known else None
+    monkeypatch.setattr(hard_floor, "configured_projects_root", lambda: known)
+    assert _floor(layout.fill("echo x > {ws}/notes.txt")) == expected
 
 
 def test_mounts_separate_decodes_escaped_paths():

@@ -7,13 +7,17 @@
   ``volumes_from``、``extra_hosts``、``build`` 等一律不准）；
 - 只掛兩個資料夾（可寫）、skills（唯讀）、ipc 與它自己的 state；不掛 ``.env``、原始碼、其他設定、
   工作區、``docker.sock``；兩個新 volume 只出現在該出現的服務上；
+- 唯一的例外是專用空間（ADR-0332）：proxy 與執行器在同一個位置（工作區掛載點正下方的
+  ``touka-projects``）掛同一個 named volume，執行器由 ``--project-root`` 帶入，proxy 由
+  ``TOUKA_PROJECTS_DIR`` 帶入；``workspace`` 仍在禁用清單裡，只放過這一筆；
 - 只接 ``touka-exec-net``，不接 Touka 內部網路；沒有發布任何埠（整份 compose 仍是 4 個）；
 - 和 proxy 同一個映像、uid 1001、唯讀 rootfs、``cap_drop: ALL``、``no-new-privileges``、``init``；
 - sysctl 只有關掉 TCP Fast Open（MPTCP 只能由 Owner 依核心加在覆寫檔）；
 - healthcheck 同時要 socket 與新鮮的 ``alive``（只看 socket 會被 volume 裡殘留的舊 socket 騙過）；
 - command 用伺服器自己的命令列解析器解析後，ipc、state、kernel、roots 和掛載、proxy 的預期
   （``expected_executor_roots``）、Dockerfile 一致，而且帶 ``--require-foreign-peer``；
-- 映像預建 ipc 與 state（appuser、0700：空 volume 第一次掛載時照映像複製擁有者）；git 另成一層。
+- 映像預建 ipc、state 與專用空間（appuser、0700：空 volume 第一次掛載時照映像複製擁有者）；
+  git 另成一層。
 """
 
 from __future__ import annotations
@@ -37,6 +41,7 @@ LOCAL_BUILDS = ("docker-compose.yml", "ToukaProxy/docker-compose.yml")  # 映像
 GHCR = "docker-compose.ghcr.yml"
 EXECUTOR, PROXY = "touka-executor", "touka-proxy"
 EXEC_NET, IPC_VOLUME, STATE_VOLUME = "touka-exec-net", "touka-exec-ipc", "touka-executor-state"
+PROJECTS_VOLUME = "touka-projects"  # 專用空間（ADR-0332）
 MODULE = "src.services.isolation.executor_server"
 FOREIGN_PEER = "--require-foreign-peer"
 FAST_OPEN_OFF = {"net.ipv4.tcp_fastopen": 0}
@@ -240,13 +245,16 @@ def test_executor_sysctls_only_turn_off_tcp_fast_open(rel):
 
 
 @pytest.mark.parametrize("rel", COMPOSES)
-def test_executor_mounts_only_two_data_folders_skills_ipc_and_state(rel):
+def test_executor_mounts_only_data_folders_skills_ipc_state_and_the_project_space(rel):
     executor, config = _service(rel, EXECUTOR), _parsed_command(rel)
     mounts = _mounts(executor)
     targets = [m.target for m in mounts]
-    assert len(targets) == len(set(targets)) == 5
-    assert set(targets) == {*config.rw, *config.ro, config.ipc, config.state}
+    assert len(targets) == len(set(targets)) == 6
+    assert set(targets) == {*config.rw, *config.ro, config.ipc, config.state, config.project_root}
+    space = Mount("volume", PROJECTS_VOLUME, str(config.project_root), False)
     for mount in mounts:
+        if mount == space:  # 唯一放過的一筆：目標就是 --project-root、來源是它自己的 volume
+            continue
         for text in (mount.source, mount.target):
             assert not [bad for bad in FORBIDDEN_MOUNT_FRAGMENTS if bad in text], mount
     assert "docker.sock" not in yaml.safe_dump(executor)
@@ -282,6 +290,27 @@ def test_ipc_and_state_volumes_are_mounted_only_where_they_belong(rel):
     executor = _service(rel, EXECUTOR)
     assert _mount_at(executor, config.ipc) == Mount("volume", IPC_VOLUME, config.ipc, False)
     assert _mount_at(executor, config.state) == Mount("volume", STATE_VOLUME, config.state, False)
+
+
+@pytest.mark.parametrize("rel", COMPOSES)
+def test_project_space_is_one_volume_at_the_same_place_for_proxy_and_executor(rel):
+    """ADR-0332：同一個 named volume、同一個位置；位置在工作區掛載點正下方、叫 touka-projects.
+
+    proxy 的錨點（``TOUKA_PROJECTS_DIR``）和執行器的 ``--project-root`` 一樣，READY 才對得上；
+    在工作區掛載點底下，靈魂與子代理登記的路徑才過得了工作區檢查。
+    """
+    proxy, executor, config = _service(rel, PROXY), _service(rel, EXECUTOR), _parsed_command(rel)
+    space = config.project_root
+    assert space is not None and executor["command"].count("--project-root") == 1
+    assert PROJECTS_VOLUME in _compose(rel)["volumes"]
+    assert _users_of(rel, PROJECTS_VOLUME) == {PROXY, EXECUTOR}
+    assert _mount_at(proxy, space) == Mount("volume", PROJECTS_VOLUME, space, False)
+    assert _env(proxy)["TOUKA_PROJECTS_DIR"] == space
+    (workspace,) = [
+        m.target for m in _mounts(proxy)
+        if m.kind == "bind" and PurePosixPath(m.target).name == "workspace"
+    ]
+    assert PurePosixPath(space) == PurePosixPath(workspace, executor_session.PROJECT_ROOT_NAME)
 
 
 @pytest.mark.parametrize("rel", COMPOSES)
@@ -413,8 +442,11 @@ def test_toukaproxy_dev_compose_keeps_the_proxy_on_its_default_network():
 # ── Dockerfile ───────────────────────────────────────────────────────────────
 
 
-def test_image_precreates_private_ipc_and_executor_state_dirs():
-    """空 volume 第一次掛載時照映像複製擁有者與權限：伺服器要求兩個資料夾都是自己的、0700."""
+def test_image_precreates_private_ipc_executor_state_and_project_space_dirs():
+    """空 volume 第一次掛載時照映像複製擁有者與權限：伺服器要求 ipc 與 state 是自己的、0700.
+
+    專用空間（ADR-0332）同理：proxy 和執行器都是 appuser，volume 的根要是 appuser 的。
+    """
     config = _parsed_command("docker-compose.yml")
     installs = [
         line.split("install -d -o appuser -g appuser -m 0700 ", 1)[1].split("&&")[0].split()
@@ -422,7 +454,7 @@ def test_image_precreates_private_ipc_and_executor_state_dirs():
         if "install -d -o appuser -g appuser -m 0700 " in line
     ]
     assert len(installs) == 1
-    assert {config.ipc, config.state} <= set(installs[0])
+    assert {config.ipc, config.state, config.project_root} <= set(installs[0])
 
 
 def test_git_is_its_own_layer_between_the_venv_and_copy_all():
