@@ -102,19 +102,22 @@ async def _already_bound(project_id: str, scope: ProjectScope) -> bool:
 async def forget_bindings(root_paths: Iterable[str | None]) -> None:
     """專案列刪掉之後盡力清它們的 HOME；失敗只記 log，不擋刪除（下次登記會再清）.
 
-    拿到鎖之後再看一次：等鎖的時候別的專案已經登記了這個資料夾，那是它的 HOME，不清。
+    拿到鎖之後再看一次：等鎖的時候別的專案已經登記了這個資料夾，那是它的 HOME，不清。刪除已經
+    完成，讀不到登記或判定出錯也只記 log（呼叫端接著還要清別的東西）。
     """
     for root_path in root_paths:
         scope = await project_scope(root_path)
         if not is_project_folder(scope):
             continue
         async with binding_lock:
-            if await _claims(scope):
-                continue
             try:
+                if await _claims(scope):
+                    continue
                 await wipe_project_home(scope.name or "", scope.path or Path())
             except HomeWipeError as exc:
                 logger.warning("Project space home of %s not cleared: %s", scope.name, exc.reason)
+            except Exception:
+                logger.exception("Project space home of %s not cleared", scope.name)
 
 
 async def clear_owned_projects(user_id: str) -> int:

@@ -1106,7 +1106,7 @@ openai SDK 3.24 為 Responses API 新加入（3b）；建構前就照 Claude 的
 | 位置 | 原有缺口 | 修復摘要 |
 |------|----------|----------|
 | `memory_server/tools/core_file_ops.py`（`core_list` 沒有 proxy 時；專案工具走這條） | 先問一項是不是連結，再用會跟隨連結的 `is_dir`／`iterdir` 遞迴：問完之後那一項被換成連結，就會列出專案根外面的名稱（內容讀不到） | 改用 `no_follow.tree_lines`（`walk_pruned`：lstat 判種類、不跟隨地開資料夾、代理人資料夾剪掉），和經 proxy 的列法共用 `render_tree`；`test_core_list_no_follow_security.py` |
-| `routers/ui_sessions.py`（`GET /ui/projects/{id}/files`） | 用「解析後還在根裡」決定要不要略過，之後 `is_dir`／`iterdir`／`stat` 都跟隨連結：判斷完被換成連結，就會列出根外面的檔名與大小 | 改經 `ResourceManager.tree_entries`（同上不跟隨、剪掉代理人資料夾，大小是 lstat 的），連結一律不列；另套專用空間的結構層：根是錨點本身、第二層以下，或路上有連結（含一般專案的根之後被換成連到專用空間的連結）一律 403。根本身仍先解析再走訪，檢查與走訪之間根被換成別處的窗口照舊（既有）；`test_project_files_no_follow_security.py` |
+| `routers/ui_sessions.py`（`GET /ui/projects/{id}/files`） | 用「解析後還在根裡」決定要不要略過，之後 `is_dir`／`iterdir`／`stat` 都跟隨連結：判斷完被換成連結，就會列出根外面的檔名與大小 | 改經 `ResourceManager.tree_entries`（同上不跟隨、剪掉代理人資料夾，大小是 lstat 的），連結一律不列；另套專用空間的結構層：根是錨點本身、第二層以下，或路上有連結（含一般專案的根之後被換成連到專用空間的連結）一律 403。根被換成連到專用空間以外的一般資料夾時照舊會列出（ADR-0292：根目錄檢查只看解析後在不在工作區），根本身仍先解析再走訪，檢查與走訪之間根被換成別處的窗口照舊（既有）；`test_project_files_no_follow_security.py` |
 | `routers/ui_sessions.py`（`POST /ui/projects/save`） | 權限只在寫入前查一次：同時有人用同一個新編號存檔時，後到的會改到先建好的別人專案（`ON CONFLICT DO UPDATE`；原本窗口很短，專用空間的清 HOME 讓它最長 60 秒） | 拿到登記鎖之後再查一次權限；`test_project_space_binding_security.py` |
 
 ## Out of Scope

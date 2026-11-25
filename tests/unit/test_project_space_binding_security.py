@@ -20,6 +20,7 @@ import json
 import logging
 import os
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from src.core.exceptions import ErrorCode, ToukaException
@@ -308,6 +309,17 @@ async def test_a_folder_bound_again_while_the_delete_waits_is_not_wiped(space, m
         await _insert("bind-b", root, OTHER.agent_id)
     assert (await deleting)["status"] == "success"
     assert [name for name, _path in space.wipes.calls] == ["repo"]  # 只有第一次登記清過
+
+
+async def test_a_failing_check_after_the_delete_is_only_logged(space, monkeypatch, caplog):
+    """刪除已經完成：清除前讀登記出錯也只記 log，不回 500（自己清資料接著還要清別的）."""
+    await _save("bind-a", space.folder("repo"))
+    monkeypatch.setattr(project_binding, "_claims", AsyncMock(side_effect=OSError))
+    with caplog.at_level(logging.WARNING):
+        result = await ui_sessions.delete_project("bind-a", identity=USER)
+    assert result["status"] == "success" and await get_project_root_path("bind-a") is None
+    assert "not cleared" in caplog.text
+    assert len(space.wipes.calls) == 1  # 只有登記時那一次
 
 
 async def test_clearing_owned_projects_wipes_the_space_ones(space):

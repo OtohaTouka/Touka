@@ -186,7 +186,7 @@ compose 多一個 named volume `touka-projects`，proxy 與執行器都掛在 `/
 - **放內容**：建好、登記之後請代理人在裡面 `git clone <網址> .`；或從電腦複製：`docker compose cp ./myapp/. touka-proxy:/app/workspace/touka-projects/myapp`。複製進去的檔案是 root 的，代理人改不了，要照下一條改回來。
 - **修擁有者與權限**（複製之後，或權限被改壞時）：
   - 從原始碼跑：`docker compose exec -u 0 touka-proxy sh -c 'chown -R 1001:1001 /app/workspace/touka-projects/myapp && chmod -R u+rwX /app/workspace/touka-projects/myapp'`
-  - GHCR：proxy 拿掉了所有特權（`cap_drop`），`exec -u 0` 也改不了，要用同一個映像另開一個暫時容器：先 `docker volume ls` 找名稱結尾是 `touka-projects` 的 volume（例如 `touka_touka-projects`），再 `docker run --rm -u 0 --entrypoint sh -v <那個 volume>:/p ghcr.io/otohatouka/touka-proxy:<TOUKA_VERSION> -c 'chown -R 1001:1001 /p/myapp && chmod -R u+rwX /p/myapp'`（映像就是你 `.env` 的 `TOUKA_VERSION` 那一版，不用另外下載）。
+  - GHCR：proxy 拿掉了所有特權（`cap_drop`），`exec -u 0` 也改不了，要用同一個映像另開一個暫時容器：先 `docker volume ls` 找名稱結尾是 `touka-projects` 的 volume（例如 `touka_touka-projects`），再 `docker run --rm -u 0 --entrypoint sh -v <那個 volume>:/p <proxy 的映像> -c 'chown -R 1001:1001 /p/myapp && chmod -R u+rwX /p/myapp'`（映像名稱與版本用 `docker compose -f docker-compose.ghcr.yml images touka-proxy` 查，就是正在跑的那個，不用另外下載）。
   - 整個專用空間都打不開時，把路徑換成專用空間本身（`/app/workspace/touka-projects`；GHCR 是 `/p`）。
 - **登記**：專案頁的根目錄填 `/app/workspace/touka-projects/<資料夾>`。`.env` 有設 `WORKSPACE_ROOT` 時要用工作區根的寫法（例如工作區根是 `D:/Projects` 就填 `D:/Projects/touka-projects/myapp`），靈魂與子代理才過得了工作區檢查。只能是第一層的資料夾，資料夾要先存在，一個資料夾只能登記成一個專案（只差大小寫也算同一個）。登記時 Touka 會先清掉這個資料夾上次留下的 HOME；被拒絕時專案頁會說原因，只有執行器暫時不能用時才是「稍後再試」。
 - **擋不住改權限位元**：一個專案裡的指令可以改掉別的專案（或專用空間本身）的權限位元，讓它打不開（讀不到、也改不了內容）。代理人說專案「檢查不完」、或指令一直被拒時，照上面的修法改回來；專用空間本身執行器每分鐘會修一次。

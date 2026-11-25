@@ -117,7 +117,7 @@ async def test_tree_shape_depth_hidden_names_and_order(project):
 
 @pytest.mark.parametrize("where", ["link_into_the_space", "the_space_itself", "second_level"])
 async def test_project_space_shapes_are_not_listed(project, monkeypatch, where):
-    """一般專案的根之後被換成連到專用空間（或別人專案）的連結、錨點本身、第二層：都不列.
+    """一般專案的根之後被換成連到專用空間（含別人在裡面的專案）的連結、錨點本身、第二層：都不列.
 
     根目錄檢查不拒絕連結（只看解析後在不在工作區），所以這頁另外套結構層，和終端、檔案工具相同。
     """
