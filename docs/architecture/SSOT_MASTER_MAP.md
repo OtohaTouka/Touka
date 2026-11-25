@@ -463,8 +463,8 @@
 | 安全設定來源驗證 | Guard32的required examples＋fallback | 不讀取私有現場設定 |
 | 出貨技能MCP宣告 | Guard37的SHIPPED_MCP_DECLARATIONS | required hub example；不glob未列宣告 |
 | 前端 CI | `.github/workflows/native-tool-contracts.yml` 的 `frontend` job；最後一步從 repo 根目錄跑 ESLint 棘輪 Guard #35（ADR-0278） | 每次 PR／push 都跑，不做影響判斷；`tests/lint/test_ci_pr_checks.py` 釘住 Guard #35 那一步 |
-| 後端 pyflakes CI（ADR-0254） | 同一個 workflow 的 `contracts` job：鎖定版 `ruff check --no-cache --select F --config ruff.toml ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch` | 每次 PR／push；`tests/lint/test_ci_pr_checks.py` 釘住 |
-| 完整 ruff 只減不增（ADR-0278） | `scripts/lint_ratchet.py` 收集與重拍；基準 `tests/lint/ruff_baseline.json`；`tests/lint/test_ruff_ratchet.py` 要求每條規則數量完全相等 | 在 `contracts` job 的 pytest 裡執行；改善後同一個 PR 重拍基準 |
+| 後端 pyflakes CI（ADR-0254） | 同一個 workflow 的 `contracts` job：鎖定版 `ruff check --no-cache --config ruff.toml --select F ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch ToukaLocal`（挑檔參數和完整 ruff 共用 `lint_ratchet.RUFF_CHECK_ARGS`，ADR-0278 §8） | 每次 PR／push；`tests/lint/test_ci_pr_checks.py` 釘住 |
+| 完整 ruff 只減不增（ADR-0278） | `scripts/lint_ratchet.py` 收集與重拍；基準 `tests/lint/ruff_baseline.json`；`tests/lint/test_ruff_ratchet.py` 要求每條規則數量完全相等 | 在 `contracts` job 的 pytest 裡執行；改善後同一個 PR 重拍基準。git 會收的 Python 檔 ruff 都要看得到，由 `tests/lint/test_ruff_sees_every_file.py` 比對（§8，也涵蓋 Guard #44） |
 | 型別檢查只減不增（ADR-0278 §7） | pyrefly，範圍與設定在 `pyproject.toml` 的 `[tool.pyrefly]`（平台固定 linux）；`scripts/lint_ratchet.py pyrefly` 收集與重拍；基準 `tests/lint/pyrefly_baseline.json`；`tests/lint/test_pyrefly_ratchet.py` 要求每種錯誤數量完全相等 | 在 `contracts` job 的 pytest 裡執行；改善或升級 pyrefly 後同一個 PR 重拍基準 |
 | 未用定義不得增加（ADR-0298） | vulture，參數在 `scripts/lint_ratchet.py`；基準 `tests/lint/vulture_baseline.json`；`tests/lint/test_vulture_ratchet.py` | 在 `contracts` job 的 pytest 裡執行；只有多出來才紅，少了不紅（和 ruff、pyrefly 的完全相等不同）；基準變長要在 PR 說明逐項列出 |
 | 函式複雜度只減不增（ADR-0331） | ruff C901，上限與參數在 `scripts/lint_ratchet.py`（`MAX_COMPLEXITY`、`COMPLEXITY_ARGS`）；基準 `tests/lint/complexity_baseline.json`；`tests/lint/test_complexity_ratchet.py` | 在 `contracts` job 的 pytest 裡執行；兩個方向都紅：變多要拆，變少、改名或搬檔要重拍 |

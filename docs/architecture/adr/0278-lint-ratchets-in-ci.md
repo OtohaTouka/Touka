@@ -1,9 +1,9 @@
 # ADR-0278：靜態檢查只減不增，並在 CI 執行
 
 - 狀態：✅ 已接受
-- 日期：2026-10-22（2026-10-23 增補 §7，以及 §2 升級帶進新規則）
-- 影響範圍：`ruff.toml`（加 ERA）、`scripts/lint_ratchet.py`、`tests/lint/ruff_baseline.json`、`tests/lint/test_ruff_ratchet.py`、CI `frontend` job（Guard #35）、`scripts/guard_eslint_ratchet.py` 與 `scripts/eslint_baseline.json`、`scripts/lint_ssot.py` 的業務層判斷、`CONTRIBUTING.md`「PR 前必做」、`tests/lint/test_ci_pr_checks.py`、root 開發依賴 ruff 釘版；`tests/README.md`、`tests/lint/test_tests_readme_listing.py` 與 `tests_readme_unlisted.json`、AGENTS.md 文件協議一列；程式與測試的註解（ERA、內部用語、決定代號）；pyproject.toml 的 `[tool.pyrefly]` 與 root 開發依賴 pyrefly 釘版、`tests/lint/pyrefly_baseline.json`、`tests/lint/test_pyrefly_ratchet.py`
-- 相關：[ADR-0331](0331-complexity-ratchet.md)（同一支 `lint_ratchet.py` 加函式複雜度上限 15）、[ADR-0098](0098-eslint-ratchet-guard.md)（ESLint 棘輪 Guard #35）、[ADR-0254](0254-iso-c1-small-fixes-and-execution-gaps.md)（CI 加 ruff F、CONTRIBUTING 標示；其已知問題中的「ESLint 基準過時」「完整 ruff 沒有棘輪」由本 ADR 處理）、[ADR-0298](0298-rule-text-matches-checks.md)（`lint_ratchet.py` 加 vulture，只有多出來才紅，和這裡的「完全相等」不同）
+- 日期：2026-10-22（2026-10-23 增補 §7，以及 §2 升級帶進新規則；2026-11-26 增補 §8）
+- 影響範圍：`ruff.toml`（加 ERA）、`scripts/lint_ratchet.py`、`tests/lint/ruff_baseline.json`、`tests/lint/test_ruff_ratchet.py`、CI `frontend` job（Guard #35）、`scripts/guard_eslint_ratchet.py` 與 `scripts/eslint_baseline.json`、`scripts/lint_ssot.py` 的業務層判斷、`CONTRIBUTING.md`「PR 前必做」、`tests/lint/test_ci_pr_checks.py`、root 開發依賴 ruff 釘版；`tests/README.md`、`tests/lint/test_tests_readme_listing.py` 與 `tests_readme_unlisted.json`、AGENTS.md 文件協議一列；程式與測試的註解（ERA、內部用語、決定代號）；pyproject.toml 的 `[tool.pyrefly]` 與 root 開發依賴 pyrefly 釘版、`tests/lint/pyrefly_baseline.json`、`tests/lint/test_pyrefly_ratchet.py`；§8：`ruff.toml`（`extend-include`）、`scripts/lint_ratchet.py`（`unchecked_python_files`、`RUFF_CHECK_ARGS`）、`tests/lint/test_ruff_sees_every_file.py`、CI `contracts` job 的 F 步驟參數順序、`scripts/guard_ruff_banned_api.py` 說明
+- 相關：[ADR-0331](0331-complexity-ratchet.md)（同一支 `lint_ratchet.py` 加函式複雜度上限 15）、[ADR-0098](0098-eslint-ratchet-guard.md)（ESLint 棘輪 Guard #35）、[ADR-0254](0254-iso-c1-small-fixes-and-execution-gaps.md)（CI 加 ruff F、CONTRIBUTING 標示；其已知問題中的「ESLint 基準過時」「完整 ruff 沒有棘輪」由本 ADR 處理）、[ADR-0298](0298-rule-text-matches-checks.md)（`lint_ratchet.py` 加 vulture，只有多出來才紅，和這裡的「完全相等」不同）、[ADR-0171](0171-early-gap-ruff-banned-api-guard.md)（Guard #44，§8 也涵蓋它的掃描範圍）
 
 ## 背景
 
@@ -106,6 +106,27 @@
   - `project-includes` 的每個樣式都還對得到檔案；範圍內的檔案不准用 `# pyrefly: ignore-errors` 整檔壓制。
   - 用真的 pyrefly 檢查暫存資料夾裡的小專案，核對輸出格式，並確認欄位打錯、`search-path` 不存在、設定讀不懂都會讓收集失敗。升級 pyrefly 後格式變了，這裡會先失敗。
 
+### 8. 檔案不能藏起來（2026-11-26 增補）
+- **問題**：完整 ruff 棘輪、CI 的 F 步驟、Guard #44（ADR-0171）都照 ruff 的預設挑檔案。已進版控的 Python 檔只要符合下面任一種，三道檢查都不看，但照樣會被執行：
+  - 被 `.gitignore`、`.ignore`、`.git/info/exclude` 或全域 gitignore 列到；
+  - 放在 `dist`、`venv`、`.venv`、`node_modules` 這類預設排除的資料夾；
+  - 副檔名是 `.pyw`；
+  - 在指向資料夾的連結或子模組底下。
+
+  `ruff.toml` 的 `[lint] exclude`、用 `extend` 繼承別的設定、指令多加 `--extend-exclude` 也能讓檔案不被檢查。11/26 量過，git 列出的 Python 檔 ruff 全部看得到。
+- **為什麼不照複雜度棘輪直接加參數**：ADR-0331 用 `--no-respect-gitignore`、`exclude=[]` 讓檔案藏不起來。但 Guard #44 掃整個 `ToukaProxy` 與 `scripts`，裡面有 git 忽略的執行期資料夾（代理人建的技能與 MCP 伺服器、維護者放的 hook、暫存），加參數會讀到它們並誤報。把 git 的清單直接交給 ruff 也不行：Guard #44 範圍的絕對路徑加起來超過 Windows 命令列的長度上限。
+- **做法**：三道檢查怎麼掃都不改，由 `tests/lint/test_ruff_sees_every_file.py` 把關。
+  1. **比對清單**：`lint_ratchet.unchecked_python_files(roots)` 比對兩份清單，git 有、ruff 沒有的就紅，並列出檔名與修法。不必知道檔案是用哪種方法藏的，ruff 以後多了新的跳過規則也擋得到。
+     - git 那份用 `git ls-files -c -o --exclude-standard`：已追蹤的檔，加上還沒 add、也沒被忽略的檔。只留副檔名是 `.py`、`.pyi`、`.pyw`（不分大小寫）而且磁碟上還在的。
+     - ruff 那份用 `ruff check --show-files`，參數和完整 ruff 相同。
+     - 範圍有兩組：`PRODUCT_SOURCE_ROOTS`（完整 ruff、CI F 步驟）與 Guard #44 的 `SCAN_DIRS`。
+  2. **連結與子模組**：範圍內不准有（git mode 120000、160000），ruff 不跟進去。
+  3. **設定允許清單**：`ruff.toml` 最上層只准有 `target-version`、`line-length`、`extend-include`、`lint`；`extend-include` 只能是 `["*.pyw"]`；`[lint]` 不准有含 `exclude` 的鍵。`[lint] exclude` 的檔 `--show-files` 照樣會列，比對抓不到，只能靠這條擋。
+  4. **指令整組釘住**：`collect_ruff`、Guard #44 與 CI F 步驟（`test_ci_pr_checks`）的指令都要整組相等。挑檔參數只寫在 `lint_ratchet.RUFF_CHECK_ARGS` 一處；CI F 步驟為此調成 `ruff check --no-cache --config ruff.toml --select F <五個資料夾>`，只換參數順序。
+  - git 與檢查工具都經 `lint_ratchet._run` 這一個子程序入口，不經 shell。下列情況都當失敗，各有不同訊息：git 找不到或異常結束、ruff 異常結束、範圍資料夾不見、一個 Python 檔都沒列出。
+  - `ruff.toml` 加 `extend-include = ["*.pyw"]`，`.pyw` 也會被檢查。repo 目前沒有 `.pyw`，基準不變。
+- **本機和 CI 的差異**：`.git/info/exclude` 與全域 gitignore 只在本機有。用它們藏的已追蹤檔，以及還沒 add、放在 `dist` 這類資料夾的新檔，只有本機會紅。
+
 ## 已知限制
 
 - **每條規則只算總數**：在 A 檔修一個、在 B 檔加一個，數字不變，擋不到。這是刻意的取捨，和 Guard #35 相同，搬移程式才不會誤擋。
@@ -119,3 +140,5 @@
 - **型別檢查的壓制不被計數**：單行的 `# type: ignore` 與 `# pyrefly: ignore` 壓掉的錯誤不算數（10/23 範圍內有 1 個），和 ruff 的 `# noqa` 一樣，靠審查擋。整檔的 `# pyrefly: ignore-errors` 由測試擋。
 - **warn 等級的診斷不計數**：只算 error 等級。10/23 範圍內另有 3 個 warn 等級的診斷（`unreachable`、`deprecated`、`unreachable-except-clause`），不在基準裡。
 - **兩個平台的套件不同**：平台固定只統一型別存根。Windows 的 venv 多了 `pywin32`、`colorama`、`tzdata` 等套件。目前範圍只匯入標準函式庫、`src` 和 `fastapi`，影響小；擴大範圍時要再確認本機和 CI 的數字一致。
+- **檔頭的整檔壓制**：檔頭寫 `# ruff: noqa`（帶不帶代號都一樣）會讓整個檔的規則失效。這是壓掉規則、不是藏檔，§8 擋不到，Guard #19 也不登記，靠審查。§8 的範圍內目前只有 `scripts/vulture_whitelist.py`（假用法清單）用不帶代號的寫法。禁止它已列成候選。
+- **§8 擋不到的藏法**：寫成非 Python 副檔名的程式；本機還沒追蹤的資料夾連結（追蹤後就會被擋）。自己走訪檔案系統的其他守衛（lint_ssot、vulture、禁令 22）與 pyrefly 的範圍不在 §8 內。

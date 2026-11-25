@@ -19,6 +19,10 @@ ToukaLocal／scripts）跑 `ruff check --select TID251`，尊重 `ruff.toml` 的
 
 ⚠️ 刻意不掃 repo 根的 `violations/`——那是 `tests/integration/test_static_analysis.py`
 動態生成的合成違規 fixture（`test_ruff_banned_api` 靠 ruff flag 它），非真實代碼。
+
+挑檔照 ruff 預設（尊重 .gitignore、跳過 dist／venv）；git 會收的 Python 檔不能藏在這些
+地方，由 `tests/lint/test_ruff_sees_every_file.py` 比對 `SCAN_DIRS` 把關，那裡也釘住本守衛
+的整組指令（ADR-0278）。
 """
 
 from __future__ import annotations
