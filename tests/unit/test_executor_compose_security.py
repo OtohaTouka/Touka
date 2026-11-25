@@ -314,7 +314,9 @@ def test_command_roots_are_exactly_what_the_proxy_expects(rel):
     expected = {(root.path, root.access) for root in expected_executor_roots(layout)}
     actual = {(path, "rw") for path in config.rw} | {(path, "ro") for path in config.ro}
     assert actual == expected
+    # 專用空間（ADR-0332）不是讀寫根：只走 --project-root，伺服器另外驗
     kinds = {name for name, _middle in executor_session.KIND_LAYOUT.values()}
+    kinds.discard(executor_session.PROJECT_ROOT_NAME)
     assert {PurePosixPath(path).name for path in config.rw} == kinds
 
 

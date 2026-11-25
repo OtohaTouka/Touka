@@ -554,8 +554,9 @@ async def test_ready_reports_what_the_proxy_checks():
     assert kind == "READY"
     assert set(ready) == {
         "v", "abi", "enforced", "net", "features", "roots", "state_root", "kernel_digest",
-        "server_digest", "boot_id", "block_ports_digest", "uid", "repairs",
+        "server_digest", "boot_id", "block_ports_digest", "uid", "repairs", "project_root",
     }
+    assert ready["project_root"] is None  # 沒有驗過的專用空間根（ADR-0332）
     assert ready["v"] == kfr.PROTOCOL_VERSION and ready["abi"] == 6 and ready["enforced"] is True
     assert ready["features"] == es.landlock_features(6, None) and "tcp" in ready["features"]
     assert ready["roots"] == [

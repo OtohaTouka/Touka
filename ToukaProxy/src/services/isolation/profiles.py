@@ -62,9 +62,9 @@ if TYPE_CHECKING:
 
 Location = Literal["proxy", "executor"]
 # proxy 位置的 state 種類（``ST/proxy/<kind>/<owner>``）；MCP 自建與第三方分開父目錄，段名不會撞
-StateKind = Literal["agents", "evolution", "mcp_self", "mcp_third"]
+StateKind = Literal["agents", "evolution", "mcp_self", "mcp_third", "project"]
 # 執行器 START 的 kind（伺服器的 ``executor_session.KINDS``；kind mcp 只放自建）
-ExecutorKind = Literal["agents", "evolution", "mcp"]
+ExecutorKind = Literal["agents", "evolution", "mcp", "project"]
 
 SYSTEM_EXEC_PATHS = ("/usr", "/bin", "/sbin", "/lib", "/lib64")
 SYSTEM_READ_PATHS = ("/etc", "/proc")
@@ -76,6 +76,7 @@ BLOCK_PORTS_OVERFLOW = "block_ports_overflow"
 # 執行器 START 的 kind（依 profile 名稱）
 EXECUTOR_KINDS: Mapping[str, ExecutorKind] = {
     "agent_command": "agents", "evolution": "evolution", "mcp_self": "mcp",
+    "project_command": "project",
 }
 
 

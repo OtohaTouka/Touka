@@ -47,7 +47,7 @@ _READY_KEYS = frozenset(
     {"v", "abi", "enforced", "net", "features", "roots", "state_root", "kernel_digest"}
     | {"server_digest", "boot_id", "block_ports_digest", "uid"}
 )
-_READY_OPTIONAL = frozenset({"repairs"})  # 自癒計數（U2n）；內容由 monitor 之後另外接
+_READY_OPTIONAL = frozenset({"repairs", "project_root"})  # 自癒計數（U2n）；專用空間（ADR-0332）
 _ROOT_KEYS = frozenset({"path", "access"})
 _DIGEST = re.compile(r"[0-9a-f]{16,128}")
 _FEATURE = re.compile(r"[a-z_]{1,32}")
@@ -78,6 +78,7 @@ class ExecutorReady:
     boot_id: str
     block_ports_digest: str
     uid: int
+    project_root: str | None = None  # 執行器驗過的專用空間根（ADR-0332）；沒有是 None
 
 
 @dataclass(frozen=True)
@@ -128,12 +129,15 @@ def _choice(value: object, allowed: frozenset[str]) -> bool:
     return isinstance(value, str) and value in allowed  # 先確認型別：list 之類不能拿來查集合
 
 
+def _absolute(value: object) -> bool:
+    return _text(value) and PurePosixPath(cast("str", value)).is_absolute()
+
+
 def _root(item: object) -> ExecutorRoot | None:
     if not isinstance(item, dict) or set(item) != _ROOT_KEYS:
         return None
     path, access = item["path"], item["access"]
-    absolute = _text(path) and PurePosixPath(path).is_absolute()
-    if not absolute or not _choice(access, _ROOT_ACCESS):
+    if not _absolute(path) or not _choice(access, _ROOT_ACCESS):
         return None
     return ExecutorRoot(path, cast("RootAccess", access))
 
@@ -145,6 +149,7 @@ def parse_ready(document: dict) -> ExecutorReady | None:
         return None
     net, features, roots = document["net"], document["features"], document["roots"]
     digests = [document[k] for k in ("kernel_digest", "server_digest", "block_ports_digest")]
+    project_root = document.get("project_root")
     valid = (
         all(_int(document[k]) for k in ("v", "abi", "uid"))
         and type(document["enforced"]) is bool
@@ -156,6 +161,7 @@ def parse_ready(document: dict) -> ExecutorReady | None:
         and all(isinstance(d, str) and _DIGEST.fullmatch(d) for d in digests)
         and isinstance(document["boot_id"], str)
         and framing.BOOT_ID_PATTERN.fullmatch(document["boot_id"]) is not None
+        and (project_root is None or _absolute(project_root))
     )
     parsed = tuple(_root(item) for item in roots) if valid else ()
     if not valid or None in parsed:
@@ -173,6 +179,7 @@ def parse_ready(document: dict) -> ExecutorReady | None:
         boot_id=document["boot_id"],
         block_ports_digest=digests[2],
         uid=document["uid"],
+        project_root=project_root,
     )
 
 

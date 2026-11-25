@@ -12,6 +12,9 @@ C2-3：kind ``mcp``（常駐的自建 MCP 伺服器）沒有資料的目標，�
 就是 home；程式資料夾最多一條唯讀＋執行，正好是演化部署的 ``<managed>/<skill>``
 （部署後唯讀）。``io`` 是 ``stdio`` 時 stderr 另外送 ERR；``max_seconds`` 0（沒有時限）只准
 kind ``mcp`` 加 ``stdio``。
+
+ADR-0332：kind ``project`` 是專用空間（``touka-projects``）第一層的一個專案，目標就是
+``<專案根>/<資料夾名>``；專案根由伺服器另外驗過（``--project-root``）才併進讀寫根。
 """
 
 from __future__ import annotations
@@ -53,11 +56,15 @@ IO_MODES = frozenset({"merged", "stdio"})
 # 只掛 managed、不掛 mcp_servers：掛載根本身不能被改名或刪除，執行器裡的程式換不掉錨點
 # （ADR-0293 PR 2）
 MANAGED_ROOT = "managed"
+# 專用空間（ADR-0332）：proxy 與執行器都掛在同一個位置，名稱固定；第一層每個資料夾是一個專案
+PROJECT_ROOT_NAME = "touka-projects"
 # kind → （讀寫 root 的名稱、root 底下到 owner 之前的中間段）
 KIND_LAYOUT: dict[str, tuple[str, tuple[str, ...]]] = {
     "agents": ("personal_drive", ()),
     "evolution": (MANAGED_ROOT, ()),
+    "project": (PROJECT_ROOT_NAME, ()),
 }
+PROJECT_KIND = "project"
 MCP_KIND = "mcp"  # 沒有資料的目標（見模組說明）；程式資料夾和 kind evolution 的目標同一個位置
 CODE_KIND = "evolution"
 KINDS = (*KIND_LAYOUT, MCP_KIND)
@@ -218,7 +225,7 @@ class StartPlan:
     """驗證過的 START（spec 已改寫 ``parent_pid``；``root`` 是目標所在的讀寫 root）.
 
     ``max_seconds`` 0 是沒有時限；``code`` 是 kind ``mcp`` 的程式資料夾（唯讀＋執行），
-    ``code_root`` 是它所在的讀寫 root（``managed``）。
+    ``code_root`` 是它所在的讀寫 root（``managed``）；``kind`` 是 START 的 kind。
     """
 
     argv: tuple[str, ...]
@@ -233,6 +240,7 @@ class StartPlan:
     io: str = "merged"
     code: str | None = None
     code_root: str | None = None
+    kind: str = ""
 
 
 # ── 伺服器的型別 ──────────────────────────────────────────────────────────────────────
@@ -452,7 +460,7 @@ def check_start(
     code_root, folder = code or (None, None)
     return StartPlan(
         argv, target, environment, data, parsed.block_ports, root, home, tmp, seconds, io,
-        folder, code_root,
+        folder, code_root, kind,
     )
 
 
