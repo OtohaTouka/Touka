@@ -74,6 +74,7 @@ from src.services.isolation.profiles import (
     current_layout,
     proxy_state_zone,
 )
+from src.services.isolation.project_space import structural_scope
 from src.services.isolation.repair import PermissionRepairService
 from src.services.isolation.repair import install as install_permission_repair
 from src.services.process_registry import reap_cancelled_process
@@ -97,6 +98,7 @@ if TYPE_CHECKING:
     from src.models.identity import AgentIdentity
     from src.services.isolation.executor_client import ExecutorReady
     from src.services.isolation.profiles import Location, SandboxLayout
+    from src.services.isolation.project_space import ProjectScope
     from src.utils.isolation_policy import IsolationLevel
     from src.utils.permission_repair import PermissionRepairHook
 
@@ -135,6 +137,11 @@ MCP_STABLE_LOCAL_REASONS = _KERNEL_VERDICTS | {NATIVE_PLATFORM, "kernel_outdated
 EXECUTOR_UNREACHABLE = "executor_unreachable"
 AGENT_DIR_NOT_IN_EXECUTOR = "agent_dir_not_in_executor"
 PROJECT_NOT_IN_EXECUTOR = "project_not_in_executor"
+# 專用空間的執行層（ADR-0332）：READY 沒回報專案根或不是同一個位置（只影響專用空間的專案）
+EXECUTOR_NO_PROJECT_ROOT = "executor_no_project_root"
+EXECUTOR_PROJECT_ROOT_MISMATCH = "executor_project_root_mismatch"
+# 專用空間的專案、沒人在場：照今天的規則（none，交給沒人在場的拒絕），不是 refused
+PROJECT_UNATTENDED = "project_unattended"
 BLOCK_PORTS_INCOMPLETE = "block_ports_incomplete"
 # proxy 的 ST 版面 ``ST/proxy/<kind>/<owner>/{home,tmp}``；開機時把 tmp 改名成這個前綴再刪
 # （MCP 的自建與第三方分開父目錄，名稱只有 ``mcp_profiles`` 一份）
@@ -205,10 +212,14 @@ class _DiskCheck:
 
 @dataclass(frozen=True)
 class LevelDecision:
-    """某個代理人、某個專案根的實際層級與原因。"""
+    """某個代理人、某個專案根的實際層級與原因.
+
+    ``refused``：專用空間的專案不能跑（ADR-0332）：政策直接拒絕，不跳卡、不提供降級。
+    """
 
     level: IsolationLevel
     reason: str | None = None
+    refused: bool = False
 
 
 @dataclass(frozen=True)
@@ -601,9 +612,15 @@ class IsolationMonitor:
             logger.warning("MCP registry unreadable (%s); its ports are not added", result.error)
 
     async def level_for(
-        self, identity: AgentIdentity, project_root: Path | None
+        self, identity: AgentIdentity, project_root: Path | None, *, attended: bool = False
     ) -> LevelDecision:
-        """這次執行的層級：專案放不進隔離、或不在執行器範圍（``executor_scope_issue``）是 none."""
+        """這次執行的層級：專案放不進隔離、或不在執行器範圍（``executor_scope_issue``）是 none.
+
+        專用空間的專案（ADR-0332）另外判（``_dedicated_level``）；``attended`` 是這次有人在場。
+        """
+        scope = structural_scope(project_root, self._current_layout().projects_root)
+        if scope.dedicated:
+            return await self._dedicated_level(identity, scope, attended=attended)
         snap = self.snapshot()
         if snap.level == "none":
             issue = self.executor_scope_issue(identity, project_root) if (
@@ -622,13 +639,46 @@ class IsolationMonitor:
                 return LevelDecision("none", verdict)
         return LevelDecision(snap.level)
 
+    async def _dedicated_level(
+        self, identity: AgentIdentity, scope: ProjectScope, *, attended: bool
+    ) -> LevelDecision:
+        """專用空間的專案：結構層、執行器層、READY 的專案根、掃描都過才看在場（ADR-0332）.
+
+        前幾項不過一律 ``refused``；只有沒人在場是 none（照今天的規則交給沒人在場的拒絕）。
+        """
+        if scope.path is None:
+            return LevelDecision("none", scope.reason, refused=True)
+        issue = self._dedicated_executor_issue(self.snapshot())
+        if issue is None:
+            layout = self._current_layout()
+            issue = await authorize_derived_path(scope.path, layout, identity.agent_id)
+        if issue:
+            return LevelDecision("none", issue, refused=True)
+        return LevelDecision("executor") if attended else LevelDecision("none", PROJECT_UNATTENDED)
+
+    def _dedicated_executor_issue(self, snap: IsolationSnapshot) -> str | None:
+        """執行器層可用，而且 READY 的專案根正好是錨點；不併進 ``ready_issue``（只影響專案）."""
+        if snap.level != "executor" or snap.executor is None:
+            return snap.reason or EXECUTOR_UNREACHABLE
+        reported = snap.executor.project_root
+        if reported is None:
+            return EXECUTOR_NO_PROJECT_ROOT
+        anchor = self._current_layout().projects_root
+        return None if anchor is not None and Path(reported) == anchor else (
+            EXECUTOR_PROJECT_ROOT_MISMATCH
+        )
+
     def executor_scope_issue(
         self, identity: AgentIdentity, project_root: Path | None
     ) -> str | None:
         """這次能不能在執行器裡跑：代理人資料夾要在可寫的 root 裡，也不能綁專案.
 
-        這批不掛工作區，所以綁了專案的一律不在執行器範圍。
+        專用空間以外的專案不在執行器範圍（執行器只掛專用空間）。專用空間的專案只看結構層
+        （ADR-0332）：``ok`` 在範圍內、``refused`` 回原因，不看代理人資料夾。
         """
+        scope = structural_scope(project_root, self._current_layout().projects_root)
+        if scope.dedicated:
+            return scope.reason
         if not self._agent_drive_in_executor(identity):
             return AGENT_DIR_NOT_IN_EXECUTOR
         return PROJECT_NOT_IN_EXECUTOR if project_root is not None else None

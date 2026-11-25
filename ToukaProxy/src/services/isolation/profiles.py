@@ -107,6 +107,8 @@ class SandboxLayout:
     in_container: bool
     # 設定裡的 data 根寫法（人做的連結未解析）；字面比對同時看它和解析後的寫法（ADR-0293 決定 17）
     data_root_literal: Path | None = None
+    # 專用空間的位置（ADR-0332，``configured_projects_root``）；沒有是 None
+    projects_root: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -143,6 +145,20 @@ def _resolve(path: Path | str) -> Path:
 def _literal(path: Path | str) -> Path:
     """絕對、以字面消掉 ``..``，不跟隨連結：授與只用這個位置（ADR-0293 決定 16）。"""
     return Path(os.path.normpath(Path(path).absolute()))
+
+
+def literal_path(path: Path | str) -> Path:
+    """``_literal`` 給別的模組用（專用空間的結構層，ADR-0332）。"""
+    return _literal(path)
+
+
+def configured_projects_root() -> Path | None:
+    """專用空間的位置（ADR-0332）：只從部署設定 ``TOUKA_PROJECTS_DIR`` 來（解析後），沒設是 None.
+
+    不跟著工作區設定走：管理員改工作區設定不會讓它和實際掛載對不上。
+    """
+    raw = settings.TOUKA_PROJECTS_DIR
+    return _resolve(raw) if raw else None
 
 
 def _within(path: Path, root: Path) -> bool:
@@ -183,6 +199,7 @@ def current_layout() -> SandboxLayout:
         mirror_roots=tuple(sorted(_resolve(m) for m in mirrors)),
         in_container=in_container,
         data_root_literal=_literal(configured_data_root),
+        projects_root=configured_projects_root(),
     )
 
 
