@@ -83,7 +83,7 @@ def real(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> tuple[Operations, GrantBook, Path, _KeepTrash]:
     # pytest 的暫存資料夾在 AppData 底下，這裡要測的是真的檔案系統，不是這條規則
-    monkeypatch.setattr(grants_module, "_SYSTEM_FOLDERS", frozenset())
+    monkeypatch.setattr(grants_module, "SYSTEM_FOLDER_NAMES", frozenset())
     open_dir = tmp_path / "Open"
     open_dir.mkdir()
     book = GrantBook(

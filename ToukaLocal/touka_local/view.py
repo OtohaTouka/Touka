@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from touka_local import floors
-from touka_local.open_request import STATE_CHECKING, OpenRequest
+from touka_local.open_request import REASON_CONTAINS, STATE_CHECKING, OpenRequest
 from touka_local.paths import is_hidden_character, is_misleading_character
 
 _VISIBLE_MARK: Final = "⍰"
@@ -94,6 +94,23 @@ OPEN_WRITABLE_WARNING: Final = (
 OPEN_ACKNOWLEDGE: Final = "知道了"
 _OPENED: Final = "已開放「{name}」。"
 _OPEN_FAILED: Final = "核准了，但沒有開放：{reason}"
+# Touka 設定頁縮小名單（ADR-0330 2b）
+_TOUKA_CHANGES: Final = {
+    "touka_removed": "Touka 設定頁拿掉了「{name}」。",
+    "touka_read_only": "Touka 設定頁把「{name}」改成只能看。",
+}
+_CONTAINS_OPEN: Final = (
+    "這一層包住了已經開放的{names}；要開放這一層，至少要先拿掉它們（在 Touka 設定頁或主視窗）"
+)
+_UNDO_RESULT: Final = (
+    "復原了 {restored} 項，跳過 {skipped} 項（沒有搬過或檔案變動過）。"
+    "丟到回收桶的 {not_undoable} 項請從回收桶還原。"
+)
+_UNDO_GRANT_GONE: Final = (
+    "另外 {count} 項的資料夾已經拿掉、只能讀或暫停中，沒有復原：先在主視窗加回、改回可以改"
+    "（或接回隨身碟）再按一次復原。"
+)
+_UNDO_JOURNAL_WARNING: Final = "這次的紀錄沒有存好，同一批請不要再按復原。"
 _OPEN_PAUSED: Final = (
     "從 Touka 送來的開放請求連續 3 次沒有核准，暫停接收，約 {minutes} 分鐘後恢復。"
     "可以按「現在恢復」，或按「結束小幫手」再重新開啟。"
@@ -330,16 +347,36 @@ def unreadable_records_text(files: tuple[str, ...]) -> str:
 # --- 從 Touka 請小幫手開放資料夾（ADR-0320） ---
 
 
-def open_reason_text(reason: str | None) -> str:
-    """不能開放的原因，只顯示在小幫手的視窗。"""
+def open_reason_text(reason: str | None, contains: tuple[str, ...] = ()) -> str:
+    """不能開放的原因，只顯示在小幫手的視窗；包住開放資料夾的說包住了哪些（ADR-0330 2b）。"""
+    if reason == REASON_CONTAINS:
+        names = "".join(f"『{display_safe(name)}』" for name in contains)
+        return _CONTAINS_OPEN.format(names=names)
     return refusal_text(reason or "")
 
 
 def open_outcome_text(code: str, name: str | None) -> str:
-    """核准之後的結果，顯示在主視窗；不含 Touka 送來的路徑。"""
+    """名單變動後的結果，顯示在主視窗；不含 Touka 送來的路徑。"""
+    shown = display_safe(name or "")
     if code == "opened":
-        return _OPENED.format(name=display_safe(name or ""))
+        return _OPENED.format(name=shown)
+    if code in _TOUKA_CHANGES:
+        return _TOUKA_CHANGES[code].format(name=shown)
     return _OPEN_FAILED.format(reason=refusal_text(code))
+
+
+def undo_result_text(result: dict[str, int]) -> str:
+    """復原一批之後的說明；資料夾被拿掉或只能讀的另外說（ADR-0330 2b）。"""
+    text = _UNDO_RESULT.format(
+        restored=result["restored"],
+        skipped=result["skipped"],
+        not_undoable=result["not_undoable"],
+    )
+    if result.get("grant_gone"):
+        text += _UNDO_GRANT_GONE.format(count=result["grant_gone"])
+    if result.get("journal_incomplete"):
+        text += _UNDO_JOURNAL_WARNING
+    return text
 
 
 def close_hint_text(*, show_ready: bool) -> str:

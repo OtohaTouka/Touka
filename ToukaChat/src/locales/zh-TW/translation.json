@@ -1360,7 +1360,7 @@
       "open_result": {
         "opened_read_only": "已開放「{{name}}」（只能看）。",
         "opened_writable": "已開放「{{name}}」（可以改）。",
-        "not_opened": "小幫手沒有開放這個資料夾：可能是你按了拒絕、這個位置不能開放，或它和已經開放的資料夾重疊（包括同一個資料夾已經開放）。原因寫在小幫手的視窗。",
+        "not_opened": "小幫手沒有開放這個資料夾：可能是你按了拒絕、這個位置不能開放，或它和已經開放的資料夾重疊。原因寫在小幫手的視窗。",
         "no_decision": "2 分鐘內沒有在小幫手的視窗決定，沒有開放。",
         "not_openable": "核准後還是沒辦法開放，原因寫在小幫手的視窗。",
         "open_paused": "小幫手暫停接收開放請求，約 10 分鐘後再試，或在小幫手主視窗按「現在恢復」。",
@@ -1381,12 +1381,18 @@
         "not_paired": "還沒配對。",
         "denied": "沒有權限送出。",
         "invalid_path": "路徑裡有不能用的字元，或太長。",
-        "failed": "沒有收到結果。如果小幫手跳出視窗，請在那邊決定；沒有的話再試一次。"
+        "failed": "沒有收到結果。如果小幫手跳出視窗，請在那邊決定；沒有的話再試一次。",
+        "contains": "沒有開放：這一層包住了已經開放的{{names}}。要開放這一層，先在上面的清單或小幫手主視窗拿掉它們。",
+        "contained_name": "「{{name}}」",
+        "contained_separator": "、",
+        "already_open": "已經在開放的「{{name}}」裡面（{{detail}}），小幫手沒有跳視窗。",
+        "already_open_paused": "{{permission}}，暫停中",
+        "already_open_note": "裡面的 Git 專案、連結與受保護的名稱仍然用不了。"
       },
       "status_helper_older": "已配對，小幫手版本太舊：請到 GitHub 的 ToukaLocal 頁面複製安裝指令重新安裝",
       "status_touka_older": "已配對，Touka 比小幫手舊：請更新 Touka",
       "folders_heading": "開放中的資料夾",
-      "folders_help": "以小幫手主視窗為準。要改權限或拿掉，請到小幫手主視窗：從桌面（或 %LOCALAPPDATA%\\ToukaLocal）開 ToukaLocal.cmd 就會叫出來。",
+      "folders_help": "以小幫手主視窗為準。可以在這裡拿掉或改成只能看；要加回或改回可以改，請到小幫手主視窗：從桌面（或 %LOCALAPPDATA%\\ToukaLocal）開 ToukaLocal.cmd 就會叫出來。",
       "folders_denied": "只有產生配對碼的人看得到開放中的資料夾。",
       "folders_failed": "讀不到開放中的資料夾，請稍後再試。",
       "folders_offline": "小幫手沒有連線，看不到目前開放的資料夾。",
@@ -1397,7 +1403,30 @@
       "folders_read_only": "只能看",
       "folders_writable": "可以改",
       "folders_paused": "暫停中",
-      "folders_omitted": "還有 {{count}} 個沒有列出，請看小幫手主視窗。"
+      "folders_omitted": "還有 {{count}} 個沒有列出，請看小幫手主視窗。",
+      "folders_make_read_only": "改成只能看",
+      "folders_make_read_only_label": "把「{{name}}」改成只能看",
+      "folders_remove": "拿掉",
+      "folders_remove_label": "拿掉「{{name}}」",
+      "folders_confirm_read_only": "確定把「{{name}}」改成只能看？代理人就不能改裡面的東西；要改回可以改，請到小幫手主視窗。",
+      "folders_confirm_remove": "確定從開放名單拿掉「{{name}}」？代理人就用不到它了；要加回請到小幫手主視窗。",
+      "folders_revoke_waiting": "正在請小幫手改，最多等 30 秒。",
+      "revoke_result": {
+        "removed": "已從開放名單拿掉「{{name}}」。",
+        "read_only": "已把「{{name}}」改成只能看。",
+        "not_found": "名單已經變了，沒有改。請重新整理。",
+        "helper_exposed": "小幫手為了安全停止服務中，沒有改。",
+        "bad_signature": "小幫手驗不過 Touka 的章，沒有改。請重新產生配對碼。",
+        "needs_new_pairing": "這個配對沒有鑰匙，沒有改。請重新產生配對碼。",
+        "io_error": "小幫手存不了名單，沒有改（看小幫手主視窗）。",
+        "helper_offline": "小幫手沒有連線，沒有改。",
+        "helper_busy": "小幫手正忙，沒有改。請稍後再試。",
+        "not_sent": "還沒交給小幫手，沒有改。",
+        "unknown": "不確定有沒有改，請看清單或小幫手主視窗。",
+        "not_paired_human": "只有產生配對碼的人可以改，沒有改。",
+        "not_paired": "還沒配對，沒有改。",
+        "denied": "沒有權限，沒有改。"
+      }
     }
   },
   "sidebar": {

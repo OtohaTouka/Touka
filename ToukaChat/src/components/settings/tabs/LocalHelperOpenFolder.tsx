@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useLocalOpenRequest, type OpenOutcome } from "@/hooks/settings/useLocalOpenRequest";
 import type { ErrorCode } from "@/lib/error_codes";
-import type { LocalHelperStatus } from "@/lib/types";
+import type { LocalHelperStatus, LocalOpenResult } from "@/lib/types";
 
-const RESULT_PREFIX = "settings.local_helper_tab.open_result.";
+const TAB_PREFIX = "settings.local_helper_tab.";
+const RESULT_PREFIX = `${TAB_PREFIX}open_result.`;
 const INPUT_ID = "local-helper-open-path";
 
 // 小幫手回的代碼對到哪一句（ADR-0320）；舊版小幫手只會回 bad_request 或 not_supported
@@ -42,19 +44,32 @@ interface Message {
     values?: Record<string, string>;
 }
 
-function outcomeMessage(outcome: OpenOutcome): Message {
+function resultMessage(result: LocalOpenResult, t: TFunction): Message {
+    const { status, code, name, writable, usable, contains } = result;
+    if (status === "opened") {
+        return { key: writable ? "opened_writable" : "opened_read_only", values: { name: name ?? "" } };
+    }
+    if (status === "already_open") {
+        // 已經在開放的資料夾裡（ADR-0330 2b）：小幫手沒有跳視窗
+        const permission = t(`${TAB_PREFIX}${writable ? "folders_writable" : "folders_read_only"}`);
+        const detail = usable ? permission : t(`${RESULT_PREFIX}already_open_paused`, { permission });
+        return { key: "already_open", values: { name: name ?? "", detail } };
+    }
+    if (contains && contains.length > 0) {
+        // 這一層包住了已經開放的資料夾（ADR-0330 2b）
+        const names = contains
+            .map((each) => t(`${RESULT_PREFIX}contained_name`, { name: each }))
+            .join(t(`${RESULT_PREFIX}contained_separator`));
+        return { key: "contains", values: { names } };
+    }
+    const known = code ? CODE_MESSAGES[code] : undefined;
+    return known ? { key: known } : { key: "unknown_code", values: { code: code ?? "" } };
+}
+
+function outcomeMessage(outcome: OpenOutcome, t: TFunction): Message {
     switch (outcome.kind) {
-        case "result": {
-            const { status, code, name, writable } = outcome.result;
-            if (status === "opened") {
-                return {
-                    key: writable ? "opened_writable" : "opened_read_only",
-                    values: { name: name ?? "" },
-                };
-            }
-            const known = code ? CODE_MESSAGES[code] : undefined;
-            return known ? { key: known } : { key: "unknown_code", values: { code: code ?? "" } };
-        }
+        case "result":
+            return resultMessage(outcome.result, t);
         case "denied":
             return { key: (outcome.code && DENIED_MESSAGES[outcome.code]) || "denied" };
         case "invalid":
@@ -81,7 +96,8 @@ export function LocalHelperOpenFolder({ status }: LocalHelperOpenFolderProps) {
 
     if (!status.paired || (!status.online && !pending && outcome === null)) return null;
 
-    const message = outcome ? outcomeMessage(outcome) : null;
+    const message = outcome ? outcomeMessage(outcome, t) : null;
+    const alreadyOpen = outcome?.kind === "result" && outcome.result.status === "already_open";
 
     return (
         <div className="space-y-2">
@@ -102,6 +118,9 @@ export function LocalHelperOpenFolder({ status }: LocalHelperOpenFolderProps) {
             {pending && <p className="text-sm text-foreground">{t("settings.local_helper_tab.open_waiting")}</p>}
             {!pending && message && (
                 <p className="text-sm text-foreground">{t(`${RESULT_PREFIX}${message.key}`, message.values)}</p>
+            )}
+            {!pending && alreadyOpen && (
+                <p className="text-xs text-muted-foreground">{t(`${RESULT_PREFIX}already_open_note`)}</p>
             )}
         </div>
     );

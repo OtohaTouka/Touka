@@ -497,8 +497,10 @@ def test_contract_accepts(arguments: dict[str, Any]) -> None:
     "arguments",
     [
         {"action": "execute", "path": "a"},
-        # 模型呼叫不到：開放請求只從設定頁送（ADR-0320），預覽由 Touka 自己送（ADR-0317）
+        # 模型呼叫不到：開放請求與縮小名單只從設定頁送（ADR-0320、ADR-0330），
+        # 預覽由 Touka 自己送（ADR-0317）
         {"action": "request_open", "path": "a"},
+        {"action": "revoke", "name": "a", "path": "b", "change": "remove"},
         {"action": "preview", "items": [{"op": "delete", "path": "a"}], "reason": "r"},
         {"action": "list", "depth": 4},
         {"action": "list", "depth": 0},

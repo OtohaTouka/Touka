@@ -3638,6 +3638,7 @@ LINT_SSOT_WHITELIST = frozenset(
         "test_local_helper_mode_decisions.py",  # ADR-0317
         "test_local_helper_open_request.py",  # ADR-0320
         "test_local_helper_folder_report.py",  # ADR-0330
+        "test_local_helper_revoke.py",  # ADR-0330 2b
         "config.py",
         "bootstrap.py",
         "time_utils.py",
@@ -3758,6 +3759,7 @@ LINT_SSOT_SINGLE_PATHS = frozenset(
         "tests/unit/local_helper/test_local_helper_mode_decisions.py",
         "tests/unit/local_helper/test_local_helper_open_request.py",
         "tests/unit/local_helper/test_local_helper_folder_report.py",
+        "tests/unit/local_helper/test_local_helper_revoke.py",
         "ToukaProxy/src/utils/time_utils.py",
         "scripts/update_docs.py",
         "ToukaProxy/src/scripts/export_schema.py",

@@ -20,6 +20,7 @@ PAIRING_CODE_SEPARATOR: Final = "."
 
 ACT_PROPOSE: Final = "propose"
 ACT_REQUEST_OPEN: Final = "request_open"
+ACT_REVOKE: Final = "revoke"
 
 DECIDED_BY_CARD: Final = "user_card"
 DECIDED_BY_REVIEWER: Final = "auto_review"
@@ -98,6 +99,26 @@ def sign_open_request(key: bytes, *, job_id: str, nonce: str, path: str) -> str:
             "job": job_id,
             "nonce": nonce,
             "shown": fingerprint,
+        },
+    )
+
+
+def sign_revoke(key: bytes, *, job_id: str, nonce: str, name: str, path: str, change: str) -> str:
+    """設定頁縮小名單的章（ADR-0330 2b）。
+
+    ``act`` 不同，和開放請求、清單的章都不能互用；路徑與名稱的指紋、改法都綁進去。
+    章只證明是 Touka 送的，小幫手不跳視窗。
+    """
+    return _sign(
+        key,
+        {
+            "act": ACT_REVOKE,
+            "by": DECIDED_BY_OPEN_REQUEST,
+            "change": change,
+            "digest": text_fingerprint(path),
+            "job": job_id,
+            "nonce": nonce,
+            "shown": text_fingerprint(name),
         },
     )
 

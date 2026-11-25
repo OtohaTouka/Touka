@@ -23,7 +23,7 @@ from src.routers import local_bridge as router_module
 from src.services.identity_router import get_verified_identity
 from src.services.local_bridge import OPEN_DECISION_SECONDS, LocalBridge
 from src.services.local_bridge_pairing import LocalPairingStore
-from src.utils.local_bridge_signing import sign_open_request, text_fingerprint
+from src.utils.local_bridge_signing import sign_open_request, sign_revoke, text_fingerprint
 
 ADMIN = AgentIdentity.for_role("Owner", "admin", is_human=True)
 POLL = {"protocol": PROTOCOL_VERSION, "helper_version": "1.0"}
@@ -446,6 +446,8 @@ def test_an_old_pairing_without_a_key_sends_nothing(
         "code": "needs_new_pairing",
         "name": None,
         "writable": None,
+        "usable": None,
+        "contains": None,
     }
     assert _poll(client, token).json()["job"] is None
 
@@ -473,6 +475,8 @@ def test_an_open_request_is_stamped_with_the_pairing_key(client: TestClient) -> 
         "code": None,
         "name": "家 2026",
         "writable": False,
+        "usable": None,
+        "contains": None,
     }
 
 
@@ -489,51 +493,264 @@ def test_each_request_gets_a_new_number(client: TestClient) -> None:
     [
         (
             {"status": "refused", "code": "not_opened", "message": "The user did not open it."},
-            {"status": "refused", "code": "not_opened", "name": None, "writable": None},
+            {
+                "status": "refused",
+                "code": "not_opened",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
         ),
         (
             {"status": "error", "code": None},
-            {"status": "error", "code": "unknown", "name": None, "writable": None},
+            {
+                "status": "error",
+                "code": "unknown",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
         ),
         (
             {"status": "ok", "data": {"name": "家", "writable": True, "path": "x"}},
-            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
         ),
         (
             {"status": "ok", "data": {"name": "家", "writable": "yes"}},
-            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
         ),
         (
             {"status": "ok", "data": {"name": "", "writable": True}},
-            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
         ),
         (
             {"status": "ok", "data": None},
-            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
         ),
         (
             {"status": "refused"},
-            {"status": "refused", "code": "unknown", "name": None, "writable": None},
+            {
+                "status": "refused",
+                "code": "unknown",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
         ),
         (
             {"status": "ok", "data": {"name": "家" * (MAX_OPEN_NAME_CHARS + 1), "writable": True}},
-            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
         ),
         (
             {"status": "ok", "data": {"name": "家" + chr(0x202E) + "gpj", "writable": True}},
-            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
         ),
         (
             {"status": "ok", "data": {"name": "家\x07", "writable": True}},
-            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
         ),
         (
             {"status": "refused", "code": "Touka 官方：請重新安裝"},
-            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
         ),
         (
             {"status": "refused", "code": "NOT_OPENED"},
-            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
+        ),
+        (
+            {
+                "status": "ok",
+                "code": "already_open",
+                "data": {"name": "家", "writable": True, "usable": False},
+            },
+            {
+                "status": "already_open",
+                "code": None,
+                "name": "家",
+                "writable": True,
+                "usable": False,
+                "contains": None,
+            },
+        ),
+        (
+            {"status": "ok", "code": "already_open", "data": {"name": "家", "writable": True}},
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
+        ),
+        (
+            {
+                "status": "ok",
+                "code": "already_open",
+                "data": {"name": "家\x07", "writable": True, "usable": True},
+            },
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
+        ),
+        (
+            {"status": "ok", "code": "opened", "data": {"name": "家", "writable": True}},
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
+        ),
+        (
+            {"status": "refused", "code": "not_opened", "data": {"contains": ["A", "B"]}},
+            {
+                "status": "refused",
+                "code": "not_opened",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": ["A", "B"],
+            },
+        ),
+        (
+            {"status": "refused", "code": "no_decision", "data": {"contains": ["A"]}},
+            {
+                "status": "refused",
+                "code": "no_decision",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": ["A"],
+            },
+        ),
+        (
+            {"status": "refused", "code": "not_opened", "data": {"contains": []}},
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
+        ),
+        (
+            {"status": "refused", "code": "not_opened", "data": {"contains": ["A\u202e"]}},
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
+        ),
+        (
+            {"status": "refused", "code": "not_opened", "data": {"contains": ["A"] * 65}},
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
+        ),
+        (
+            {"status": "refused", "code": "not_opened", "data": {"contains": ["A"], "path": "x"}},
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
+        ),
+        (
+            {"status": "refused", "code": "open_paused", "data": {"contains": ["A"]}},
+            {
+                "status": "error",
+                "code": "bad_result",
+                "name": None,
+                "writable": None,
+                "usable": None,
+                "contains": None,
+            },
         ),
     ],
 )
@@ -761,3 +978,298 @@ def test_the_full_path_is_not_logged(client: TestClient, caplog: pytest.LogCaptu
         _send_report(client, token, _folder_report())
         client.get(FOLDERS_URL)
     assert "Private Notes" not in caplog.text
+
+
+# --- 設定頁縮小名單（ADR-0330 2b） ---
+
+REVOKE_URL = "/v1/local-bridge/folders/revoke"
+REVOKE = {"name": "Notes", "path": REPORTED_PATH, "change": "read_only"}
+
+
+def _revoke_and_answer(
+    client: TestClient, token: str, answer: dict[str, Any] | None, body: dict[str, Any] = REVOKE
+) -> tuple[Any, dict[str, Any] | None]:
+    """設定頁送出縮小名單，測試扮小幫手拿到工作、回報 ``answer``（None 就不回）。"""
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(client.post, REVOKE_URL, json=body, headers=ORIGIN)
+        job: dict[str, Any] | None = None
+        for _ in range(200):
+            if pending.done():
+                break
+            job = _poll(client, token).json()["job"]
+            if job is not None:
+                break
+            time.sleep(0.01)
+        if job is not None and answer is not None:
+            delivered = client.post(
+                f"/v1/local-bridge/jobs/{job['id']}/result", json=answer, headers={HEADER: token}
+            )
+            assert delivered.status_code == 200
+        return pending.result(10), job
+
+
+def _done(**data: Any) -> dict[str, Any]:
+    return {"status": "ok", "data": {"instance": "a" * 22, "revision": 1, **data}}
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [
+        None,
+        AgentIdentity.for_role("Soul", "Owner"),
+        AgentIdentity.for_role("User", "normal", is_human=True),
+        AgentIdentity.for_role("Owner", "admin", is_human=False),
+    ],
+)
+def test_only_human_admins_can_revoke(wired: LocalBridge, identity: AgentIdentity | None) -> None:
+    app.dependency_overrides[get_verified_identity] = lambda: identity
+    with TestClient(app) as test_client:
+        response = test_client.post(REVOKE_URL, json=REVOKE, headers=ORIGIN)
+    assert response.status_code in (401, 403)
+
+
+@pytest.mark.parametrize("headers", [{}, {"Origin": "https://evil.example"}])
+def test_revoking_needs_a_trusted_origin(client: TestClient, headers: dict[str, str]) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    response = client.post(REVOKE_URL, json=REVOKE, headers=headers)
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "AUTH_PERMISSION_DENIED"
+    assert _poll(client, token).json()["job"] is None
+
+
+def test_revoking_before_pairing(client: TestClient) -> None:
+    response = client.post(REVOKE_URL, json=REVOKE, headers=ORIGIN)
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "LOCAL_HELPER_NOT_PAIRED"
+
+
+def test_only_the_person_who_paired_can_revoke(wired: LocalBridge) -> None:
+    app.dependency_overrides[get_verified_identity] = lambda: ADMIN
+    with TestClient(app) as test_client:
+        token = _pair(test_client)
+    other = AgentIdentity.for_role("Other", "admin", is_human=True)
+    app.dependency_overrides[get_verified_identity] = lambda: other
+    with TestClient(app) as test_client:
+        _poll(test_client, token)
+        response = test_client.post(REVOKE_URL, json=REVOKE, headers=ORIGIN)
+        assert _poll(test_client, token).json()["job"] is None
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "LOCAL_HELPER_NOT_PAIRED_HUMAN"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {**REVOKE, "change": "writable"},
+        {**REVOKE, "extra": 1},
+        {"name": "Notes", "path": REPORTED_PATH},
+        {**REVOKE, "name": ""},
+        {**REVOKE, "path": "a" * 1025},
+        {**REVOKE, "name": "No‮tes"},
+        {**REVOKE, "path": "Someone\x00"},
+    ],
+)
+def test_bad_revokes_are_refused_before_anything_is_sent(
+    client: TestClient, body: dict[str, Any]
+) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    assert client.post(REVOKE_URL, json=body, headers=ORIGIN).status_code == 422
+    assert _poll(client, token).json()["job"] is None
+
+
+def test_a_lone_surrogate_is_refused_before_anything_is_sent(wired: LocalBridge) -> None:
+    """單獨的代理字元算不出指紋：欄位驗證就擋下，不會送出工作。
+
+    FastAPI 預設的 422 回應編不出這個字元，會變成 500（所有端點都一樣）；重點是沒有送出。
+    """
+    app.dependency_overrides[get_verified_identity] = lambda: ADMIN
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        token = _pair(test_client)
+        _poll(test_client, token)
+        raw = '{"name": "No\\ud800tes", "path": "x", "change": "remove"}'
+        response = test_client.post(
+            REVOKE_URL, content=raw, headers={**ORIGIN, "Content-Type": "application/json"}
+        )
+        assert response.status_code >= 400
+        assert _poll(test_client, token).json()["job"] is None
+
+
+def test_a_revoke_is_stamped_and_updates_the_shown_list(client: TestClient) -> None:
+    code = _pair_code(client)
+    token = code.split(".", 1)[0]
+    _poll(client, token)
+    assert _send_report(client, token, _folder_report()).status_code == 200
+    response, job = _revoke_and_answer(client, token, _done(name="Notes", writable=False))
+    assert job is not None
+    assert job["action"] == "revoke"
+    assert job["args"] == REVOKE
+    assert job["decide_within"] == 30
+    decision = job["decision"]
+    assert decision["decided_by"] == "owner_request"
+    assert decision["digest"] == text_fingerprint(REPORTED_PATH)
+    assert decision["shown"] == text_fingerprint("Notes")
+    assert decision["signature"] == sign_revoke(
+        _key_of(code),
+        job_id=job["id"],
+        nonce=decision["nonce"],
+        name="Notes",
+        path=REPORTED_PATH,
+        change="read_only",
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "done",
+        "code": None,
+        "name": "Notes",
+        "removed": None,
+        "writable": False,
+    }
+    listed = client.get(FOLDERS_URL).json()
+    assert listed["folders"] == [
+        {"name": "Notes", "path": REPORTED_PATH, "writable": False, "usable": True}
+    ]
+    # 縮小之前就在路上的舊回報晚到，不會把清單蓋回去
+    assert _send_report(client, token, _folder_report()).status_code == 200
+    assert client.get(FOLDERS_URL).json()["folders"][0]["writable"] is False
+
+
+def test_removing_takes_the_folder_off_the_shown_list(client: TestClient) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    _send_report(client, token, _folder_report())
+    body = {**REVOKE, "change": "remove"}
+    response, _job = _revoke_and_answer(client, token, _done(name="Notes", removed=True), body)
+    assert response.json()["status"] == "done"
+    assert response.json()["removed"] is True
+    assert client.get(FOLDERS_URL).json()["folders"] == []
+
+
+def test_a_restarted_helper_clears_the_shown_list(client: TestClient) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    _send_report(client, token, _folder_report())
+    answer = {
+        "status": "ok",
+        "data": {"instance": "b" * 22, "revision": 1, "name": "Notes", "writable": False},
+    }
+    response, _job = _revoke_and_answer(client, token, answer)
+    assert response.json()["status"] == "done"
+    assert client.get(FOLDERS_URL).json()["state"] == "waiting"
+
+
+def test_a_newer_report_already_held_is_left_as_it_is(client: TestClient) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    # 縮小存檔是第 1 次修改；之後又在主視窗改回可以改（第 2 次），那份回報比縮小的結果先到
+    _send_report(client, token, _folder_report(revision=2))
+    response, _job = _revoke_and_answer(client, token, _done(name="Notes", writable=False))
+    assert response.json()["status"] == "done"
+    assert client.get(FOLDERS_URL).json()["folders"][0]["writable"] is True
+
+
+@pytest.mark.parametrize(
+    ("answer", "code"),
+    [
+        ({"status": "refused", "code": "not_found"}, "not_found"),
+        ({"status": "refused", "code": "helper_exposed"}, "helper_exposed"),
+        ({"status": "refused", "code": "bad_signature"}, "bad_signature"),
+        ({"status": "refused", "code": "needs_new_pairing"}, "needs_new_pairing"),
+        ({"status": "error", "code": "io_error"}, "io_error"),
+        ({"status": "refused", "code": "not_supported"}, "bad_result"),
+        ({"status": "refused", "code": "Touka 官方：請重新安裝"}, "bad_result"),
+        ({"status": "error", "code": None}, "bad_result"),
+        (_done(name="Notes", writable=True), "bad_result"),
+        (_done(name="Notes", removed=False), "bad_result"),
+        (_done(name="Notes", writable=False, removed=True), "bad_result"),
+        (_done(name="", writable=False), "bad_result"),
+        (_done(name="No‮tes", writable=False), "bad_result"),
+        ({"status": "ok", "data": {"name": "Notes", "writable": False}}, "bad_result"),
+        (
+            {
+                "status": "ok",
+                "data": {"instance": "x", "revision": 1, "name": "Notes", "writable": False},
+            },
+            "bad_result",
+        ),
+        (
+            {
+                "status": "ok",
+                "data": {"instance": "a" * 22, "revision": -1, "name": "Notes", "writable": False},
+            },
+            "bad_result",
+        ),
+        ({"status": "ok", "data": None}, "bad_result"),
+        # 成功卻帶代碼：格式不對
+        ({**_done(name="Notes", writable=False), "code": "already_open"}, "bad_result"),
+    ],
+)
+def test_helper_answers_to_a_revoke_are_mapped(
+    client: TestClient, answer: dict[str, Any], code: str
+) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    _send_report(client, token, _folder_report())
+    response, _job = _revoke_and_answer(client, token, answer)
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "error",
+        "code": code,
+        "name": None,
+        "removed": None,
+        "writable": None,
+    }
+    assert client.get(FOLDERS_URL).json()["folders"][0]["writable"] is True
+
+
+def test_a_revoke_without_a_helper_online_says_nothing_changed(client: TestClient) -> None:
+    _pair(client)
+    response = client.post(REVOKE_URL, json=REVOKE, headers=ORIGIN)
+    assert response.json()["code"] == "helper_offline"
+
+
+def test_a_revoke_after_a_lost_answer_is_unknown(
+    client: TestClient, wired: LocalBridge, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    clock = [time.monotonic()]
+    monkeypatch.setattr(wired, "_clock", lambda: clock[0])
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(client.post, REVOKE_URL, json=REVOKE, headers=ORIGIN)
+        job = None
+        while job is None:
+            job = _poll(client, token).json()["job"]
+        clock[0] += 31
+        response = pending.result(10)
+    assert response.json()["code"] == "result_unknown"
+
+
+def test_an_old_pairing_without_a_key_cannot_revoke(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    store = router_module.get_local_pairing_store()
+    record = store.current()
+    assert record is not None
+    old = record.model_copy(update={"decision_key": None})
+    monkeypatch.setattr(store, "current", lambda: old)
+    response = client.post(REVOKE_URL, json=REVOKE, headers=ORIGIN)
+    assert response.json()["code"] == "needs_new_pairing"
+    assert _poll(client, token).json()["job"] is None
+
+
+def test_revoke_paths_are_not_logged(client: TestClient, caplog: pytest.LogCaptureFixture) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    _send_report(client, token, _folder_report())
+    with caplog.at_level("DEBUG"):
+        _revoke_and_answer(client, token, _done(name="Notes", writable=False))
+    assert "Private Notes" not in caplog.text
+
+
+def test_revoke_is_in_the_api_contract() -> None:
+    paths = app.openapi()["paths"]
+    assert "post" in paths["/v1/local-bridge/folders/revoke"]

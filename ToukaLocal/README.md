@@ -12,7 +12,7 @@
 2. 開一般的 Windows PowerShell（不要用系統管理員，也不要用 PowerShell ISE），貼上這一行，按 Enter：
 
    ```powershell
-   $d=Join-Path $env:TEMP ("touka-helper-"+[guid]::NewGuid()); New-Item -ItemType Directory $d | Out-Null; $f=Join-Path $d 'install.ps1'; [Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor 3072; Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/OtohaTouka/Touka/f16a274e0b85bf7a410265be8ea1aeeaecdf2bef/ToukaLocal/install.ps1' -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -eq 'CB9969954C8FF70D35B01CA29CD75607612E07E421983446A7AD927ABFC9FD1F') { powershell -NoProfile -ExecutionPolicy Bypass -File $f -Commit 'f16a274e0b85bf7a410265be8ea1aeeaecdf2bef' -WorkDir $d } else { Remove-Item -Recurse $d; Write-Error 'install.ps1 does not match' }
+   $d=Join-Path $env:TEMP ("touka-helper-"+[guid]::NewGuid()); New-Item -ItemType Directory $d | Out-Null; $f=Join-Path $d 'install.ps1'; [Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor 3072; Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/OtohaTouka/Touka/a2e085c09e7ff541eda8a3343976496aa9788008/ToukaLocal/install.ps1' -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -eq '9C8E33185B90D2379CB576725D64EFBFC2C47BCCF317C98F8AA72462BAB88ED0') { powershell -NoProfile -ExecutionPolicy Bypass -File $f -Commit 'a2e085c09e7ff541eda8a3343976496aa9788008' -WorkDir $d } else { Remove-Item -Recurse $d; Write-Error 'install.ps1 does not match' }
    ```
 
 3. 它會問 Touka 資料夾在哪（完整路徑，例如 `D:\Touka`；重裝時按 Enter 沿用上次的），以及要不要開機自動啟動。小幫手會記下 Touka 資料夾，不讓你把它開放出去。
@@ -99,5 +99,6 @@ Touka 網頁：設定 → 本機小幫手 → 產生配對碼，貼到小幫手�
 - 要你決定的事（超過底線的清單、開放資料夾）照樣跳小幫手自己的視窗。需要你處理的狀況（例如還沒配對、版本不符、為了安全停止服務、開放請求暫停）剛出現時，主視窗會以最小化出現在工作列，不搶你正在用的視窗。
 - 確認它有沒有在跑：Touka 設定頁的「本機小幫手」會顯示是否連線；也可以從桌面開 `ToukaLocal.cmd` 叫出主視窗。
 - 0.5.0 起，Touka 設定頁的「本機小幫手」也列出開放中的資料夾（完整路徑、只能看或可以改、暫停中），只有產生配對碼的你看得到（[ADR-0330](../docs/architecture/adr/0330-local-helper-folders-in-settings.md)）。以小幫手主視窗為準；要改權限或拿掉，還是到主視窗。小幫手和 Touka 要一起更新：只更新一邊時，小幫手主視窗說版本對不上；Touka 也是這一版以後的話，設定頁會說是哪一邊要更新（Touka 還是舊版時，設定頁只會說小幫手沒有連上）。
+- 0.6.0 起，設定頁的清單可以把資料夾「拿掉」或「改成只能看」，按了先確認，小幫手不跳視窗，主視窗會寫「Touka 設定頁拿掉了…」。設定頁只能縮小：加回或改回可以改，還是到主視窗。請開放的資料夾已經在開放的資料夾裡時，小幫手不跳視窗，直接回已經開放；請開放的是包住已開放資料夾的上一層時，小幫手的視窗會寫包住了哪些，要開放這一層至少要先拿掉它們。主視窗的「復原」遇到資料夾已經拿掉、只能讀或暫停中的搬移，會說先加回、改回可以改（或接回隨身碟）再按一次。這一版是協議第 4 版，Touka 也要一起更新。
 
 螢幕縮放大於 100% 時，視窗會跟著放大，字用微軟正黑體（電腦上沒有時用系統預設）。
