@@ -89,6 +89,11 @@ def test_selection_pin_rejects_settings_that_hide_files(
     assert _selection_problems(config)
 
 
+def test_shared_ruff_args_are_pinned_literally() -> None:
+    """其他釘子的期望值都從這個常數推出來；常數和 CI 一起改時，只有這裡會紅。"""
+    assert RUFF_CHECK_ARGS == ("ruff", "check", "--no-cache", "--config", "ruff.toml")
+
+
 def test_collect_ruff_runs_exactly_the_shared_selection_args(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -122,7 +127,14 @@ def test_guard44_runs_exactly_this_command(monkeypatch: pytest.MonkeyPatch) -> N
 @pytest.fixture
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """暫存小 repo，git 和 ruff 都讀不到使用者的全域設定與全域 gitignore。"""
-    for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"):
+    for name in (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_CONFIG_COUNT",  # `git -c`／hook 帶進來的設定（例如 core.excludesFile）
+        "GIT_CONFIG_PARAMETERS",
+    ):
         monkeypatch.delenv(name, raising=False)
     home = tmp_path / "home"
     home.mkdir()
