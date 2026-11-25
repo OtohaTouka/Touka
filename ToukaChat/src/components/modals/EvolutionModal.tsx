@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Terminal, ShieldAlert, Key, Check, X, Loader2 } from "lucide-react";
 
 import { SkillInstallRequest } from "@/lib/types";
-import { errorMsg } from "@/lib/error_handler";
+import { errorMsg, getErrorCode } from "@/lib/error_handler";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useEvolution } from "@/hooks/useEvolution";
@@ -28,6 +28,14 @@ export default function McpInstallModal({ installRequest, onClose }: McpInstallM
         setEnvVars(prev => ({ ...prev, [key]: value }));
     };
 
+    /** 確認失敗時說出原因：兩種常見情況用專用提示，其他照錯誤碼，沒有錯誤碼才算系統錯誤。 */
+    const failureMessage = (err: unknown): string => {
+        const code = getErrorCode(err);
+        if (code === "AUTH_ADMIN_REQUIRED") return t('modals.evolution_modal.admin_required');
+        if (code === "TERMINAL_APPROVAL_NOT_FOUND") return t('modals.evolution_modal.request_expired');
+        return errorMsg(code ?? "SYSTEM_ERROR");
+    };
+
     const handleConfirm = async () => {
         try {
             const success = await confirmInstall(installRequest.id, envVars);
@@ -35,8 +43,8 @@ export default function McpInstallModal({ installRequest, onClose }: McpInstallM
                 toast.success(t('modals.evolution_modal.install_success'));
                 onClose();
             }
-        } catch {
-            toast.error(errorMsg("SYSTEM_ERROR"));
+        } catch (err) {
+            toast.error(failureMessage(err));
         }
     };
 
