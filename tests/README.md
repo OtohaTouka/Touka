@@ -69,6 +69,23 @@ tests/
 
 ## 一、單元測試 (`tests/unit/`)
 
+### 專用空間的專案在執行器裡跑（ADR-0332）
+
+| 檔案 | 說明 |
+|---|---|
+| `unit/test_executor_project_kind_security.py` | **執行器的 kind `project`**：`--project-root` 和讀寫根分開驗（不存在、連結、不是資料夾、名稱不對、巢狀時 READY 的 `project_root` 是 null、其他 kind 照常服務）；START 的目標、cwd、讀寫範圍與 `state/project/<名稱>`；`_prepare_dirs` 不修專案內容、`_maintain` 只修根本身；`parse_ready` 收 `project_root` |
+| `unit/test_project_space_scope_security.py` | **結構層**：錨點只從部署設定來；錨點外 `outside`、第一層 `ok`；錨點本身、第二層、不安全名稱、連結與 `..`、沒有專用空間卻用了這個名稱都是 `refused` |
+| `unit/test_isolation_project_level_security.py` | **執行層**：執行器層、READY 的專案根、掃描、在場都過才是 executor；任何一項不過是 `refused`；只有沒人在場是 none；READY 不符只影響專用空間的專案 |
+| `unit/test_project_space_policy_security.py` | **被拒時的政策**：任何模式都是 DENY、不跳卡；訊息分暫時與永久；政策層級帶「有人在場」 |
+| `unit/test_project_space_runner_security.py` | **profile 與 runner 的最後一道**：專案 profile 只在執行器位置、不給個人空間、掃描不過標成沒授權；組不出來一律拒絕；broker 有降級同意也不退回本機 |
+| `unit/test_project_space_commands_security.py` | **指令從哪裡開始**：終端（前景、背景）與互審驗證指令的 START cwd 是專案根、relay 從 kernel 資料夾啟動；在場一路帶到層級；被拒時互審回 `NO_ISOLATED_ENVIRONMENT`；專案說明多一句 |
+| `unit/test_project_space_binding_security.py` | **登記規則**：一資料夾一專案（三種寫法 × 三種身分）、順序（被拒的不清 HOME）、同時兩個存檔、第一次綁定才清、清不掉不寫入、清除期間資料庫不被鎖、刪除後盡力清；後端每個被拒原因在專案頁都有兩語文案 |
+| `unit/test_core_list_no_follow_security.py` | **列檔案沒有 proxy 時也不跟隨連結**（禁令 20）：「是不是連結」問完才換成連結也不進入；和經 proxy 的列法同樣隱藏、深度與標示 |
+| `unit/test_project_files_no_follow_security.py` | **專案檔案清單頁不跟隨連結**（禁令 20）：指向根外或根裡的連結都不列也不進入；舊的判斷說「在根裡」也不跟隨；最多四層、隱藏名稱、資料夾在前 |
+| `project_save_wording.test.ts`、`useProjects.save.test.ts`、`ProjectsView.saveFailure.test.tsx`（ToukaChat） | **專案頁說得出原因**：每個專用空間的原因與錯誤碼有自己的說明（兩語），其他是一般的「存不了」；`saveProject` 帶回錯誤碼與原因；被拒時表單保持開啟 |
+
+既有測試照計畫放寬（只放過專用空間那一筆）：`test_executor_compose_security.py`（執行器多一個掛載，目標是 `--project-root`、來源是 `touka-projects`；proxy 同位置同 volume；映像預建）、`test_hard_floor_roots_security.py`（`mounts_separate` 的 `project_space`）、`test_executor_server_cli.py`、`test_executor_e2e_assets.py`；Linux 真核心 `integration/test_isolation_linux.py` 加三條；容器 `tests/docker/executor_check.py` 加六項。
+
 ### 外部審查小修（2026-11-24）
 
 | 檔案 | 說明 |

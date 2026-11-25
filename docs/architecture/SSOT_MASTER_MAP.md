@@ -693,6 +693,21 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | 一行指令的樣板、釘住的 Python | 樣板在 `scripts/local_helper_pins.py` 的 `ONE_LINE_TEMPLATE`（README 只能有一份）；Python 版本、網址、sha256 在 `ToukaLocal/install.ps1` 頂端（ADR-0329） |
 | 開機啟動的位置 | `ToukaLocal/install.py` 的 `_STARTUP_FOLDER`，小幫手 `settings.py` 的 `STARTUP_FOLDER` 另存一份，測試核對（ADR-0329） |
 
+### 3-K. 資訊安全守衛層：專用空間（ADR-0332）
+
+| 項目 | SSOT |
+|---|---|
+| 專用空間的位置（錨點） | `ToukaProxy/src/config.py` 的 `TOUKA_PROJECTS_DIR`（compose 設）→ `services/isolation/profiles.configured_projects_root()` → `SandboxLayout.projects_root`；資料夾名 `services/isolation/executor_session.PROJECT_ROOT_NAME`。不跟著工作區設定 |
+| 結構層（在不在、被拒的原因） | `services/isolation/project_space.structural_scope`（純函式；原因常數在同檔）、`is_project_folder` |
+| 執行層（執行器、READY 的專案根、掃描、在場） | `services/isolation/status.IsolationMonitor.level_for(..., attended)` 的 `_dedicated_level`、`_dedicated_executor_issue` |
+| 被拒時的政策與給模型的訊息 | `models/safety.PROJECT_SPACE_DENY_PREFIX`、`_refused_project`；`services/isolation/policy.denial_text` |
+| 專案指令的 profile 與 runner 的最後一道 | `services/isolation/profiles.build_project_command_profile`（只有執行器位置）；`runners.ProfileSource.dedicated` |
+| 執行器端的專案根與 kind | `services/isolation/executor_server.checked_project_root`；`executor_session.KIND_LAYOUT["project"]`、`PROJECT_KIND` |
+| 登記規則與順序、清 HOME | `services/isolation/project_binding`（`binding_lock`、`prepare_binding`、`forget_bindings`、`clear_owned_projects`）；清除經 `home_wipe.wipe_project_home` |
+| 底線的掛載證明 | `utils/hard_floor.mounts_separate` 的 `project_space` 參數（呼叫端 `_project_space()`） |
+| 列樹的排版與預設隱藏 | ToukaMemory `utils/no_follow.render_tree`、`LIST_HIDDEN`、`tree_lines`；專案檔案清單頁經 `ResourceManager.tree_entries` |
+| 專案頁的原因說明 | `ToukaChat/src/lib/project_save_wording.ts`（`projectSaveFailureText`） |
+
 ### 3-K. 資訊安全守衛層：登入憑證綁後端（ADR-0297）
 
 | 來源 | 責任與使用邊界 |

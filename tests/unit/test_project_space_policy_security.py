@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -114,8 +113,11 @@ def test_permanent_refusals_say_why_and_not_to_retry(refused):
         ({}, False),
     ],
 )
-async def test_the_policy_level_says_whether_a_human_is_present(monkeypatch, ctx, attended):
+async def test_the_policy_level_says_whether_a_human_is_present(
+    monkeypatch, tmp_path, ctx, attended
+):
     seen: list[dict[str, Any]] = []
+    root = tmp_path / "touka-projects" / "repo"
 
     async def _ready():
         return None
@@ -125,7 +127,7 @@ async def test_the_policy_level_says_whether_a_human_is_present(monkeypatch, ctx
         return LevelDecision("executor")
 
     async def _root(_ctx, _session):
-        return Path("/app/workspace/touka-projects/repo")
+        return root
 
     monkeypatch.setattr(policy_module.isolation_monitor, "ensure_ready", _ready)
     monkeypatch.setattr(policy_module.isolation_monitor, "level_for", _level_for)
@@ -135,7 +137,7 @@ async def test_the_policy_level_says_whether_a_human_is_present(monkeypatch, ctx
     await policy_module.policy_level(
         identity, ctx, None, "call-1", tool="execute_command", args={"command": "ls"}
     )
-    assert seen == [{"root": Path("/app/workspace/touka-projects/repo"), "attended": attended}]
+    assert seen == [{"root": root, "attended": attended}]
 
 
 async def test_the_executor_denies_a_refused_project_without_running_it(monkeypatch):

@@ -2,6 +2,12 @@
 
 > **TL;DR** — 所有 HTTP 請求走 `fetchTouka()`（FETCH_SSOT）；`localStorage.*` 必須用 `useLocalStorage` hook（LOCALSTORAGE_SSOT）；`console.*` 禁止，`error_handler.ts` 靠行內 noqa（CONSOLE_BAN）；來回計算 SSOT：`countRounds()` in `export-utils.ts`；模型輸出的 Markdown 只經 `SafeMarkdown` 顯示（外部圖片不自動載入，ADR-0294）；ToukaChat 跑在 port 3001（`npm run dev` 只開網頁）。
 
+## 專案頁登記失敗的原因（ADR-0332）
+
+- `useProjects.saveProject` 回 `ProjectSaveResult`：成功是 `{ok: true}`；被拒絕是 `{ok: false, code?, reason?}`（`getResponseErrorCode`、`getResponseDetailString(res, "reason")`；斷線時兩個都沒有）。
+- `lib/project_save_wording.ts` 的 `projectSaveFailureText` 選一句：`VALIDATION_ERROR` 加專用空間的原因 → `projects.projects_view.space_reasons.<原因>`；`PROJECT_FOLDER_TAKEN`、`PROJECT_FOLDER_MISSING`、`PROJECT_HOME_NOT_CLEARED` → 錯誤碼自己的說明（`error.project.*`）；其他 → `projects.projects_view.save_failed`。表單保持開啟。
+- 審批卡的 `project_not_in_executor` 改說專案不在專用空間（`touka-projects`）與怎麼放進去。
+
 ## 刪掉的代理人的舊對話（ADR-0326 PR 3a）
 
 - `Session.former_agent_id`：解除綁定時綁的是誰（代理人刪掉、名字給了新代理人）。只能看，存檔不收。

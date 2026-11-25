@@ -60,10 +60,9 @@ MAX_SECONDS = 2  # 執行器端的上限（START 的 max_seconds）
 PROJECT, NEIGHBOUR = "alpha", "beta"  # 專用空間裡的兩個專案
 NEIGHBOUR_CONTENT = "only-beta-may-read-this"
 HOME_MARK = "[user]\n\tname = alpha\n"
-# 執行器容器裡不該有的東西（金鑰與工作區的其他內容）
-ABSENT_IN_EXECUTOR = (
-    "/app/workspace/.env", "/app/host_root", "/app/workspace/ToukaProxy", "/app/workspace/data",
-)
+# 執行器容器裡不該有的東西（金鑰與工作區的其他內容）：相對工作區掛載點（專用空間的上一層）
+ABSENT_IN_WORKSPACE = (".env", "ToukaProxy", "data")
+ABSENT_BESIDE_WORKSPACE = ("host_root",)
 
 _CONTROL_PROBE = """
 import json, socket, sys
@@ -415,7 +414,10 @@ async def check_project_writes_and_home(session: Session) -> bool:
 
 
 async def check_no_secrets_in_the_executor(session: Session) -> bool:
-    script = "; ".join(f'test -e "{p}" && echo "present:{p}"' for p in ABSENT_IN_EXECUTOR)
+    workspace = session.project(PROJECT).parent.parent
+    absent = [workspace / name for name in ABSENT_IN_WORKSPACE]
+    absent += [workspace.parent / name for name in ABSENT_BESIDE_WORKSPACE]
+    script = "; ".join(f'test -e "{p}" && echo "present:{p}"' for p in absent)
     outcome = await run_project(session, PROJECT, ("sh", "-c", f"{script}; echo checked"))
     ok = outcome.output.strip() == "checked"
     return emit("executor_has_no_env_or_workspace", ok, output=outcome.output[-300:])
