@@ -36,6 +36,7 @@ from memory_server.utils.no_follow import (
     walk_no_follow,
     walk_open_no_follow,
     walk_pruned,
+    walk_select_pruned,
     write_bytes_no_follow,
     write_stream_no_follow,
     zip_open_file,
@@ -397,6 +398,33 @@ def test_zip_open_file_clamps_times_zip_cannot_store(base, mtime, expected):
     with zipfile.ZipFile(base / "t.zip") as zf:
         assert zf.getinfo("t.txt").date_time == expected
         assert zf.read("t.txt") == b"t"
+
+
+def test_zip_open_file_keeps_only_read_write_execute_bits(base):
+    """setuid、setgid、sticky 不帶進 zip：解壓的人不會拿到帶特殊權限的檔案（ADR-0332 PR B）."""
+    source = base / "s.sh"
+    source.write_bytes(b"s")
+    with zipfile.ZipFile(base / "s.zip", "w") as zf, source.open("rb") as handle:
+        real = os.fstat(handle.fileno())
+        info = os.stat_result(
+            (stat.S_IFREG | 0o7755, real.st_ino, real.st_dev, real.st_nlink, real.st_uid,
+             real.st_gid, real.st_size, real.st_mtime, real.st_mtime, real.st_mtime)
+        )
+        zip_open_file(zf, "s.sh", handle, info)
+    with zipfile.ZipFile(base / "s.zip") as zf:
+        assert zf.getinfo("s.sh").external_attr >> 16 == stat.S_IFREG | 0o755
+
+
+def test_walk_select_pruned_opens_only_wanted_files(base):
+    """下載的走訪：``want`` 為真的才開（名單以外的檔案不開）."""
+    _tree(base / "project", "wanted.txt", "other.txt", "sub/also.txt")
+    report = WalkReport()
+    walk = walk_select_pruned(
+        base / "project", ZoneRoots(base / "data", None), report,
+        want=lambda entry: entry.parts == ("wanted.txt",),
+    )
+    opened = {"/".join(entry.parts): handle is not None for entry, handle, _info in walk}
+    assert opened == {"other.txt": False, "sub": False, "sub/also.txt": False, "wanted.txt": True}
 
 
 # --- 剪枝走訪（R5） ------------------------------------------------------------

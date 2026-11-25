@@ -78,6 +78,23 @@ describe('ProjectsView 的下載按鈕', () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
+  it('打包中 → 按鈕停用並顯示打包中，完成後恢復', async () => {
+    let finish: (value: { ok: boolean }) => void = () => {};
+    downloadProject.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    clickDownload();
+    const [, onConfirm] = confirmToast.mock.calls[0];
+    const done = onConfirm();
+    const button = await screen.findByRole('button', {
+      name: i18n.t('projects.projects_view.download_aria', { name: PROJECT.name }),
+    });
+    await waitFor(() => expect(button).toBeDisabled());
+    expect(button.textContent).toContain(i18n.t('projects.projects_view.download_in_progress'));
+    finish({ ok: true });
+    await done;
+    await waitFor(() => expect(button).not.toBeDisabled());
+    expect(button.textContent).toContain(i18n.t('projects.projects_view.download_button'));
+  });
+
   it('被拒絕 → 說出原因', async () => {
     downloadProject.mockResolvedValueOnce({ ok: false, code: 'VALIDATION_ERROR', reason: 'no_git' });
     clickDownload();

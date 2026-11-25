@@ -227,7 +227,7 @@ async def _project_root_allowed(caller: AgentIdentity, root_path: str | None) ->
 
 
 async def _check_project_root(caller: AgentIdentity, root_path: str | None) -> None:
-    """登記專案時檢查根目錄；不行就回 422 並說明原因（檢查沒做完和受保護的位置分開說）."""
+    """登記與下載專案時檢查根目錄；不行就回 422 並說明原因（檢查沒做完和受保護的位置分開說）."""
     problem = await _project_root_problem(caller, root_path)
     if problem is not None:
         raise ToukaException(
@@ -1110,6 +1110,9 @@ async def download_project(
 ) -> TempFileResponse:
     """下載專用空間的專案（ADR-0332 PR B）：只放 git 名單上的檔案，zip 送完就刪."""
     if not await _can_download_project(identity, project_id):
+        logger.warning(
+            "AUDIT: %s was refused a download of project %r", identity.agent_id, project_id
+        )
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     root_path = await get_project_root_path(project_id)
     if not root_path:
@@ -1125,13 +1128,21 @@ async def download_project(
         )
     if scope.kind == "refused":
         raise ToukaException(ErrorCode.VALIDATION_ERROR, reason=scope.reason)
-    if not await _project_root_allowed(identity, root_path):
-        raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+    await _check_project_root(identity, root_path)
     if not project_space.is_project_folder(scope) or scope.name is None or scope.path is None:
         raise ToukaException(ErrorCode.PROJECT_FOLDER_MISSING)
-    archive = await project_download.download_project_zip(scope.name, scope.path)
+    if not await project_binding.owns_folder(project_id, scope):
+        raise ToukaException(ErrorCode.PROJECT_FOLDER_TAKEN)  # 舊資料裡別的專案也綁著
+    try:
+        archive = await project_download.download_project_zip(scope.name, scope.path)
+    except ToukaException as exc:
+        logger.warning(
+            "AUDIT: %s download of project %r refused (%s, %s)",
+            identity.agent_id, project_id, exc.code.value, exc.detail.get("reason"),
+        )
+        raise
     logger.warning(
-        "AUDIT: %s downloaded project %s (%d files, %d skipped, %d bytes)",
+        "AUDIT: %s downloaded project %r (%d files, %d skipped, %d bytes)",
         identity.agent_id, project_id, archive.files, archive.skipped, archive.size,
     )
     return TempFileResponse(

@@ -139,6 +139,22 @@ def test_a_sha256_repository_is_refused_as_unsupported():
     assert _reason(_index(TREE, trailer="sha256")) == git_index.INDEX_UNSUPPORTED
 
 
+def test_a_sha256_repository_with_a_skipped_checksum_is_unsupported():
+    """SHA-256 的 index 加 ``index.skipHash``：全零的檢查碼分不出種類，當 SHA-1 讀不懂就算讀不懂."""
+    head = struct.pack(">10I", 0, 0, 0, 0, 0, 0, REGULAR, 0, 0, 0) + bytes(32)
+    head += struct.pack(">H", 5)
+    entry = (head + b"a.txt").ljust((len(head) + 5 + 8) & ~7, b"\0")
+    assert _reason(b"DIRC" + struct.pack(">II", 2, 1) + entry + bytes(32)) == (
+        git_index.INDEX_UNSUPPORTED
+    )
+
+
+def _flipped_checksum() -> bytes:
+    data = bytearray(_index(TREE))
+    data[-1] ^= 1  # 結構完好，只有檢查碼不對
+    return bytes(data)
+
+
 @pytest.mark.parametrize("version", [1, 5])
 def test_other_versions_are_unsupported(version):
     assert _reason(_index(TREE, version=version)) == git_index.INDEX_UNSUPPORTED
@@ -166,9 +182,13 @@ def _resign(data: bytes) -> bytes:
         pytest.param(b"DIRC", id="too-short"),
         pytest.param(b"XXXX" + _index(TREE)[4:], id="signature"),
         pytest.param(_index(TREE)[:-21] + b"\0", id="checksum"),
+        pytest.param(_flipped_checksum(), id="one-checksum-byte"),
         pytest.param(_resign(_index(TREE)[:40]), id="truncated-entry"),
         pytest.param(_corrupt_padding(), id="padding"),
         pytest.param(_index([(b"a.txt", REGULAR, {"name_len": 9})]), id="name-length"),
+        pytest.param(
+            _index([(b"a.txt", REGULAR, {"name_len": 9})], version=4), id="v4-name-length"
+        ),
         pytest.param(_index(TREE, count=len(TREE) + 1), id="count-over-the-data"),
         pytest.param(_index(TREE, extensions=b"TREE\0\0\1\0"), id="extension-overrun"),
         pytest.param(_index([(b"", REGULAR)]), id="empty-name"),

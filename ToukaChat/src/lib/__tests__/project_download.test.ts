@@ -19,6 +19,8 @@ const VALIDATION_REASONS = [
   'index_unsupported',
   'index_invalid',
   'protected_location',
+  'outside_workspace',
+  'scan_limit',
 ];
 const TOO_LARGE_REASONS = ['index_too_large', 'too_many_files', 'too_large', 'walk_too_large'];
 const SPACE_REASONS = [
@@ -54,10 +56,18 @@ describe('projectDownloadFailureText', () => {
     expect(text).toBe(i18n.t(`projects.projects_view.space_reasons.${reason}`));
   });
 
-  it('同時只能一個下載 → 錯誤碼自己的說明', () => {
-    expectBothLanguages('error.project.download_busy');
-    expect(projectDownloadFailureText(t, { code: 'PROJECT_DOWNLOAD_BUSY' })).toBe(
-      i18n.t('error.project.download_busy'),
+  it.each([
+    ['PROJECT_DOWNLOAD_BUSY', 'error.project.download_busy'],
+    ['PROJECT_FOLDER_TAKEN', 'error.project.folder_taken'],
+  ] as const)('%s → 錯誤碼自己的說明', (code, key) => {
+    expectBothLanguages(key);
+    expect(projectDownloadFailureText(t, { code })).toBe(i18n.t(key));
+  });
+
+  it('沒有權限 → 說只有主人能下載（不是「稍後再試」）', () => {
+    expectBothLanguages('projects.projects_view.download_not_allowed');
+    expect(projectDownloadFailureText(t, { code: 'AUTH_PERMISSION_DENIED' })).toBe(
+      i18n.t('projects.projects_view.download_not_allowed'),
     );
   });
 
@@ -72,7 +82,7 @@ describe('projectDownloadFailureText', () => {
     ['原因不認得', { code: 'VALIDATION_ERROR' as ErrorCode, reason: 'something_else' }],
     ['太大的原因配上別的錯誤碼', { code: 'VALIDATION_ERROR' as ErrorCode, reason: 'too_large' }],
     ['驗證的原因配上太大', { code: 'REQUEST_TOO_LARGE' as ErrorCode, reason: 'no_git' }],
-    ['沒有權限', { code: 'AUTH_PERMISSION_DENIED' as ErrorCode }],
+    ['伺服器出錯', { code: 'SYSTEM_ERROR' as ErrorCode }],
     ['斷線', {}],
   ])('%s → 一般的「下載失敗」', (_name, failure) => {
     expect(projectDownloadFailureText(t, failure)).toBe(GENERIC);

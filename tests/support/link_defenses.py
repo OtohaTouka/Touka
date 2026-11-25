@@ -303,6 +303,12 @@ LINK_SCAN_ALLOWED: dict[str, tuple[int, str, frozenset[str]]] = {
         "關掉事前的包含判斷，證明走訪途中遇到區根仍整個拒絕（第二道檢查；T3 也列了）",
         frozenset({"contains_zone"}),
     ),
+    "tests.unit.test_resource_manager_string_zone:"
+    "test_a_drive_met_during_the_download_walk_refuses_it": (
+        1,
+        "關掉事前的包含判斷，證明下載的走訪途中遇到區根仍整個拒絕（第二道檢查；T3 也列了）",
+        frozenset({"contains_zone"}),
+    ),
     "tests.unit.test_resource_manager_zone:test_permission_repair_gets_the_absolute_path": (
         1,
         "第一次讀被拒（PermissionError），測權限自癒拿到絕對路徑後重試（不放寬判斷）",

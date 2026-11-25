@@ -88,6 +88,11 @@ async def _claims(scope: ProjectScope) -> list[tuple[str, str]]:
     return claims
 
 
+async def owns_folder(project_id: str, scope: ProjectScope) -> bool:
+    """登記裡只有這個專案綁著這個資料夾（名稱完全相同）；舊資料裡別的專案也綁著就不算."""
+    return await _claims(scope) == [(project_id, scope.name or "")]
+
+
 async def _already_bound(project_id: str, scope: ProjectScope) -> bool:
     """這個資料夾已經是這個專案（不用再清）；別的專案綁著就拒絕（``PROJECT_FOLDER_TAKEN``）.
 

@@ -4,10 +4,14 @@
   診斷身分、別的使用者、非主人的管理員都不行。
 - 只有專用空間裡的專案：一般專案 422 ``not_dedicated_space``；結構層拒絕的照它的原因。
 - 放哪些檔案只看 git 的名單（``.git/index``，純 Python 讀，不跑 git）：沒追蹤的不放；``.git``、
-  Windows 不能用的名稱、雙向控制字元、捷徑類檔案、``.env``、不是 UTF-8、路徑太長、只差大小寫的
-  重複、連結、子模組、硬連結、不是一般檔案、不見了、讀不到的都略過，寫進 zip 根的報告。
-- 檔案在 ``<專案資料夾>/`` 底下；不跟隨連結地開；沒追蹤的資料夾不進去。
-- 上限：名單大小與筆數、檔案數、總大小、走訪筆數與時間；同時只做一個（429）；斷線時刪掉 zip。
+  解壓後會讓資料夾變成 repository 的（HEAD、其他版本控制工具的資料夾；用真的 git 驗證）、
+  Windows 不能用的名稱、雙向控制字元、捷徑類檔案、``.env``、不是 UTF-8、路徑太長或太深、只差
+  大小寫的重複、連結、子模組、硬連結、不是一般檔案、不見了、讀不到的都略過，寫進 zip 根的報告
+  （每個原因只列前幾個、名稱截短）。
+- 檔案在 ``<專案資料夾>/`` 底下；不跟隨連結地開；沒追蹤的資料夾不進去；碰到代理人資料夾整個拒絕。
+- 被拒時說得出原因（根目錄檢查、別的專案也綁著、兩語的說明都有）；沒有追蹤任何檔案不給空 zip。
+- 上限：名單大小與筆數、檔案數、資料夾數、總大小、走訪筆數與時間；同時只做一個（429）；斷線時
+  刪掉 zip。
 全部在 ``tmp_path`` 與測試沙盒；git 名單用這裡的寫入器手工組（每個欄位看得見）。
 """
 
@@ -15,7 +19,9 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
+import shutil
 import struct
 import sys
 import tempfile
@@ -23,20 +29,27 @@ import threading
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from memory_server.utils.no_follow import LinkRefusedError, WalkReport
+from memory_server.utils.zone_paths import ZonePathRequiredError
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.routers import ui_sessions
-from src.services import project_download
-from src.services.isolation import project_binding
+from src.services import execution_broker, project_download
+from src.services import resource_manager as rm_module
+from src.services.isolation import project_binding, project_space
 from src.services.isolation.executor_session import PROJECT_ROOT_NAME
+from src.services.isolation.project_binding import owns_folder as real_owns_folder
 from src.services.project_download import REPORT_NAME
 from src.services.resource_manager import resource_manager
+from src.utils import git_index
 from src.utils.temp_file_response import TempFileResponse
+from src.utils.touka_dirs import PROTECTED_LOCATION, SCAN_LIMIT
 from starlette.requests import ClientDisconnect
+
+from tests.support.zone_records import expect_zone_refusal
 
 if sys.platform == "win32":
     import _winapi
@@ -106,6 +119,7 @@ def space(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Space:
     temp.mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(temp))
     monkeypatch.setattr(project_binding, "configured_projects_root", lambda: anchor)
+    monkeypatch.setattr(project_binding, "owns_folder", AsyncMock(return_value=True))
     monkeypatch.setattr(resource_manager, "_get_workspace_root", AsyncMock(return_value=workspace))
     monkeypatch.setattr(resource_manager, "_is_docker", False)
     monkeypatch.setattr(ui_sessions, "get_project_root_path", AsyncMock(return_value=str(project)))
@@ -229,14 +243,36 @@ async def test_space_shapes_the_structure_refuses_keep_their_reason(
     assert refused.status_code == 422 and refused.detail["reason"] == reason
 
 
-async def test_a_root_the_files_page_refuses_is_not_downloaded(space, monkeypatch):
-    """和檔案清單頁相同的根目錄檢查（容器裡會掃 Touka 目錄；這裡讓它回受保護的位置）：403."""
+@pytest.mark.parametrize("reason", ["protected_location", "scan_limit"])
+async def test_a_root_the_files_page_refuses_says_why(space, monkeypatch, reason):
+    """和登記相同的根目錄檢查（容器裡會掃 Touka 目錄；這裡讓它回原因）：422 帶原因."""
     space.track({"README.md": b"hello"})
-    monkeypatch.setattr(
-        ui_sessions.profiles, "project_root_reason", AsyncMock(return_value="protected_location")
-    )
-    assert (await _refused()).detail["code"] == ErrorCode.AUTH_PERMISSION_DENIED.value
+    monkeypatch.setattr(ui_sessions.profiles, "project_root_reason", AsyncMock(return_value=reason))
+    refused = await _refused()
+    assert refused.status_code == 422 and refused.detail["reason"] == reason
     assert _temp_zips(space) == []
+
+
+async def test_a_folder_another_project_also_claims_is_not_downloaded(space, monkeypatch):
+    """舊資料裡別的專案也綁著同一個資料夾：不下載（409）."""
+    space.track({"README.md": b"hello"})
+    monkeypatch.setattr(project_binding, "owns_folder", AsyncMock(return_value=False))
+    assert (await _refused()).detail["code"] == ErrorCode.PROJECT_FOLDER_TAKEN.value
+
+
+@pytest.mark.parametrize(
+    ("claims", "owns"),
+    [
+        pytest.param([(PROJECT_ID, FOLDER)], True, id="only-this-project"),
+        pytest.param([], False, id="not-bound"),
+        pytest.param([(PROJECT_ID, FOLDER), ("p_other", "Demo")], False, id="also-another"),
+        pytest.param([(PROJECT_ID, "Demo")], False, id="other-letter-case"),
+    ],
+)
+async def test_owning_a_folder_means_the_only_exact_claim(space, monkeypatch, claims, owns):
+    monkeypatch.setattr(project_binding, "_claims", AsyncMock(return_value=claims))
+    scope = project_space.structural_scope(space.project, space.anchor)
+    assert await real_owns_folder(PROJECT_ID, scope) is owns
 
 
 def _linked_project(space: Space, tmp_path: Path) -> Path:
@@ -270,6 +306,33 @@ def test_a_root_swapped_for_a_link_after_the_check_is_refused(space, tmp_path):
         project_download.build_project_zip("linked", link)
     assert raised.value.detail["reason"] == "project_linked"
     assert _temp_zips(space) == []
+
+
+@pytest.fixture
+def drive_project(zone_data_root: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """data 根的上層當專案根，git 名單列著 Alice 個人空間裡的檔案（R4）."""
+    root = zone_data_root.parent
+    drive = zone_data_root / "personal_drive" / "Alice"
+    drive.mkdir(parents=True)
+    (drive / "notes.txt").write_bytes(b"CANARY")
+    (root / ".git").mkdir()
+    listed = f"{zone_data_root.name}/personal_drive/Alice/notes.txt".encode()
+    (root / ".git" / "index").write_bytes(_index_bytes({listed: REGULAR}))
+    temp = root / "zips"
+    temp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temp))
+    return root
+
+
+@pytest.mark.parametrize("root_check", ["real", "missed"])
+def test_a_download_that_reaches_an_agent_folder_is_refused(drive_project, monkeypatch, root_check):
+    """根包含代理人資料夾，或根的檢查沒擋到、走訪途中才遇到：整個拒絕，不留 zip（R4）."""
+    if root_check == "missed":
+        monkeypatch.setattr(rm_module, "contains_zone", lambda *_args, **_kwargs: False)
+    with expect_zone_refusal(ZonePathRequiredError), pytest.raises(ToukaException) as refused:
+        project_download.build_project_zip("p", drive_project)
+    assert refused.value.detail["reason"] == "protected_location"
+    assert list((drive_project / "zips").iterdir()) == []
 
 
 async def test_a_missing_project_folder_says_so(space, monkeypatch):
@@ -309,6 +372,11 @@ def _broken_index(space: Space) -> None:
     (space.project / ".git" / "index").write_bytes(b"DIRC" + struct.pack(">II", 2, 0) + b"x" * 30)
 
 
+def _empty_index(space: Space) -> None:
+    (space.project / ".git").mkdir()
+    (space.project / ".git" / "index").write_bytes(_index_bytes({}))
+
+
 def _split_index(space: Space) -> None:
     (space.project / ".git").mkdir()
     data = _index_bytes({b"README.md": REGULAR})[:-20] + b"link" + struct.pack(">I", 0)
@@ -324,6 +392,7 @@ def _split_index(space: Space) -> None:
         (_git_is_a_file, "git_not_folder"),
         (_git_is_a_link, "git_is_link"),
         (_no_index, "no_index"),
+        (_empty_index, "no_index"),
         (_index_is_a_folder, "index_invalid"),
         (_broken_index, "index_invalid"),
         (_split_index, "index_unsupported"),
@@ -373,6 +442,10 @@ SKIPPED_BY_NAME = {
         b".git/config", b"sub/.GIT/hooks/post-checkout", b"sub/git~1/config",
         ".git‌/config".encode(), b"sub/.git. /config", b"nested/.git",
     ],
+    "vcs_metadata": [
+        b"HEAD", b"bare/HEAD", b"sub/head ", b".hg/hgrc", b"sub/.SVN/entries",
+        b"a/.bzr/branch.conf", b"_darcs/prefs/defaults", b".jj/repo/config.toml",
+    ],
     "bad_name": [
         b"bad:name.txt", b"CON.txt", b"aux", b"com1.log", "COM¹.txt".encode(), b"CONIN$",
         b"lpt9", b"trail.", b"trail ", b"a\\b.txt", b"ctrl\x01.txt", b"a\nb.txt",
@@ -380,11 +453,13 @@ SKIPPED_BY_NAME = {
     "bidi": ["evil‮txt.exe".encode(), "x⁦y.txt".encode()],
     "shortcut": [
         b"desktop.ini", b"sub/Desktop.INI", b"x.lnk", b"y.URL", b"z.scf", b"q.library-ms",
-        b"w.searchconnector-ms", b"t.theme", b"s.website",
+        b"w.searchconnector-ms", b"t.theme", b"s.website", b"x.themepack", b"y.deskthemepack",
+        b"kde/.directory",
     ],
     "env_file": [b".env", b"config/.env.local", b"sub/.ENV"],
     "not_utf8": [b"bad\xff.txt"],
-    "too_long": [b"d/" + b"x" * 250],
+    # 超過字數、超過層數、位元組多到不用解碼就知道太長（解碼的話是 not_utf8）
+    "too_long": [b"d/" + b"x" * 250, b"/".join([b"d"] * 33), b"\xff" * 801],
 }
 
 
@@ -410,6 +485,56 @@ async def test_the_report_escapes_names_that_could_trick_a_reader(space):
     assert report["bad_name"] == ["a\\u000ab.txt"]
     text = "\n".join(line for lines in report.values() for line in lines)
     assert "‮" not in text and "\n" not in "".join(report["bad_name"])
+
+
+GIT = shutil.which("git")
+
+
+def _git_dir(folder: Path) -> Path | None:
+    """git 從 ``folder`` 找到的 repository（找不到回 None）；允許 bare repository."""
+    assert GIT is not None
+    found = execution_broker.run_sync(
+        [GIT, "-C", str(folder), "-c", "safe.bareRepository=all", "rev-parse",
+         "--absolute-git-dir"],
+        capture_output=True, text=True, check=False,
+    )
+    return Path(found.stdout.strip()).resolve() if found.returncode == 0 else None
+
+
+async def test_a_tracked_bare_repository_is_not_one_after_unzipping(space, tmp_path):
+    """追蹤一組 bare repository 的檔案：不放 HEAD，解壓後 git 不會把那個資料夾當 repository."""
+    if GIT is None:
+        pytest.skip("git is not installed here")
+    space.track({
+        "README.md": b"hello",
+        "bare/HEAD": b"ref: refs/heads/main\n",
+        "bare/config": b"[core]\n\tbare = true\n",
+        "bare/objects/info/keep": b"",
+        "bare/refs/heads/keep": b"",
+    })
+    assert _git_dir(space.project / "bare") == (space.project / "bare").resolve()  # 對照
+    contents = await _download()
+    assert _report(contents)["vcs_metadata"] == ["bare/HEAD"]
+    out = tmp_path / "unzipped"
+    for name, data in contents.items():
+        (out / name).parent.mkdir(parents=True, exist_ok=True)
+        (out / name).write_bytes(data)
+    assert (out / FOLDER / "bare" / "config").exists()
+    assert _git_dir(out / FOLDER / "bare") != (out / FOLDER / "bare").resolve()
+
+
+async def test_the_report_lists_the_first_names_and_counts_the_rest(space, monkeypatch):
+    monkeypatch.setattr(project_download, "MAX_REPORT_LINES", 2)
+    space.track({"README.md": b"hello"}, {f"bad{i}:.txt".encode(): REGULAR for i in range(5)})
+    contents = await _download()
+    assert _report(contents)["bad_name"] == ["bad0:.txt", "bad1:.txt"]
+    assert "... and 3 more / 另外還有 3 個" in contents[REPORT_NAME].decode("utf-8")
+
+
+async def test_long_names_are_shortened_in_the_report(space):
+    long = "d/" + "x" * 600
+    space.track({"README.md": b"hello"}, {long.encode(): REGULAR})
+    assert _report(await _download())["too_long"] == [long[:300] + "..."]
 
 
 async def test_case_duplicates_keep_the_first_one(space):
@@ -489,6 +614,20 @@ async def test_an_unreadable_tracked_file_is_reported(space):
     assert _report(contents)["unreadable"] == ["locked.txt"]
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0, reason="needs POSIX permissions and not root"
+)
+async def test_a_file_whose_folder_cannot_be_searched_is_unreadable_not_missing(space):
+    """資料夾讀得到名稱但不能進去（沒有 x）：裡面的檔案是讀不到，不是不見了."""
+    space.track({"README.md": b"hello", "locked/a.txt": b"x"})
+    (space.project / "locked").chmod(0o444)
+    try:
+        contents = await _download()
+    finally:
+        (space.project / "locked").chmod(0o755)
+    assert _report(contents)["unreadable"] == ["locked/a.txt"]
+
+
 async def test_no_report_when_nothing_was_skipped(space):
     space.track({"README.md": b"hello"})
     assert REPORT_NAME not in await _download()
@@ -513,6 +652,14 @@ async def test_old_and_far_future_times_still_zip(space):
 async def test_too_many_files_is_refused_before_packing(space, monkeypatch):
     space.track({"a.txt": b"a", "b.txt": b"b"})
     monkeypatch.setattr(project_download, "MAX_DOWNLOAD_FILES", 1)
+    refused = await _refused()
+    assert refused.status_code == 413 and refused.detail["reason"] == "too_many_files"
+    assert _temp_zips(space) == []
+
+
+async def test_too_many_folders_is_refused_before_packing(space, monkeypatch):
+    space.track({"a/x.txt": b"a", "b/y.txt": b"b"})
+    monkeypatch.setattr(project_download, "MAX_DOWNLOAD_DIRS", 1)
     refused = await _refused()
     assert refused.status_code == 413 and refused.detail["reason"] == "too_many_files"
     assert _temp_zips(space) == []
@@ -554,6 +701,46 @@ async def test_a_walk_that_takes_too_long_is_refused(space, monkeypatch):
     monkeypatch.setattr(project_download, "MAX_WALK_SECONDS", 1)
     refused = await _refused()
     assert refused.status_code == 413 and refused.detail["reason"] == "walk_too_large"
+
+
+async def test_checking_the_list_counts_toward_the_time_limit(space, monkeypatch):
+    """計時從讀名單開始：名單上的檔案都不在磁碟上（走訪沒有東西可算）也會超時."""
+    space.track({}, {b"gone1.txt": REGULAR, b"gone2.txt": REGULAR})
+    clock = iter(range(0, 10**9, 10**8))
+    monkeypatch.setattr(project_download, "get_monotonic_ms", lambda: next(clock))
+    monkeypatch.setattr(project_download, "MAX_WALK_SECONDS", 1)
+    refused = await _refused()
+    assert refused.status_code == 413 and refused.detail["reason"] == "walk_too_large"
+
+
+async def test_a_zip_that_cannot_be_removed_does_not_hide_the_refusal(space, monkeypatch):
+    """做一半的 zip 刪不掉（例如被別的程式開著）：照樣回原本的拒絕，只記 log."""
+    space.track({"a.txt": b"a" * 8, "b.txt": b"b" * 8})
+    monkeypatch.setattr(project_download, "MAX_DOWNLOAD_BYTES", 10)
+    locked = Mock(side_effect=PermissionError("in use"))
+    monkeypatch.setattr(resource_manager, "remove_file", locked)
+    refused = await _refused()
+    assert refused.status_code == 413 and refused.detail["reason"] == "too_large"
+    assert locked.called
+
+
+# --- 畫面說得出原因 -------------------------------------------------------------------------
+
+_LOCALES = Path(__file__).resolve().parents[2] / "ToukaChat" / "src" / "locales"
+
+
+@pytest.mark.parametrize("language", ["zh-TW", "en"])
+def test_every_refusal_reason_has_wording_on_the_projects_page(language):
+    """下載被拒的每個原因在專案頁都有說明（沒有就只剩一般的「下載失敗」）."""
+    reasons = {
+        project_download.NOT_DEDICATED_SPACE, project_download.TOO_MANY_FILES,
+        project_download.TOO_LARGE, project_download.WALK_TOO_LARGE,
+        git_index.NO_GIT, git_index.GIT_NOT_FOLDER, git_index.GIT_IS_LINK, git_index.NO_INDEX,
+        git_index.INDEX_UNSUPPORTED, git_index.INDEX_INVALID, git_index.INDEX_TOO_LARGE,
+        PROTECTED_LOCATION, SCAN_LIMIT, ui_sessions._OUTSIDE_WORKSPACE,
+    }
+    catalog = json.loads((_LOCALES / language / "translation.json").read_text(encoding="utf-8"))
+    assert reasons <= set(catalog["projects"]["projects_view"]["download_reasons"])
 
 
 # --- 同時只做一個、斷線時清掉 --------------------------------------------------------------

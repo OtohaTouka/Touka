@@ -15,6 +15,9 @@ export type { Project };
 /** 存專案的結果：成功，或被拒絕（帶伺服器給的錯誤碼與原因；斷線時兩個都沒有）。 */
 export type ProjectSaveResult = { ok: true } | ({ ok: false } & ProjectSaveFailure);
 
+/** 下載的 zip 交給瀏覽器後，blob 網址留多久才放掉。 */
+const DOWNLOAD_URL_LIFETIME_MS = 40_000;
+
 /** 下載專案的結果：成功（已交給瀏覽器存檔），或被拒絕（帶錯誤碼與原因；斷線時兩個都沒有）。 */
 export type ProjectDownloadResult = { ok: true } | ({ ok: false } & ProjectDownloadFailure);
 
@@ -143,7 +146,8 @@ export function useProjects() {
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            URL.revokeObjectURL(url);
+            // 有些瀏覽器在點下去之後才開始讀 blob：等一下再放掉（和 FileSaver.js 相同的 40 秒）
+            setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_URL_LIFETIME_MS);
             return { ok: true };
         } catch (error) {
             logSSOTError(error, "useProjects:downloadProject");

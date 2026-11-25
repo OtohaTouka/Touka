@@ -19,6 +19,8 @@ const VALIDATION_REASONS: ReadonlySet<string> = new Set([
   "index_unsupported",
   "index_invalid",
   "protected_location",
+  "outside_workspace",
+  "scan_limit",
 ]);
 const TOO_LARGE_REASONS: ReadonlySet<string> = new Set([
   "index_too_large",
@@ -37,8 +39,9 @@ export function projectDownloadFailureText(t: TFunction, failure: ProjectDownloa
   if (code === "REQUEST_TOO_LARGE" && reason && TOO_LARGE_REASONS.has(reason)) {
     return t(`projects.projects_view.download_reasons.${reason}`);
   }
-  if (code === "PROJECT_DOWNLOAD_BUSY") return errorMsg(code);
+  if (code === "PROJECT_DOWNLOAD_BUSY" || code === "PROJECT_FOLDER_TAKEN") return errorMsg(code);
   if (code === "PROJECT_FOLDER_MISSING") return t("projects.projects_view.download_folder_missing");
+  if (code === "AUTH_PERMISSION_DENIED") return t("projects.projects_view.download_not_allowed");
   return t("projects.projects_view.download_failed");
 }
 

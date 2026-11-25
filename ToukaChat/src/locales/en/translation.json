@@ -2340,7 +2340,9 @@
       "download_aria": "Download project {{name}}",
       "download_confirm_message": "The zip holds only files tracked by git, and they are code written by agents. When you open it in VS Code, choose \"Don't Trust\" (Restricted Mode) and look through it before trusting it; don't run anything in it straight away.",
       "download_confirm_button": "Download",
+      "download_in_progress": "Packing…",
       "download_failed": "Failed to download the project. Try again in a little while.",
+      "download_not_allowed": "Only the project's owner can download it (an old project without an owner is for admins only).",
       "download_folder_missing": "This project's folder isn't in the project space.",
       "download_reasons": {
         "not_dedicated_space": "Only projects in the dedicated project space (touka-projects) can be downloaded from the web page.",
@@ -2348,13 +2350,15 @@
         "git_not_folder": "This project's .git is a file, not a folder (for example a git worktree), so Touka can't read its file list.",
         "git_is_link": "This project's .git is a shortcut (link). Touka doesn't follow links, so it can't download this project.",
         "no_index": "Git doesn't track any files yet. Run git add first.",
-        "index_unsupported": "This git uses a format Touka can't read (split index, sparse index, or SHA-256). Turn those off and try again.",
+        "index_unsupported": "This git's file list uses a format Touka can't read. If split index or sparse index is on, turn it off and try again (git config core.splitIndex false, git sparse-checkout disable); SHA-256 repositories can't be downloaded from the web page yet.",
         "index_invalid": "Git's file list (.git/index) can't be read or is damaged.",
-        "protected_location": "This project holds something Touka protects, so it can't be downloaded.",
+        "protected_location": "This project's location, or something in it, is protected by Touka, so it can't be downloaded.",
         "index_too_large": "Git's file list is too large for a download.",
-        "too_many_files": "There are too many files to download.",
+        "too_many_files": "There are too many files or folders to download.",
         "too_large": "The files are too large to download.",
-        "walk_too_large": "The project folder has too many entries, or reading it took too long."
+        "walk_too_large": "The project folder has too many entries, or reading it took too long.",
+        "outside_workspace": "This project isn't in the workspace, so it can't be downloaded.",
+        "scan_limit": "Touka couldn't finish checking this project's folder: it may be too large, or a folder in it has had its permissions changed and can't be read. If it's too large, make the project smaller; for permissions, see the \"Project space\" section of README_QUICKSTART."
       }
     },
     "project_sidebar_view": {

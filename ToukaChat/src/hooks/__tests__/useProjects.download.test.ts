@@ -51,13 +51,19 @@ describe('useProjects.downloadProject', () => {
     });
   });
 
-  afterEach(() => clickSpy.mockRestore());
+  afterEach(() => {
+    clickSpy.mockRestore();
+    vi.useRealTimers();
+  });
 
-  it('成功 → 用 fetchTouka 拿 zip，存成安全的檔名，用完收回網址', async () => {
+  it('成功 → 用 fetchTouka 拿 zip，存成安全的檔名，過一會兒收回網址', async () => {
+    vi.useFakeTimers();
     vi.mocked(fetchTouka).mockResolvedValueOnce(reply(200, new Blob(['PK'])));
     expect(await download()).toEqual({ ok: true });
     expect(vi.mocked(fetchTouka).mock.calls[0][1]).toBe('/v1/ui/projects/proj%201/download');
     expect(clicked).toEqual(['blob:zip|my_repo-2026-11-25.zip']);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled(); // 瀏覽器可能還在讀
+    vi.advanceTimersByTime(40_000);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:zip');
   });
 

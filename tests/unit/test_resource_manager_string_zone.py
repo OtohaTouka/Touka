@@ -16,6 +16,7 @@ import zipfile
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from memory_server.utils.no_follow import WalkReport
 from memory_server.utils.zone_paths import ZonePathRequiredError
 from src.services import resource_manager as rm_module
 from src.services.resource_manager import resource_manager as rm
@@ -199,6 +200,27 @@ def test_a_drive_met_during_the_walk_refuses_the_whole_delete_and_archive(
         rm.create_archive(project, out)
     assert not out.exists()
     assert (project / "src" / "a.txt").exists()
+    assert _drives_untouched(data)
+
+
+def _download_walk(root: Path) -> list:
+    walk = rm.project_walk(root, WalkReport(), want=lambda _e: True, skip_dir=lambda _p: False)
+    return list(walk)
+
+
+def test_reading_the_git_list_or_walking_a_folder_that_holds_a_drive_is_refused(project, data):
+    """下載專案（ADR-0332 PR B）：讀 git 名單與走訪都拒絕包含區的根."""
+    with raises_zone(ZonePathRequiredError):
+        rm.read_git_index(project, 1024)
+    with raises_zone(ZonePathRequiredError):
+        _download_walk(project)
+    assert _drives_untouched(data)
+
+
+def test_a_drive_met_during_the_download_walk_refuses_it(project, data, monkeypatch):
+    monkeypatch.setattr(rm_module, "contains_zone", lambda *_args, **_kwargs: False)
+    with raises_zone(ZonePathRequiredError):
+        _download_walk(project)
     assert _drives_untouched(data)
 
 

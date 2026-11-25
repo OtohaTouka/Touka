@@ -21,7 +21,9 @@ export function ProjectsView() {
     const { projects, isLoading, fetchProjects, saveProject, deleteProject, downloadProject } = useProjects();
     const { confirmToast } = useConfirmToast();
     const [isAdding, setIsAdding] = useState(false);
-    
+    // 正在打包下載的專案（伺服器同時只做一個，打包時按鈕停用）
+    const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
     // Form state
     const [form, setForm] = useState({
         name: '',
@@ -70,8 +72,13 @@ export function ProjectsView() {
         confirmToast(
             t('projects.projects_view.download_confirm_message'),
             async () => {
-                const result = await downloadProject(project);
-                if (!result.ok) toast.error(projectDownloadFailureText(t, result));
+                setDownloadingId(project.id);
+                try {
+                    const result = await downloadProject(project);
+                    if (!result.ok) toast.error(projectDownloadFailureText(t, result));
+                } finally {
+                    setDownloadingId(null);
+                }
             },
             t('projects.projects_view.download_confirm_button'),
         );
@@ -210,9 +217,13 @@ export function ProjectsView() {
                                         variant="outline"
                                         aria-label={t('projects.projects_view.download_aria', { name: project.name })}
                                         className="rounded-xl font-bold text-xs gap-2 py-5"
+                                        disabled={downloadingId !== null}
                                         onClick={() => handleDownload(project)}
                                     >
-                                        <Download size={14} /> {t('projects.projects_view.download_button')}
+                                        <Download size={14} />{' '}
+                                        {downloadingId === project.id
+                                            ? t('projects.projects_view.download_in_progress')
+                                            : t('projects.projects_view.download_button')}
                                     </Button>
                                 </div>
                             </div>

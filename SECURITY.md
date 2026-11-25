@@ -1109,13 +1109,14 @@ openai SDK 3.24 為 Responses API 新加入（3b）；建構前就照 Claude 的
 | `routers/ui_sessions.py`（`GET /ui/projects/{id}/files`） | 用「解析後還在根裡」決定要不要略過，之後 `is_dir`／`iterdir`／`stat` 都跟隨連結：判斷完被換成連結，就會列出根外面的檔名與大小 | 改經 `ResourceManager.tree_entries`（同上不跟隨、剪掉代理人資料夾，大小是 lstat 的），連結一律不列；另套專用空間的結構層：根是錨點本身、第二層以下，或路上有連結（含一般專案的根之後被換成連到專用空間的連結）一律 403。根被換成連到專用空間以外的一般資料夾時照舊會列出（ADR-0292：根目錄檢查只看解析後在不在工作區），根本身仍先解析再走訪，檢查與走訪之間根被換成別處的窗口照舊（既有）；`test_project_files_no_follow_security.py` |
 | `routers/ui_sessions.py`（`POST /ui/projects/save`） | 權限只在寫入前查一次：同時有人用同一個新編號存檔時，後到的會改到先建好的別人專案（`ON CONFLICT DO UPDATE`；原本窗口很短，專用空間的清 HOME 讓它最長 60 秒） | 拿到登記鎖之後再查一次權限；`test_project_space_binding_security.py` |
 
-### 打包遇到 zip 存不下的檔案時間（2026-11-25，ADR-0332 PR B）
+### 打包遇到 zip 存不下的檔案時間、帶進特殊權限（2026-11-25，ADR-0332 PR B）
 
 從網頁下載專案的防護（只給主人、只放 git 名單上的檔案、不跟隨連結、略過的寫進報告、上限）見 ADR-0332 決定 9 與 `test_project_download_security.py`、`test_git_index_security.py`。
 
 | 位置 | 原有缺口 | 修復摘要 |
 |------|----------|----------|
 | ToukaMemory `utils/no_follow.zip_open_file`（GDPR 匯出的個人空間檔案、技能打包） | 代理人把自己寫得到的檔案時間改成 1980 年以前或 2107 年以後，zip 存不下，整個匯出或打包失敗（使用者拿不到自己的資料） | 時間夾到 zip 能存的範圍（1980-01-01～2107-12-31）；`test_no_follow_zone.py`、`test_resource_manager_archive.py`、`test_project_download_security.py` |
+| ToukaMemory `utils/no_follow.zip_open_file`（同上） | 檔案的 setuid、setgid、sticky 位元照原樣寫進 zip：在 Linux 用會還原權限的工具解壓時，拿到帶特殊權限的檔案 | 只留一般檔案與讀寫執行的權限；`test_no_follow_zone.py` |
 
 ## Out of Scope
 

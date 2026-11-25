@@ -1,6 +1,6 @@
 # ADR-0332：專用空間的專案在執行器裡跑
 
-- 狀態：✅ 已實作（融合段 2 PR B：從網頁下載專案〔決定 9〕；PR A：專用空間、執行器 kind `project`、登記規則、部署、兩個列檔不跟隨連結的小洞、專案頁的原因說明）。一頁計畫由維護者核准（2026-11-25，總覽板第 58 項全部照建議）；產品程式超過計畫的停止線，維護者 2026-11-25 決定照計畫做完（總覽板第 108 項）。
+- 狀態：✅ 已實作（融合段 2 PR B：從網頁下載專案〔決定 9〕；PR A：專用空間、執行器 kind `project`、登記規則、部署、兩個列檔不跟隨連結的小洞、專案頁的原因說明）。一頁計畫由維護者核准（2026-11-25，總覽板第 58 項全部照建議）；產品程式超過計畫的停止線，維護者 2026-11-25 決定照計畫做完（PR A 總覽板第 108 項、PR B 第 109 項）。
 - 日期：2026-11-25
 - 決策者：維護者
 - 相關：[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md)（執行器；本 ADR 修訂它「綁了專案一律不在執行器範圍」：只剩專用空間以外的專案）、[ADR-0292](0292-hooks.md)（決定 12：檔案動詞不跟隨連結）、[ADR-0293](0293-agent-folders-no-follow.md)（區與 ResourceManager 的區內方法）、[ADR-0326](0326-deleted-soul-leftovers-not-inherited.md)／[ADR-0328](0328-retired-archives-for-reused-soul-names.md)（同名不繼承）、[ADR-0331](0331-complexity-ratchet.md)（複雜度棘輪）
@@ -71,14 +71,14 @@ ADR-0272 之後，綁了專案的對話一律不在執行器裡跑：每條代�
 
 ### 9. 從網頁下載專案（PR B）
 
-- `GET /ui/projects/{id}/download`（含 `/v1`）：只給專案的主人（人類本人）；沒有主人的舊專案只給人類管理員。比讀取窄：非主人的管理員、管理員代打、靈魂、診斷身分都 403。只有專用空間裡的專案：一般專案 422 `not_dedicated_space`，結構層 `refused` 照它的原因 422；之後套和檔案清單頁相同的根目錄檢查（403），資料夾不在是 `PROJECT_FOLDER_MISSING`。
-- 放哪些檔案只看 `.git/index`：`utils/git_index.py` 純 Python 讀（不跑 git，proxy 與執行器都不跑；index 是代理人寫得到的，跑 git 會讓它的設定跑程式）。支援 v2～v4（含延伸旗標、v4 前綴壓縮）；連結、子模組分開；split index（`link`）、sparse index（`sdir`、資料夾項目）、不認得的小寫擴充段、SHA-256 是 `index_unsupported`；壞掉是 `index_invalid`；沒有 `.git` 是 `no_git`，`.git` 是連結是 `git_is_link`、是檔案（worktree 的指標）是 `git_not_folder`，沒有 index 是 `no_index`。
+- `GET /ui/projects/{id}/download`（含 `/v1`）：只給專案的主人（人類本人）；沒有主人的舊專案只給人類管理員。比讀取窄：非主人的管理員、管理員代打、靈魂、診斷身分都 403。只有專用空間裡的專案：一般專案 422 `not_dedicated_space`，結構層 `refused` 照它的原因 422；之後套和登記相同的根目錄檢查（422 帶原因：`outside_workspace`、`protected_location`、`scan_limit`），資料夾不在是 `PROJECT_FOLDER_MISSING`，登記裡還有別的專案綁著同一個資料夾（舊資料）是 `PROJECT_FOLDER_TAKEN`（`project_binding.owns_folder`）。git 還沒追蹤任何檔案是 `no_index`，不給空 zip。
+- 放哪些檔案只看 `.git/index`：`utils/git_index.py` 純 Python 讀（不跑 git，proxy 與執行器都不跑；index 是代理人寫得到的，跑 git 會讓它的設定跑程式）。支援 v2～v4（含延伸旗標、v4 前綴壓縮）；連結、子模組分開；split index（`link`）、sparse index（`sdir`、資料夾項目）、不認得的小寫擴充段、SHA-256（加了 `index.skipHash` 的只能從讀不懂看出來，也算）是 `index_unsupported`；壞掉是 `index_invalid`；沒有 `.git` 是 `no_git`，`.git` 是連結是 `git_is_link`、是檔案（worktree 的指標）是 `git_not_folder`，沒有 index 是 `no_index`。
 - 檔案經 `ResourceManager.project_walk` 從專案根不跟隨連結地走訪（根不解析，根或上層是連結就拒絕；途中遇到代理人資料夾整個拒絕）；名單以外的資料夾不進去、名單以外的檔案不開。名單由 `ResourceManager.read_git_index` 不跟隨連結地讀。
-- 略過並寫進 zip 根的 `TOUKA_DOWNLOAD_REPORT.txt`（兩語，名稱的控制、格式字元與解不開的位元組寫成跳脫碼，每個原因最多列 1,000 條）：`.git`（含 NTFS 短名稱、HFS 忽略字元、結尾的點與空白）、Windows 不能用的名稱（保留字元、控制字元、結尾點或空白、`CON`／`COM¹`／`CONIN$` 等保留名稱）、雙向控制字元、檔案總管會自動處理的捷徑類檔案（`desktop.ini`、`.lnk`、`.url`、`.scf`、`.library-ms`、`.searchconnector-ms`、`.theme`、`.website`）、`.env`（共用 `hard_floor.is_env_file_name`，不分大小寫；`.env.example` 等照放）、不是 UTF-8、路徑超過 200 字、只差大小寫的重複（留第一個）、名單上的連結與子模組、磁碟上的連結（含在連結底下）、硬連結（可能是別處的檔案）、不是一般檔案、不見了、讀不到。
-- zip 裡檔案在 `<專案資料夾>/` 底下；時間超出 zip 能存的範圍夾到 1980-01-01 或 2107-12-31（`zip_open_file` 共用，打包技能與 GDPR 匯出的個人空間檔案也受益）。
-- 上限（`services/project_download.py` 的模組常數）：名單 64 MiB、200,000 項（v4 展開後的名稱總長另有上限）；檔案 50,000 個、累計 512 MiB（依開檔時的 fstat）；走訪 1,000,000 項、走訪加打包 300 秒；超過是 413（`index_too_large`、`too_many_files`、`too_large`、`walk_too_large`）。同時只做一個下載（全系統），忙時 429 `PROJECT_DOWNLOAD_BUSY`（1228）。
-- zip 做在系統暫存資料夾；被拒時刪掉做一半的；請求取消時打包照樣做完（在執行緒裡），做完就刪；送出後一律刪掉（`utils/temp_file_response.TempFileResponse`：Starlette 的 `background` 在送到一半斷線或 Range 不合格時不跑）。回應 `Cache-Control: no-store`、`X-Content-Type-Options: nosniff`；稽核紀錄寫誰、哪個專案、幾個檔案、略過幾個、多大。
-- 前端：專案卡片一直看得到的下載按鈕；先跳提醒（zip 裡是代理人寫的程式，VS Code 選「不信任」），確認後 `useProjects.downloadProject` 經 `fetchTouka` 帶登入拿 zip、交給瀏覽器存檔（不做帶 token 的連結）；檔名是專案名稱（不安全的字元換掉、截短）加日期。被拒時 `lib/project_download.ts` 依原因說明（兩語）。
+- 略過並寫進 zip 根的 `TOUKA_DOWNLOAD_REPORT.txt`（兩語，名稱的控制、格式字元與解不開的位元組寫成跳脫碼、超過 300 字截短，每個原因只列前 1,000 條、其餘只計數）；名稱的判斷是 `utils/archive_names.py`的純函式（禁令 18）：`.git`（含 NTFS 短名稱、HFS 忽略字元、結尾的點與空白）、解壓後會讓資料夾變成 repository 的（名為 `HEAD` 的檔案：git 認 repository 一定要有它，代理人可以追蹤一組 bare repository 的檔案，你在解壓的資料夾跑 git 或命令列提示字元自動跑 git 時就會讀它的 config；以及 `.hg`、`.svn`、`.bzr`、`_darcs`、`.jj` 資料夾）、Windows 不能用的名稱（保留字元、控制字元、結尾點或空白、`CON`／`COM¹`／`CONIN$` 等保留名稱）、雙向控制字元、檔案總管會自動處理的捷徑類檔案（`desktop.ini`、`.lnk`、`.url`、`.scf`、`.library-ms`、`.searchconnector-ms`、`.theme`、`.themepack`、`.deskthemepack`、`.website`，以及 KDE 的 `.directory`）、`.env`（共用 `hard_floor.is_env_file_name`，不分大小寫；`.env.example` 等照放）、不是 UTF-8、路徑超過 200 字或 32 層（位元組超過 800 的不解碼就算太長）、只差大小寫的重複（留第一個）、名單上的連結與子模組、磁碟上的連結（含在連結底下）、硬連結（可能是別處的檔案）、不是一般檔案、不見了、讀不到。
+- zip 裡檔案在 `<專案資料夾>/` 底下；時間超出 zip 能存的範圍夾到 1980-01-01 或 2107-12-31；權限只留讀寫執行（setuid、setgid、sticky 不帶進 zip）。兩者在共用的 `zip_open_file`，打包技能與 GDPR 匯出的個人空間檔案也一樣。
+- 上限（`services/project_download.py` 的模組常數）：名單 64 MiB、200,000 項（v4 展開後的名稱總長另有 32 MiB 的上限）；檔案 50,000 個、所在的資料夾 50,000 個、累計 512 MiB（依開檔時的 fstat）；走訪 1,000,000 項；從讀名單起，檢查名單、走訪加打包 300 秒。名單上每個名稱的檢查與比對只和它的長度成正比（路徑最長 200 字、32 層），惡意的名單撐不大記憶體與時間；超過是 413（`index_too_large`、`too_many_files`、`too_large`、`walk_too_large`）。同時只做一個下載（全系統），忙時 429 `PROJECT_DOWNLOAD_BUSY`（1228）。
+- zip 做在系統暫存資料夾；被拒時刪掉做一半的；請求取消時打包照樣做完（在執行緒裡），做完就刪；送出後一律刪掉（`utils/temp_file_response.TempFileResponse`：Starlette 的 `background` 在送到一半斷線或 Range 不合格時不跑）。回應 `Cache-Control: no-store`、`X-Content-Type-Options: nosniff`；稽核紀錄寫誰、哪個專案（`%r`，專案編號來自網址）、幾個檔案、略過幾個、多大；沒有權限與打包被拒也記。打包途中讀檔失敗記下是哪個檔案，回 500（多半是暫時的，畫面說稍後再試），不留下截斷的檔案。
+- 前端：專案卡片一直看得到的下載按鈕；先跳提醒（zip 裡是代理人寫的程式，VS Code 選「不信任」），確認後 `useProjects.downloadProject` 經 `fetchTouka` 帶登入拿 zip、交給瀏覽器存檔（不做帶 token 的連結）；檔名是專案名稱（不安全的字元換掉、截短）加日期；打包時按鈕停用並顯示「打包中」，blob 網址 40 秒後才放掉（有些瀏覽器點下去之後才開始讀）。被拒時 `lib/project_download.ts` 依原因說明（兩語；沒有權限說只有主人能下載，不說稍後再試）。
 
 ## 後果
 
@@ -111,14 +111,19 @@ ADR-0272 之後，綁了專案的對話一律不在執行器裡跑：每條代�
   - 走訪一個資料夾時先把它的名稱全部列進記憶體，項目上限在列完之後才算（和其他走訪相同）；時間上限在項目之間檢查，單一大檔的壓縮不中斷。
   - 只差大小寫的判斷用 Unicode casefold，不是 NTFS 的對照表，極少數字元會判得不同。
   - zip 裡是代理人寫的內容（例如 `.vscode/tasks.json` 的開資料夾就執行）：只靠下載前的提醒與 VS Code 的受限模式。
-  - 下載的回應不支援續傳（送一次就刪）。
+  - 下載的回應不支援續傳（送一次就刪）；瀏覽器把整個 zip 讀進記憶體再存檔（最大約 512 MiB）。
+  - 設了連線逾時（`requestTimeoutMs`）時，打包比逾時久的下載會被前端中斷（伺服器打包完才回應）；預設不逾時。
+  - 做好的 zip 要等送完才刪：同時只「做」一個，但送得很慢的下載會讓好幾個 zip 同時在暫存資料夾；proxy 當掉時留下的 `touka_project_*.zip` 不會自動清（審查的小問題，列為後續）。
+  - 走訪的項目上限不算被剪掉、沒進去的資料夾；一個資料夾的名稱全部列進記憶體才判斷（和其他走訪相同；審查的小問題，列為後續）。
+  - 名為 `HEAD` 的檔案一律不放（正常的專案很少有；被略過的會寫在報告裡）。
   - 既有的備份下載與 GDPR 匯出仍用 `BackgroundTask` 刪暫存檔，斷線時會留下（既有；不在本 PR 範圍）。
 - PR B 和計畫附錄不同、照實寫在這裡的地方：
   - 多一個原因 `git_not_folder`（`.git` 是檔案，例如 worktree）；附錄只有 `git_is_link`。
-  - sparse index 的資料夾項目算 `index_unsupported`；split index 的項目名稱是空的，所以先看擴充段再判空名稱。另加單一名稱 4,096 位元組與 v4 展開後總長 64 MiB 的上限（審查前自己找到的：小檔案展開成巨量）。
+  - sparse index 的資料夾項目算 `index_unsupported`；split index 的項目名稱是空的，所以先看擴充段再判空名稱。另加單一名稱 4,096 位元組與 v4 展開後總長的上限（審查前自己找到的：小檔案展開成巨量；安全審查後從 64 MiB 降到 32 MiB）。
   - 送完刪暫存檔改用 `TempFileResponse`，不是附錄寫的 `BackgroundTask`（理由見上）。
   - 走訪的時間上限包含打包（兩者交錯進行）。
-  - 下載時另套和檔案清單頁相同的根目錄檢查（非管理員 403）；資料夾不在沿用 `PROJECT_FOLDER_MISSING`，前端另有下載用的說明。
+  - 下載時另套和登記相同的根目錄檢查（422 帶原因）；資料夾不在沿用 `PROJECT_FOLDER_MISSING`，前端另有下載用的說明。
+  - 審查後加的（維護者 2026-11-25 選甲）：解壓後會變成 repository 的檔案、名單的上限與報告的截斷、資料夾數上限、別的專案也綁著時拒絕、zip 裡不帶特殊權限、空的名單、`.themepack` 等捷徑類檔案、下載中的按鈕狀態。
 
 ## 不採用
 
@@ -133,4 +138,4 @@ ADR-0272 之後，綁了專案的對話一律不在執行器裡跑：每條代�
 - 前端：`project_save_wording.test.ts`、`useProjects.save.test.ts`、`ProjectsView.saveFailure.test.tsx`。
 - Linux 真核心（`test_isolation_linux.py`）：專案裡讀寫、執行都可以；旁邊的專案（直接或經連結）、個人空間、錨點本身都碰不到；HOME 依專案分開；沒給 `--project-root` 時 kind `project` 被拒、其他照常。
 - 容器（`tests/docker/executor_check.py`、`isolation.compose.yml`）：READY 的專案根、有人／沒人在場的層級、volume 的根是 1001 的、uid／HOME／cwd、碰不到旁邊與個人空間、HOME 分開、執行器容器裡沒有 `.env` 與工作區其他內容。
-- PR B：`test_git_index_security.py`（手工組的 index 與真的 git 產生的 v2～v4、split index）、`test_project_download_security.py`（權限、範圍、名單問題、每一種略過與報告、上限、同時一個、取消與斷線時刪 zip）、`test_no_follow_zone.py` 與 `test_resource_manager_archive.py` 的時間夾邊界；前端 `project_download.test.ts`、`useProjects.download.test.ts`、`ProjectsView.download.test.tsx`。
+- PR B：`test_git_index_security.py`（手工組的 index 與真的 git 產生的 v2～v4、split index、SHA-256 加 skipHash）、`test_archive_names.py`（名稱的判斷、比對鍵、顯示）、`test_project_download_security.py`（權限、範圍、根目錄檢查的原因、名單問題、每一種略過與報告、解壓後用真的 git 確認不是 repository、上限、碰到代理人資料夾、同時一個、取消與斷線時刪 zip、每個原因兩語都有說明）、`test_resource_manager_string_zone.py`（讀名單與走訪的 R4）、`test_no_follow_zone.py`（時間夾邊界、不帶特殊權限、只開名單上的檔案）與 `test_resource_manager_archive.py` 的時間夾邊界；前端 `project_download.test.ts`、`useProjects.download.test.ts`、`ProjectsView.download.test.tsx`。

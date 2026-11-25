@@ -8,7 +8,8 @@
   stage 是子模組或連結就算那一種（偏嚴）。資料夾項目（040000）只有 sparse index 有。
 - 擴充段：大寫開頭的可略過；小寫開頭的（``link`` 是 split index、``sdir`` 是 sparse index，
   其他不認得的也一樣）git 自己也要懂才讀，這裡不懂就拒絕。
-- 檢查碼：SHA-1；全零是 ``index.skipHash``，接受；SHA-256 的 repository 拒絕。
+- 檢查碼：SHA-1；全零是 ``index.skipHash``，接受；SHA-256 的 repository 拒絕（加了 skipHash 的
+  只能從讀不懂看出來，也算讀不懂）。
 
 讀不懂的是 ``index_unsupported``，壞掉的是 ``index_invalid``，太大的是 ``index_too_large``。
 """
@@ -31,7 +32,7 @@ NO_INDEX = "no_index"
 
 # 一個名稱最長多少位元組（Linux 的 PATH_MAX）；v4 展開後的名稱總長上限（防小檔案展開成巨量）
 MAX_NAME_BYTES = 4096
-MAX_TOTAL_NAME_BYTES = 64 * 1024 * 1024
+MAX_TOTAL_NAME_BYTES = 32 * 1024 * 1024
 
 _HEADER = struct.Struct(">4sII")
 _ENTRY_FIXED = 62  # ctime、mtime、dev、ino、mode、uid、gid、size（各 4）＋物件編號 20＋旗標 2
@@ -77,17 +78,29 @@ def read_index(data: bytes, *, max_entries: int) -> IndexEntries:
     _check_trailer(data)
     if count > max_entries:
         raise GitIndexError(INDEX_TOO_LARGE)
-    end = len(data) - _SHA1_BYTES
-    kinds, pos, has_empty = _read_entries(data, version, count, end)
-    _check_extensions(data, pos, end)  # 先看擴充段：split index 的項目名稱是空的
-    if has_empty:
-        raise GitIndexError(INDEX_INVALID)
+    try:
+        kinds = _read_body(data, version, count)
+    except GitIndexError as exc:
+        if exc.reason == INDEX_INVALID and data[-_SHA256_BYTES:] == bytes(_SHA256_BYTES):
+            # 全零的檢查碼分不出是哪一種；當 SHA-1 讀不懂時，可能是 SHA-256 加 index.skipHash
+            raise GitIndexError(INDEX_UNSUPPORTED) from exc
+        raise
     grouped: dict[str, list[bytes]] = {"file": [], "link": [], "submodule": []}
     for name, kind in kinds.items():
         grouped[kind].append(name)
     return IndexEntries(
         tuple(grouped["file"]), tuple(grouped["link"]), tuple(grouped["submodule"])
     )
+
+
+def _read_body(data: bytes, version: int, count: int) -> dict[bytes, str]:
+    """項目與擴充段（檢查碼之前）；回名稱 → 種類."""
+    end = len(data) - _SHA1_BYTES
+    kinds, pos, has_empty = _read_entries(data, version, count, end)
+    _check_extensions(data, pos, end)  # 先看擴充段：split index 的項目名稱是空的
+    if has_empty:
+        raise GitIndexError(INDEX_INVALID)
+    return kinds
 
 
 def _check_trailer(data: bytes) -> None:
