@@ -675,6 +675,20 @@ def test_undo_does_not_even_try_when_the_old_place_is_taken(
     assert attempts == []
 
 
+@pytest.mark.parametrize("shrink", ["remove", "read_only"])
+def test_undo_counts_moves_whose_folder_was_taken_away(
+    fs, ops: Operations, book: GrantBook, clock, shrink: str
+) -> None:
+    """ADR-0330 2b：設定頁或主視窗拿掉、改成只能讀之後，那個資料夾的搬移另外算，說得出原因。"""
+    fs.add_file("D:\\Open\\a.txt")
+    batch = ops.apply(
+        _plan(ops, [{"op": "move", "path": "Open/a.txt", "to": "Open/b.txt"}]), _limits(clock)
+    )["batch"]
+    book.shrink("Open", "D:\\Open", shrink)
+    assert ops.undo(batch) == {"restored": 0, "skipped": 0, "not_undoable": 0, "grant_gone": 1}
+    assert fs.exists("D:\\Open\\b.txt")
+
+
 def test_undo_twice_does_nothing(fs, ops: Operations, clock) -> None:
     fs.add_file("D:\\Open\\a.txt")
     batch = ops.apply(

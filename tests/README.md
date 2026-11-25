@@ -220,6 +220,7 @@ tests/
 | `unit/local_helper/test_local_helper_install.py` | ADR-0312：Windows 呼叫的純函式、設定檔、安裝規則；ADR-0329：問 Touka 資料夾、開機自動啟動、app 整個換過去 |
 | `unit/local_helper/test_local_helper_presence.py` | ADR-0312 補註（2026-11-24）：小幫手退到背景，什麼時候顯示、叫出或最小化浮出主視窗，按 × 收起或最小化 |
 | `unit/local_helper/test_local_helper_folder_report.py` | ADR-0330：小幫手回報開放名單：內容、壞資料只少那一筆、什麼時候送、修改次數、送失敗不影響輪詢、回報端點 |
+| `unit/local_helper/test_local_helper_revoke.py` | ADR-0330 2b：設定頁縮小開放名單：驗章、名稱與路徑都要對上、只會縮小、一次性號碼、主視窗說明 |
 | `unit/local_helper/test_local_helper_bootstrap.py` | ADR-0329：一行指令安裝的雜湊清單、README 那一行與 commit 核對、install.ps1 的安全檢查與冷卻期 |
 | `unit/local_helper/test_local_helper_real_windows.py` | ADR-0312：只在真 Windows 跑：不覆蓋、連結、隱藏屬性、完整搬移與復原；單一實例鎖與叫出主視窗的命名事件（測試用自己的名稱）、開機收起主視窗、× 收起或最小化、叫出、最小化浮出、結束小幫手 |
 | `unit/local_helper/test_local_helper_display.py` | ADR-0312：小幫手視窗跟著螢幕縮放的倍數、字型選擇、宣告縮放失敗不影響服務 |

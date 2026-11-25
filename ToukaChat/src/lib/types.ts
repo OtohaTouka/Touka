@@ -24,6 +24,8 @@ export type LocalPairingCreated = components['schemas']['LocalPairingCreated'];
 export type LocalOpenRequest = components['schemas']['LocalOpenRequest'];
 export type LocalOpenResult = components['schemas']['LocalOpenResult'];
 export type LocalFolderList = components['schemas']['LocalFolderList'];
+export type LocalRevokeRequest = components['schemas']['LocalRevokeRequest'];
+export type LocalRevokeResult = components['schemas']['LocalRevokeResult'];
 export type LocalFolderEntry = components['schemas']['LocalFolderEntry'];
 
 // ADR-0292：Hook 設定頁

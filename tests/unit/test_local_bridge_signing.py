@@ -13,6 +13,7 @@ from src.utils.local_bridge_signing import (
     pairing_code,
     sign_decision,
     sign_open_request,
+    sign_revoke,
     text_fingerprint,
 )
 
@@ -185,3 +186,37 @@ def test_an_open_stamp_is_not_a_list_stamp() -> None:
         decided_by=DECIDED_BY_OPEN_REQUEST,
     )
     assert as_list != OPEN_SIGNATURE
+
+
+# 設定頁縮小名單的章（ADR-0330 2b），和小幫手那份相同
+REVOKE_NAME = "家 2026"
+REVOKE_PATH = "相片/家 2026"
+REVOKE_SIGNATURE = "b38e5a7a63d367c30c4232b0da227b7e2c8c0abf28a687e8f297619b96ac9c59"
+_REVOKE_FIELDS = {
+    "job_id": "job-1", "nonce": OPEN_NONCE, "name": REVOKE_NAME, "path": REVOKE_PATH,
+    "change": "read_only",
+}
+
+
+def test_revoke_signature_matches_the_helper_vector() -> None:
+    assert sign_revoke(KEY, **_REVOKE_FIELDS) == REVOKE_SIGNATURE
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"job_id": "job-2"},
+        {"nonce": "B" * 22},
+        {"name": "家 2027"},
+        {"path": "相片/家 2027"},
+        {"change": "remove"},
+    ],
+)
+def test_every_revoke_field_is_covered(change: dict[str, str]) -> None:
+    assert sign_revoke(KEY, **{**_REVOKE_FIELDS, **change}) != REVOKE_SIGNATURE
+
+
+def test_a_revoke_stamp_is_not_an_open_stamp() -> None:
+    assert sign_open_request(KEY, job_id="job-1", nonce=OPEN_NONCE, path=REVOKE_PATH) != (
+        REVOKE_SIGNATURE
+    )

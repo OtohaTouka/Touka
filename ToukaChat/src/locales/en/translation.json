@@ -1362,7 +1362,7 @@
       "open_result": {
         "opened_read_only": "Opened \"{{name}}\" (view only).",
         "opened_writable": "Opened \"{{name}}\" (can change).",
-        "not_opened": "The helper did not open this folder: you may have rejected it, the place cannot be opened, or it overlaps a folder that is already open (including the same folder). The reason is in the helper's window.",
+        "not_opened": "The helper did not open this folder: you may have rejected it, the place cannot be opened, or it overlaps a folder that is already open. The reason is in the helper's window.",
         "no_decision": "Nothing was decided in the helper's window within 2 minutes, so nothing was opened.",
         "not_openable": "It was approved but still could not be opened. The reason is in the helper's window.",
         "open_paused": "The helper has paused folder requests. Try again in about 10 minutes, or press \"Resume now\" in the helper's main window.",
@@ -1383,12 +1383,18 @@
         "not_paired": "Not paired yet.",
         "denied": "You are not allowed to send this.",
         "invalid_path": "The path has characters that cannot be used, or is too long.",
-        "failed": "No result came back. If the helper showed a window, decide there; otherwise try again."
+        "failed": "No result came back. If the helper showed a window, decide there; otherwise try again.",
+        "contains": "Not opened: this folder contains {{names}}, which are already open. To open it, first remove them in the list above or in the helper's main window.",
+        "contained_name": "\"{{name}}\"",
+        "contained_separator": ", ",
+        "already_open": "This is already inside the open folder \"{{name}}\" ({{detail}}); the helper did not show a window.",
+        "already_open_paused": "{{permission}}, paused",
+        "already_open_note": "Git projects, links and protected names inside it still cannot be used."
       },
       "status_helper_older": "Paired, but the helper is too old: copy the install line from the ToukaLocal page on GitHub and reinstall",
       "status_touka_older": "Paired, but Touka is older than the helper: update Touka",
       "folders_heading": "Open folders",
-      "folders_help": "The helper's main window is what counts. To change a permission or remove a folder, use the helper's main window: open ToukaLocal.cmd from the desktop (or %LOCALAPPDATA%\\ToukaLocal) to bring it up.",
+      "folders_help": "The helper's main window is what counts. You can remove a folder or make it view only here; to add one back or allow changes again, use the helper's main window: open ToukaLocal.cmd from the desktop (or %LOCALAPPDATA%\\ToukaLocal) to bring it up.",
       "folders_denied": "Only the person who created the pairing code can see the open folders.",
       "folders_failed": "Could not read the open folders. Try again later.",
       "folders_offline": "The helper is not connected, so the open folders can't be shown.",
@@ -1399,7 +1405,30 @@
       "folders_read_only": "View only",
       "folders_writable": "Can change",
       "folders_paused": "Paused",
-      "folders_omitted": "{{count}} more not listed; see the helper's main window."
+      "folders_omitted": "{{count}} more not listed; see the helper's main window.",
+      "folders_make_read_only": "Make view only",
+      "folders_make_read_only_label": "Make \"{{name}}\" view only",
+      "folders_remove": "Remove",
+      "folders_remove_label": "Remove \"{{name}}\"",
+      "folders_confirm_read_only": "Make \"{{name}}\" view only? Agents can then look but not change anything; to undo, use the helper's main window.",
+      "folders_confirm_remove": "Remove \"{{name}}\" from the open folders? Agents can no longer use it; to add it back, use the helper's main window.",
+      "folders_revoke_waiting": "Asking the helper to make the change; this takes up to 30 seconds.",
+      "revoke_result": {
+        "removed": "Removed \"{{name}}\" from the open folders.",
+        "read_only": "\"{{name}}\" is now view only.",
+        "not_found": "The list has changed; nothing was changed. Refresh and try again.",
+        "helper_exposed": "The helper has stopped for safety; nothing was changed.",
+        "bad_signature": "The helper could not verify Touka's stamp; nothing was changed. Create a new pairing code.",
+        "needs_new_pairing": "This pairing has no key; nothing was changed. Create a new pairing code.",
+        "io_error": "The helper could not save its list; nothing was changed (see the helper's main window).",
+        "helper_offline": "The helper is not connected; nothing was changed.",
+        "helper_busy": "The helper is busy; nothing was changed. Try again later.",
+        "not_sent": "It never reached the helper; nothing was changed.",
+        "unknown": "Not sure whether it changed. Check the list or the helper's main window.",
+        "not_paired_human": "Only the person who created the pairing code can change this; nothing was changed.",
+        "not_paired": "Not paired yet; nothing was changed.",
+        "denied": "Not allowed; nothing was changed."
+      }
     }
   },
   "sidebar": {

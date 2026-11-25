@@ -13,12 +13,14 @@ import asyncio
 import re
 import secrets
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Final
 
 from src.models.local_bridge import (
+    INSTANCE_PATTERN,
+    MAX_CONTAINED_NAMES,
     MAX_OPEN_NAME_CHARS,
     MAX_REQUESTER_CHARS,
     MAX_RESULT_CODE_CHARS,
@@ -30,10 +32,12 @@ from src.models.local_bridge import (
     LocalJobResult,
     LocalOpenResult,
     LocalPollResponse,
+    LocalRevokeResult,
 )
 from src.utils.local_bridge_signing import (
     DECIDED_BY_OPEN_REQUEST,
     sign_open_request,
+    sign_revoke,
     text_fingerprint,
 )
 from src.utils.time_utils import get_monotonic_ms
@@ -41,7 +45,7 @@ from src.utils.time_utils import get_monotonic_ms
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from src.models.local_bridge import LocalFolderEntry, LocalFolderReport
+    from src.models.local_bridge import LocalFolderEntry, LocalFolderReport, LocalRevokeRequest
 
 MAX_PENDING_JOBS: Final = 8
 MAX_CANCELLED_IDS: Final = 32
@@ -75,8 +79,12 @@ CODE_PAIRING_CHANGED: Final = "pairing_changed"
 ACTION_NEEDING_CONFIRM: Final = "propose"
 ACTION_PREVIEW: Final = "preview"
 ACTION_REQUEST_OPEN: Final = "request_open"
-# 交給小幫手之後就可能已經做了（開放請求是人在小幫手視窗按的，不經 confirm，ADR-0320）
-_MUTATING_WITHOUT_CONFIRM: Final = frozenset({"create_folder", "create_file", ACTION_REQUEST_OPEN})
+ACTION_REVOKE: Final = "revoke"
+# 交給小幫手之後就可能已經做了（開放請求是人在小幫手視窗按的、縮小名單驗章就做，都不經
+# confirm；ADR-0320、ADR-0330）
+_MUTATING_WITHOUT_CONFIRM: Final = frozenset(
+    {"create_folder", "create_file", ACTION_REQUEST_OPEN, ACTION_REVOKE}
+)
 
 # 開放請求（ADR-0320）：小幫手視窗開這麼久（小幫手自己也定同一個值，parity 測試核對），
 # Touka 多等 30 秒給加名單與回報
@@ -86,6 +94,16 @@ CODE_NEEDS_NEW_PAIRING: Final = "needs_new_pairing"
 CODE_BAD_RESULT: Final = "bad_result"
 CODE_UNKNOWN: Final = "unknown"
 _OPENED_FIELDS: Final = frozenset({"name", "writable"})
+# 已經在開放的資料夾裡、包住了已開放的資料夾（ADR-0330 2b）
+CODE_ALREADY_OPEN: Final = "already_open"
+_ALREADY_OPEN_FIELDS: Final = frozenset({"name", "writable", "usable"})
+_CONTAINS_FIELDS: Final = frozenset({"contains"})
+# 縮小名單（ADR-0330 2b）：小幫手回的錯誤代碼只認這幾個，其他一律當成不確定有沒有改
+_REVOKE_HELPER_CODES: Final = frozenset(
+    {"not_found", "helper_exposed", "bad_signature", CODE_NEEDS_NEW_PAIRING, "io_error"}
+)
+_REVOKE_STAMP_FIELDS: Final = frozenset({"name", "instance", "revision"})
+_INSTANCE: Final = re.compile(INSTANCE_PATTERN)
 # 小幫手回的代碼與名稱會顯示在設定頁：代碼只收小寫英數與底線，名稱不收控制字元與改變顯示方向的字元
 _RESULT_CODE: Final = re.compile(rf"[a-z0-9_]{{1,{MAX_RESULT_CODE_CHARS}}}")
 _UNSAFE_NAME_CHAR: Final = re.compile(UNSAFE_TEXT_PATTERN)
@@ -141,6 +159,14 @@ def _helper_wait(action: str) -> float:
 
 def _failure(code: str) -> LocalJobResult:
     return LocalJobResult(status="error", code=code)
+
+
+# 收掉的開放視窗可能帶「包住了哪些」（ADR-0330 2b）
+_CONTAINS_CODES: Final = frozenset({"not_opened", CODE_NO_DECISION})
+# Touka 自己判斷的縮小名單失敗：沒交出去的（離線、忙、逾時、配對換了）和交出去後不確定的
+_REVOKE_TOUKA_CODES: Final = frozenset(
+    {CODE_OFFLINE, CODE_BUSY, CODE_TIMED_OUT, CODE_PAIRING_CHANGED, CODE_RESULT_UNKNOWN}
+)
 
 
 @dataclass
@@ -272,6 +298,36 @@ class LocalBridge:
             pass
         finally:
             self._waiters.discard(waiter)
+
+    def apply_revoke(
+        self, generation: int, request: LocalRevokeRequest, stamp: tuple[str, int]
+    ) -> None:
+        """縮小名單成功後，記憶體裡的清單跟著改（ADR-0330 2b），設定頁重新讀就是新的。
+
+        ``stamp`` 是小幫手存檔後的（啟動編號, 修改次數）：縮小之前就在路上的舊回報晚到時會被
+        丟掉。啟動編號和手上那份不同（小幫手剛重開、新的回報還沒到）就不改，直接清掉。手上那份
+        比這次縮小還新（之後又在主視窗改過，而且先到）時，它已經含這次的改動，照它不動。
+        """
+        report = self._report
+        if generation != self._generation or report is None:
+            return
+        instance, revision = stamp
+        if report.instance != instance:
+            self._report = None
+            return
+        if report.revision > revision:
+            return
+        same = [
+            entry.name == request.name and entry.path == request.path for entry in report.folders
+        ]
+        if request.change == "remove":
+            folders = tuple(e for e, hit in zip(report.folders, same, strict=True) if not hit)
+        else:
+            folders = tuple(
+                e.model_copy(update={"writable": False}) if hit else e
+                for e, hit in zip(report.folders, same, strict=True)
+            )
+        self._report = replace(report, folders=folders, revision=revision)
 
     def invalidate(self, generation: int) -> None:
         """換權杖或解除配對：掛著的輪詢作廢、工作全部失敗、上線狀態清掉。
@@ -452,24 +508,122 @@ def open_request_signer(key: bytes, path: str) -> Callable[[str], LocalDecision]
     return sign
 
 
+def _shown_name(value: object) -> bool:
+    """小幫手回的資料夾名稱能不能顯示在設定頁：長度、控制字元與改變顯示方向的字元、單獨的代理字元。"""
+    return (
+        isinstance(value, str)
+        and 1 <= len(value) <= MAX_OPEN_NAME_CHARS
+        and _UNSAFE_NAME_CHAR.search(value) is None
+        and not any(0xD800 <= ord(c) <= 0xDFFF for c in value)
+    )
+
+
+def _contained_names(data: object) -> list[str] | None:
+    """「包住了哪些」：1～64 個能顯示的名稱，格式不對回 None。"""
+    if not isinstance(data, dict) or set(data) != _CONTAINS_FIELDS:
+        return None
+    names = data["contains"]
+    if not isinstance(names, list) or not 1 <= len(names) <= MAX_CONTAINED_NAMES:
+        return None
+    return names if all(_shown_name(name) for name in names) else None
+
+
+_BAD_OPEN_RESULT: Final = LocalOpenResult(status="error", code=CODE_BAD_RESULT)
+
+
+def _refused_open_result(result: LocalJobResult) -> LocalOpenResult:
+    code = result.code or CODE_UNKNOWN
+    if _RESULT_CODE.fullmatch(code) is None:
+        return _BAD_OPEN_RESULT
+    if result.data is None:
+        return LocalOpenResult(status=result.status, code=code)
+    contains = _contained_names(result.data) if code in _CONTAINS_CODES else None
+    if contains is None:
+        return _BAD_OPEN_RESULT
+    return LocalOpenResult(status=result.status, code=code, contains=contains)
+
+
 def open_result_from(result: LocalJobResult) -> LocalOpenResult:
     """小幫手的回報換成設定頁看的結果。格式不對的當成錯誤，不回給模型看的英文說明。"""
     if result.status != "ok":
-        code = result.code or CODE_UNKNOWN
-        if _RESULT_CODE.fullmatch(code) is None:
-            return LocalOpenResult(status="error", code=CODE_BAD_RESULT)
-        return LocalOpenResult(status=result.status, code=code)
+        return _refused_open_result(result)
     data = result.data
-    if (
-        isinstance(data, dict)
-        and set(data) == _OPENED_FIELDS
-        and isinstance(data["name"], str)
-        and 1 <= len(data["name"]) <= MAX_OPEN_NAME_CHARS
-        and _UNSAFE_NAME_CHAR.search(data["name"]) is None
-        and isinstance(data["writable"], bool)
-    ):
+    if not isinstance(data, dict) or not _shown_name(data.get("name")):
+        return _BAD_OPEN_RESULT
+    if result.code == CODE_ALREADY_OPEN and set(data) == _ALREADY_OPEN_FIELDS:
+        if isinstance(data["writable"], bool) and isinstance(data["usable"], bool):
+            return LocalOpenResult(
+                status="already_open",
+                name=data["name"],
+                writable=data["writable"],
+                usable=data["usable"],
+            )
+    elif result.code is None and set(data) == _OPENED_FIELDS and isinstance(data["writable"], bool):
         return LocalOpenResult(status="opened", name=data["name"], writable=data["writable"])
-    return LocalOpenResult(status="error", code=CODE_BAD_RESULT)
+    return _BAD_OPEN_RESULT
+
+
+def revoke_signer(key: bytes, name: str, path: str, change: str) -> Callable[[str], LocalDecision]:
+    """縮小名單的章（ADR-0330 2b）：拿到工作編號後才蓋，每次一個新的一次性號碼。"""
+
+    def sign(job_id: str) -> LocalDecision:
+        nonce = secrets.token_urlsafe(16)
+        return LocalDecision(
+            nonce=nonce,
+            digest=text_fingerprint(path),
+            shown=text_fingerprint(name),
+            decided_by=DECIDED_BY_OPEN_REQUEST,
+            signature=sign_revoke(
+                key, job_id=job_id, nonce=nonce, name=name, path=path, change=change
+            ),
+        )
+
+    return sign
+
+
+_BAD_REVOKE_RESULT: Final = LocalRevokeResult(status="error", code=CODE_BAD_RESULT)
+
+
+def _revoke_done(data: object) -> tuple[LocalRevokeResult, tuple[str, int]] | None:
+    """成功的回報，格式不對回 None。
+
+    名稱、拿掉（removed 是 True）或改成只能讀（writable 是 False）擇一，加上存檔後的啟動編號
+    與修改次數。
+    """
+    if not isinstance(data, dict) or not _shown_name(data.get("name")):
+        return None
+    instance, revision = data.get("instance"), data.get("revision")
+    if (
+        not isinstance(instance, str)
+        or _INSTANCE.fullmatch(instance) is None
+        or type(revision) is not int
+        or revision < 0
+    ):
+        return None
+    keys = set(data)
+    if keys == _REVOKE_STAMP_FIELDS | {"removed"} and data["removed"] is True:
+        done = LocalRevokeResult(status="done", name=data["name"], removed=True)
+    elif keys == _REVOKE_STAMP_FIELDS | {"writable"} and data["writable"] is False:
+        done = LocalRevokeResult(status="done", name=data["name"], writable=False)
+    else:
+        return None
+    return done, (instance, revision)
+
+
+def revoke_result_from(result: LocalJobResult) -> tuple[LocalRevokeResult, tuple[str, int] | None]:
+    """小幫手對縮小名單的回報換成設定頁看的結果，和成功時的（啟動編號, 修改次數）。
+
+    不認得的代碼與格式不對的回報都當成不確定有沒有改（``bad_result``），不會說成沒有改。
+    """
+    if result.status != "ok":
+        code = result.code
+        if code in _REVOKE_HELPER_CODES or code in _REVOKE_TOUKA_CODES:
+            return LocalRevokeResult(status="error", code=code), None
+        return _BAD_REVOKE_RESULT, None
+    done = _revoke_done(result.data) if result.code is None else None
+    if done is None:
+        return _BAD_REVOKE_RESULT, None
+    return done
 
 
 @lru_cache(maxsize=1)

@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field, replace
+from pathlib import PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from touka_local.approval import APPROVE_DELAY_SECONDS, ApprovalGate
+from touka_local.approval import APPROVE_DELAY_SECONDS, REJECT_COOLDOWN_SECONDS, ApprovalGate
 from touka_local.connection import AuthLost
 from touka_local.errors import Refused
-from touka_local.grants import Environment, GrantBook
+from touka_local.grants import Environment, Grant, GrantBook
 from touka_local.open_request import (
     OPEN_DECISION_SECONDS,
     OPEN_PAUSE_SECONDS,
@@ -22,7 +23,9 @@ from touka_local.open_request import (
     STATE_NOT_OPENABLE,
     STATE_OPENABLE,
     OpenRequest,
+    already_open,
     checking,
+    contained_by,
 )
 from touka_local.operations import Operations
 from touka_local.protocol import DECIDED_BY_OPEN_REQUEST, Decision, Job, PollResponse
@@ -34,13 +37,12 @@ from touka_local.view import (
     WINDOW_PLAN,
     approval_window_kind,
     open_outcome_text,
+    open_reason_text,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
-
-    from touka_local.grants import Grant
 
 KEY = bytes(range(32))
 OTHER_KEY = bytes(range(1, 33))
@@ -427,7 +429,6 @@ def test_an_openable_folder_opens_a_window_and_reports_nothing_yet(service, clie
     [
         ("D:\\Missing", "not_found"),
         ("C:\\Windows\\Temp", "blocked"),
-        ("D:\\Open", "overlap"),
         ("relative\\path", "bad_path"),
         ("D:\\Repo", "git_project"),
         ("D:\\Linked", "link"),
@@ -830,3 +831,149 @@ def test_a_place_that_cannot_be_opened_cannot_be_approved(service, client, gate,
         service.approve_open("o1", request.digest, writable=False)
     assert caught.value.code == "wrong_window"
     assert gate.current is not None
+
+
+# --- 已經開放的直接回、包住已開放資料夾的上一層（ADR-0330 2b） ---
+
+
+def _spy_reads(service, fs, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """記下處理請求時讀了哪些路徑；輪詢後回報名單的讀取不算，先關掉。"""
+    monkeypatch.setattr(service, "_report_folders", lambda _client: None)
+    seen: list[str] = []
+    real = fs.lstat
+
+    def _lstat(path: str):
+        seen.append(str(PureWindowsPath(path)).casefold())
+        return real(path)
+
+    monkeypatch.setattr(fs, "lstat", _lstat)
+    return seen
+
+
+@pytest.mark.parametrize(
+    "path", ["D:\\Open", "D:\\Open\\Sub\\Deeper", "d:\\open\\sub", "D:/Open/Sub", "D:\\Open\\"]
+)
+def test_a_place_inside_an_open_folder_is_answered_without_a_window(
+    service, client, gate, book, path
+) -> None:
+    book.seen_pending.clear()
+    _poll(service, client, _open_job(path))
+    ((_job_id, payload),) = client.results
+    assert (payload["status"], payload["code"]) == ("ok", "already_open")
+    assert payload["data"] == {"name": "Open", "writable": True, "usable": True}
+    assert gate.current is None
+    assert book.seen_pending == []
+
+
+def test_a_paused_open_folder_still_counts_and_says_so(service, client, fs) -> None:
+    del fs.nodes["d:\\open"]
+    _poll(service, client, _open_job("D:\\Open\\Sub"))
+    ((_job_id, payload),) = client.results
+    assert payload["code"] == "already_open"
+    assert payload["data"]["usable"] is False
+
+
+def test_only_the_open_folder_and_its_parents_are_read(service, client, fs, monkeypatch) -> None:
+    reads = _spy_reads(service, fs, monkeypatch)
+    _poll(service, client, _open_job("D:\\Open\\Sub\\Deeper"))
+    assert _codes(client) == ["already_open"]
+    assert reads
+    assert set(reads) <= {"d:\\", "d:\\.git", "d:\\open", "d:\\open\\.git"}
+
+
+def test_answers_about_open_folders_do_not_pause_requests(service, client) -> None:
+    for number in range(OPEN_REFUSALS_BEFORE_PAUSE + 1):
+        _poll(service, client, _open_job("D:\\Open\\A", job_id=f"a{number}"))
+    assert _codes(client) == ["already_open"] * (OPEN_REFUSALS_BEFORE_PAUSE + 1)
+    assert service.open_paused_until is None
+
+
+def test_the_nonce_is_used_up_even_when_the_folder_is_already_open(service, client) -> None:
+    decision = _decision("D:\\Open\\A", job_id="a1")
+    _poll(service, client, _open_job("D:\\Open\\A", job_id="a1", decision=decision))
+    _poll(service, client, _open_job("D:\\Open\\A", job_id="a1", decision=decision))
+    assert _codes(client) == ["already_open", "bad_signature"]
+
+
+def test_a_pause_is_checked_before_the_list(service, client, gate, clock) -> None:
+    _refuse_three_times(service, client, gate, clock)
+    client.results.clear()
+    _poll(service, client, _open_job("D:\\Open\\A", job_id="late"))
+    assert _codes(client) == ["open_paused"]
+
+
+@pytest.mark.parametrize("extra", [".git", "AppData", "Sub\\.git\\x", "$Recycle.Bin"])
+def test_protected_names_below_an_open_folder_still_get_a_window(
+    service, client, gate, extra
+) -> None:
+    _poll(service, client, _open_job(f"D:\\Open\\{extra}"))
+    assert client.results == []
+    assert gate.current is not None
+
+
+def test_a_path_in_an_odd_format_still_gets_a_window(service, client, gate) -> None:
+    _poll(service, client, _open_job("Open\\Sub"))
+    assert client.results == []
+    assert gate.current is not None
+
+
+def test_the_deepest_open_folder_wins_when_a_hand_edited_list_overlaps() -> None:
+    grants = [Grant("Outer", "D:\\Data", True), Grant("Inner", "D:\\Data\\Inner", False)]
+    inner = already_open("D:\\Data\\Inner\\x", grants)
+    outer = already_open("D:\\Data\\y", grants)
+    assert inner is not None and inner.name == "Inner"
+    assert outer is not None and outer.name == "Outer"
+    assert already_open("D:\\Elsewhere", grants) is None
+
+
+def _open_work_folders(fs, book, names: tuple[str, ...]) -> None:
+    for name in names:
+        fs.add_dir(f"D:\\Work\\{name}")
+        book.add(f"D:\\Work\\{name}", writable=False)
+    book.seen_pending.clear()
+
+
+def test_a_parent_of_open_folders_gets_a_window_that_cannot_open(
+    service, client, gate, fs, book, monkeypatch
+) -> None:
+    _open_work_folders(fs, book, ("A", "B"))
+    reads = _spy_reads(service, fs, monkeypatch)
+    _poll(service, client, _open_job("D:\\Work"))
+    request = _pending_request(gate)
+    assert request.state == STATE_NOT_OPENABLE
+    assert request.reason == "contains_open"
+    assert request.contains == ("A", "B")
+    assert book.seen_pending == []
+    assert reads == []
+    assert client.results == []
+    text = open_reason_text(request.reason, request.contains)
+    assert "『A』『B』" in text
+    assert "至少要先拿掉" in text
+
+
+def test_closing_a_window_about_a_parent_names_what_it_contains(
+    service, client, gate, fs, book, clock
+) -> None:
+    _open_work_folders(fs, book, ("A",))
+    _poll(service, client, _open_job("D:\\Work"))
+    service.reject("o1")
+    clock.now += REJECT_COOLDOWN_SECONDS + 1
+    _poll(service, client, _open_job("D:\\Work", job_id="o2"))
+    clock.now += OPEN_DECISION_SECONDS + 1
+    service.tick()
+    assert [(p["code"], p["data"]) for _id, p in client.results] == [
+        ("not_opened", {"contains": ["A"]}),
+        ("no_decision", {"contains": ["A"]}),
+    ]
+
+
+def test_other_windows_still_report_no_data(service, client) -> None:
+    _poll(service, client, _open_job())
+    service.reject("o1")
+    assert client.results[0][1]["data"] is None
+
+
+def test_at_most_64_contained_names_are_listed() -> None:
+    grants = [Grant(f"F{n}", f"D:\\Work\\F{n}", False) for n in range(70)]
+    assert contained_by("D:\\Work", grants) == tuple(f"F{n}" for n in range(64))
+    assert contained_by("D:\\Other", grants) == ()

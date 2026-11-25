@@ -7,8 +7,10 @@ from touka_local.protocol import Decision
 from touka_local.signing import (
     decision_signature_ok,
     open_request_signature_ok,
+    revoke_signature_ok,
     sign_decision,
     sign_open_request,
+    sign_revoke,
     split_pairing_code,
     text_fingerprint,
 )
@@ -150,3 +152,88 @@ def test_the_two_kinds_of_stamp_differ() -> None:
     )
     assert as_list != OPEN_SIGNATURE
     assert not decision_signature_ok(KEY, "job-1", _open_decision())
+
+
+# 設定頁縮小名單的章（ADR-0330 2b），和 Touka 那份相同
+REVOKE_NAME = "家 2026"
+REVOKE_PATH = "相片/家 2026"
+REVOKE_SIGNATURE = "b38e5a7a63d367c30c4232b0da227b7e2c8c0abf28a687e8f297619b96ac9c59"
+
+
+def _revoke_decision(**overrides: str) -> Decision:
+    values = {
+        "nonce": OPEN_NONCE,
+        "digest": text_fingerprint(REVOKE_PATH),
+        "shown": text_fingerprint(REVOKE_NAME),
+        "decided_by": "owner_request",
+        "signature": REVOKE_SIGNATURE,
+    }
+    values.update(overrides)
+    return Decision(**values)
+
+
+def test_revoke_signature_matches_the_shared_vector() -> None:
+    signature = sign_revoke(
+        KEY,
+        job_id="job-1",
+        nonce=OPEN_NONCE,
+        name=REVOKE_NAME,
+        path=REVOKE_PATH,
+        change="read_only",
+    )
+    assert signature == REVOKE_SIGNATURE
+
+
+def test_a_good_revoke_is_accepted() -> None:
+    assert revoke_signature_ok(
+        KEY, "job-1", REVOKE_NAME, REVOKE_PATH, "read_only", _revoke_decision()
+    )
+
+
+@pytest.mark.parametrize(
+    ("job_id", "name", "path", "change", "key", "decision"),
+    [
+        ("job-2", REVOKE_NAME, REVOKE_PATH, "read_only", KEY, _revoke_decision()),
+        ("job-1", "家 2027", REVOKE_PATH, "read_only", KEY, _revoke_decision()),
+        ("job-1", REVOKE_NAME, "相片/家 2027", "read_only", KEY, _revoke_decision()),
+        ("job-1", REVOKE_NAME, REVOKE_PATH, "remove", KEY, _revoke_decision()),
+        ("job-1", REVOKE_NAME, REVOKE_PATH, "read_only", None, _revoke_decision()),
+        ("job-1", REVOKE_NAME, REVOKE_PATH, "read_only", bytes(32), _revoke_decision()),
+        ("job-1", REVOKE_NAME, REVOKE_PATH, "read_only", KEY, _revoke_decision(decided_by="yolo")),
+        ("job-1", REVOKE_NAME, REVOKE_PATH, "read_only", KEY, _revoke_decision(nonce="B" * 22)),
+        (
+            "job-1",
+            REVOKE_NAME,
+            REVOKE_PATH,
+            "read_only",
+            KEY,
+            _revoke_decision(digest=text_fingerprint(REVOKE_NAME)),
+        ),
+        (
+            "job-1",
+            REVOKE_NAME,
+            REVOKE_PATH,
+            "read_only",
+            KEY,
+            _revoke_decision(shown=text_fingerprint(REVOKE_PATH)),
+        ),
+    ],
+)
+def test_anything_wrong_means_no_revoke(
+    job_id: str, name: str, path: str, change: str, key: bytes | None, decision: Decision
+) -> None:
+    assert not revoke_signature_ok(key, job_id, name, path, change, decision)
+
+
+def test_revoke_and_open_stamps_cannot_stand_in_for_each_other() -> None:
+    as_open = sign_open_request(KEY, job_id="job-1", nonce=OPEN_NONCE, path=REVOKE_PATH)
+    assert as_open != REVOKE_SIGNATURE
+    assert not open_request_signature_ok(KEY, "job-1", REVOKE_PATH, _revoke_decision())
+    assert not revoke_signature_ok(
+        KEY,
+        "job-1",
+        REVOKE_PATH,
+        REVOKE_PATH,
+        "read_only",
+        _revoke_decision(shown=text_fingerprint(REVOKE_PATH), signature=as_open),
+    )

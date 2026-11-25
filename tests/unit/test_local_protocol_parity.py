@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import get_args
 
 from src.models.local_bridge import (
+    MAX_CONTAINED_NAMES,
     MAX_ERROR_MESSAGE_CHARS,
     MAX_JOB_RESULT_BYTES,
     MAX_OPEN_NAME_CHARS,
@@ -26,8 +27,11 @@ from src.models.local_bridge import (
     LocalJobResult,
     LocalPollRequest,
     LocalPollResponse,
+    LocalRevokeRequest,
+    RevokeChange,
 )
 from src.services.local_bridge import (
+    CODE_ALREADY_OPEN,
     DECISION_WAIT_SECONDS,
     HELPER_DECISION_MARGIN_SECONDS,
     HELPER_EXECUTION_LIMIT_SECONDS,
@@ -38,6 +42,7 @@ from src.services.local_bridge import (
 from src.tools.builtin.local_helper import PROPOSE_STATUS_NOTE
 from src.utils.local_bridge_signing import (
     ACT_REQUEST_OPEN,
+    ACT_REVOKE,
     DECIDED_BY_MODES,
     DECIDED_BY_OPEN_REQUEST,
 )
@@ -145,3 +150,15 @@ def test_folder_report_matches() -> None:
     assert helper["MAX_REPORTED_PATH_CHARS"] == MAX_REPORTED_PATH_CHARS
     assert helper["MAX_REPORTED_NAME_CHARS"] == MAX_OPEN_NAME_CHARS
     assert helper["UNSAFE_TEXT_PATTERN"] == UNSAFE_TEXT_PATTERN
+
+
+def test_revoke_and_open_answers_match() -> None:
+    """設定頁縮小名單（ADR-0330 2b）：欄位、兩種改法、章的寫法相同；已開放與包住的回覆也相同。"""
+    revoke = _constants("revoke.py")
+    assert revoke["REVOKE_CHANGES"] == get_args(RevokeChange)
+    assert {revoke["CHANGE_REMOVE"], revoke["CHANGE_READ_ONLY"]} == set(get_args(RevokeChange))
+    assert _constants("protocol.py")["REVOKE_FIELDS"] == frozenset(LocalRevokeRequest.model_fields)
+    assert _constants("signing.py")["ACT_REVOKE"] == ACT_REVOKE
+    opening = _constants("open_request.py")
+    assert opening["OPEN_ALREADY_OPEN"] == CODE_ALREADY_OPEN
+    assert opening["MAX_CONTAINED_NAMES"] == MAX_CONTAINED_NAMES

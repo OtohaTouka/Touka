@@ -6635,6 +6635,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/local-bridge/folders/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke Folder
+         * @description 配對的人本人請小幫手把開放的資料夾拿掉或改成只能讀（ADR-0330 2b）。
+         *
+         *     只能縮小；小幫手驗章後直接做、不跳視窗。成功時設定頁的清單跟著改。內容不寫日誌。
+         */
+        post: operations["revoke_folder_v1_local_bridge_folders_revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/local-bridge/open-requests": {
         parameters: {
             query?: never;
@@ -6793,6 +6815,28 @@ export interface paths {
         get: operations["list_folders_local_bridge_folders_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/local-bridge/folders/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke Folder
+         * @description 配對的人本人請小幫手把開放的資料夾拿掉或改成只能讀（ADR-0330 2b）。
+         *
+         *     只能縮小；小幫手驗章後直接做、不跳視窗。成功時設定頁的清單跟著改。內容不寫日誌。
+         */
+        post: operations["revoke_folder_local_bridge_folders_revoke_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9003,7 +9047,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "list" | "read" | "create_folder" | "create_file" | "propose" | "preview" | "request_open";
+            action: "list" | "read" | "create_folder" | "create_file" | "propose" | "preview" | "request_open" | "revoke";
             /** Args */
             args: {
                 [key: string]: unknown;
@@ -9055,19 +9099,26 @@ export interface components {
         /**
          * LocalOpenResult
          * @description 開放請求的結果。``opened`` 才有名稱與權限；其他只有代碼，前端照代碼顯示。
+         *
+         *     ``already_open``：請求的位置已經在開放的資料夾裡（名稱、權限、``usable`` 是不是暫停中）。
+         *     ``contains``：沒有開放、因為這一層包住了已經開放的這幾個（ADR-0330 2b）。
          */
         LocalOpenResult: {
             /**
              * Status
              * @enum {string}
              */
-            status: "opened" | "refused" | "error";
+            status: "opened" | "already_open" | "refused" | "error";
             /** Code */
             code?: string | null;
             /** Name */
             name?: string | null;
             /** Writable */
             writable?: boolean | null;
+            /** Usable */
+            usable?: boolean | null;
+            /** Contains */
+            contains?: string[] | null;
         };
         /**
          * LocalPairingCreated
@@ -9097,6 +9148,45 @@ export interface components {
             cancelled?: string[];
             /** Host Mount Roots */
             host_mount_roots?: string[];
+        };
+        /**
+         * LocalRevokeRequest
+         * @description 設定頁請小幫手把一個開放的資料夾拿掉或改成只能讀（ADR-0330 2b）。
+         *
+         *     名稱與路徑照小幫手回報的那一筆送回去；小幫手兩個都對上同一筆才改。
+         */
+        LocalRevokeRequest: {
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+            /**
+             * Change
+             * @enum {string}
+             */
+            change: "remove" | "read_only";
+        };
+        /**
+         * LocalRevokeResult
+         * @description 縮小名單的結果。
+         *
+         *     ``done`` 才有名稱，拿掉的帶 ``removed``、改成只能讀的帶 ``writable``；``error`` 只有代碼，
+         *     前端照代碼說有沒有改。
+         */
+        LocalRevokeResult: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "done" | "error";
+            /** Code */
+            code?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Removed */
+            removed?: boolean | null;
+            /** Writable */
+            writable?: boolean | null;
         };
         /**
          * LoginRequest
@@ -22668,6 +22758,39 @@ export interface operations {
             };
         };
     };
+    revoke_folder_v1_local_bridge_folders_revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalRevokeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalRevokeResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     request_open_v1_local_bridge_open_requests_post: {
         parameters: {
             query?: never;
@@ -22917,6 +23040,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LocalFolderList"];
+                };
+            };
+        };
+    };
+    revoke_folder_local_bridge_folders_revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalRevokeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalRevokeResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -37,6 +37,7 @@ ALLOWED_FILES: Final = (
     "touka_local/paths.py",
     "touka_local/presence.py",
     "touka_local/protocol.py",
+    "touka_local/revoke.py",
     "touka_local/rules.py",
     "touka_local/service.py",
     "touka_local/settings.py",

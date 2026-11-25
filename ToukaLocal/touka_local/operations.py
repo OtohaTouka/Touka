@@ -73,6 +73,11 @@ JOURNAL_KEEP_SECONDS: Final = 30 * 24 * 3600.0
 # aborted：永久刪除做到一半被取消時，可能已經刪掉一部分
 _VACATING_STATUSES: Final = frozenset({"pending", "failed", "done", "aborted"})
 _VACATING_OPS: Final = frozenset({"move", "delete"})
+# 復原一項搬移的結果；資料夾已經拿掉、只能讀或暫停中的另外算（ADR-0330 2b）
+_UNDO_RESTORED: Final = "restored"
+_UNDO_SKIPPED: Final = "skipped"
+_UNDO_GRANT_GONE: Final = "grant_gone"
+_GRANT_GONE_CODES: Final = frozenset({"not_open", "read_only"})
 
 logger = logging.getLogger(__name__)
 
@@ -789,31 +794,39 @@ class Operations:
                 if entry.get("status") == "done":
                     counts["not_undoable"] += 1
             elif entry.get("status") in ("done", "pending"):
-                if self._undo_move(entry):
+                outcome = self._undo_move(entry)
+                if outcome == _UNDO_RESTORED:
                     entry["status"] = "undone"
-                    counts["restored"] += 1
-                else:
-                    counts["skipped"] += 1
+                counts[outcome] = counts.get(outcome, 0) + 1
         if not self._record(journal):
             counts["journal_incomplete"] = 1
         return counts
 
-    def _undo_move(self, entry: dict[str, Any]) -> bool:
+    def _undo_move(self, entry: dict[str, Any]) -> str:
+        """復原一項搬移，回傳 ``restored``、``skipped`` 或 ``grant_gone``。
+
+        ``grant_gone``：資料夾已經拿掉、只能讀或暫停中（ADR-0330 2b：主視窗要說得出為什麼沒復原）。
+        """
         try:
             moved = self._locate_writable(entry["to"])
             original = self._locate_writable(entry["path"])
+        except Refused as exc:
+            return _UNDO_GRANT_GONE if exc.code in _GRANT_GONE_CODES else _UNDO_SKIPPED
+        except (KeyError, TypeError):
+            return _UNDO_SKIPPED
+        try:
             if not same_path(moved.full, entry["destination"]):
-                return False
+                return _UNDO_SKIPPED
             if not same_path(original.full, entry["source"]):
-                return False
+                return _UNDO_SKIPPED
             info = self._walk(moved)
             if info is None or self._walk(original, allow_missing=True) is not None:
-                return False
+                return _UNDO_SKIPPED
             if info.is_dir != entry["is_dir"] or info.mtime_ns != entry["mtime_ns"]:
-                return False
+                return _UNDO_SKIPPED
             if not info.is_dir and info.size != entry["size"]:
-                return False
+                return _UNDO_SKIPPED
             self._fs.rename(moved.full, original.full)
         except (Refused, OSError, KeyError, TypeError):
-            return False
-        return True
+            return _UNDO_SKIPPED
+        return _UNDO_RESTORED
