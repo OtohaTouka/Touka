@@ -618,10 +618,18 @@ def _has_sequence(parts: tuple[str, ...], sequence: tuple[str, ...]) -> bool:
     return any(parts[i : i + size] == sequence for i in range(len(parts) - size + 1))
 
 
+def is_env_file_name(name: str) -> bool:
+    """環境變數檔的檔名（``.env``、``.env.local``…；``.example``／``.sample``／``.template`` 不算）.
+
+    區分大小寫；要不分大小寫時呼叫端先 casefold（下載專案，ADR-0332 PR B）。
+    """
+    return _ENV_FILE_RE.fullmatch(name) is not None
+
+
 def _is_secret(parts: tuple[str, ...]) -> bool:
     name = parts[-1]
     return (
-        _ENV_FILE_RE.fullmatch(name) is not None
+        is_env_file_name(name)
         or name in _SECRET_FILES
         or ("proc" in parts and name == "environ")
         or _ends_with(parts, _SECRET_TAILS)

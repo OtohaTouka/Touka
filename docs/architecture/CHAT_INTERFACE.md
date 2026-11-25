@@ -2,6 +2,12 @@
 
 > **TL;DR** — 所有 HTTP 請求走 `fetchTouka()`（FETCH_SSOT）；`localStorage.*` 必須用 `useLocalStorage` hook（LOCALSTORAGE_SSOT）；`console.*` 禁止，`error_handler.ts` 靠行內 noqa（CONSOLE_BAN）；來回計算 SSOT：`countRounds()` in `export-utils.ts`；模型輸出的 Markdown 只經 `SafeMarkdown` 顯示（外部圖片不自動載入，ADR-0294）；ToukaChat 跑在 port 3001（`npm run dev` 只開網頁）。
 
+## 專案頁的下載按鈕（ADR-0332 PR B）
+
+- 每張專案卡片都有一直看得到的「下載」按鈕（`projects.projects_view.download_aria` 帶專案名稱）。按下先跳 `confirmToast`：zip 裡是代理人寫的程式，用 VS Code 開時選「不信任」（`download_confirm_message`）；確認後才下載；打包時按鈕停用並顯示 `download_in_progress`。
+- `useProjects.downloadProject(project)` 回 `ProjectDownloadResult`：經 `fetchTouka` 打 `GET /v1/ui/projects/{id}/download`（id 經 `encodeURIComponent`），成功時把 blob 交給暫時的 `<a download>` 存檔、40 秒後收回網址，回 `{ok: true}`；被拒絕是 `{ok: false, code?, reason?}`；斷線只有 `{ok: false}`。不做帶 token 的下載連結。
+- `lib/project_download.ts`：`projectDownloadFileName(name, now)` 是專案名稱（Windows 保留字元、控制字元、雙向控制字元換成 `_`，去掉頭尾空白與點，最多 60 字，空的用 `project`）加 `-YYYY-MM-DD.zip`；`projectDownloadFailureText` 選一句：`VALIDATION_ERROR` 加下載的原因 → `download_reasons.<原因>`，加專用空間的形狀 → 和登記同一句 `space_reasons.<原因>`；`REQUEST_TOO_LARGE` 加超過上限的原因 → `download_reasons.<原因>`；`PROJECT_DOWNLOAD_BUSY`、`PROJECT_FOLDER_TAKEN` → 錯誤碼的說明；`PROJECT_FOLDER_MISSING` → `download_folder_missing`；`AUTH_PERMISSION_DENIED` → `download_not_allowed`（只有主人能下載）；其他 → `download_failed`。
+
 ## 專案頁登記失敗的原因（ADR-0332）
 
 - `useProjects.saveProject` 回 `ProjectSaveResult`：成功是 `{ok: true}`；被拒絕是 `{ok: false, code?, reason?}`（`getResponseErrorCode`、`getResponseDetailString(res, "reason")`；斷線時兩個都沒有）。

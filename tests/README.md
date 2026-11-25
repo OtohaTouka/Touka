@@ -81,6 +81,10 @@ tests/
 | `unit/test_project_space_commands_security.py` | **指令從哪裡開始**：終端（前景、背景）與互審驗證指令的 START cwd 是專案根、relay 從 kernel 資料夾啟動；在場一路帶到層級；被拒時互審回 `NO_ISOLATED_ENVIRONMENT`；專案說明多兩句（含被擋時直接拒絕），只讀登記的根、不經工作區檢查 |
 | `unit/test_project_space_binding_security.py` | **登記規則**：一資料夾一專案（三種寫法 × 三種身分）、順序（被拒的不清 HOME）、同時兩個存檔、第一次綁定才清、清不掉不寫入、清除期間資料庫不被鎖、刪除後盡力清（等鎖時已被別人登記就不清）；只差大小寫是另一個資料夾、拿到鎖再查權限、別處的連結迴圈不讓登記出錯；後端每個被拒原因與清不掉 HOME 的永久原因在專案頁都有兩語文案 |
 | `unit/test_core_list_no_follow_security.py` | **列檔案沒有 proxy 時也不跟隨連結**（禁令 20）：「是不是連結」問完才換成連結也不進入；和經 proxy 的列法同樣隱藏、深度與標示 |
+| `unit/test_git_index_security.py` | **讀 git 的 index**（ADR-0332 PR B）：v2～v4（延伸旗標、v4 前綴壓縮）與真的 git 產生的 index；連結、子模組分開、衝突算一個；split／sparse index、SHA-256（含加了 skipHash 的）、不認得的必要擴充段讀不懂；長度、填充、名稱、檢查碼不對是壞掉；項目數與展開後的名稱總長有上限 |
+| `unit/test_project_download_security.py` | **從網頁下載專案**（ADR-0332 PR B）：只有主人本人（沒主人的舊專案只給人類管理員）；只有專用空間；根目錄檢查與別的專案也綁著時說得出原因；git 的問題各有原因；只放名單上的檔案、在專案資料夾底下；每一種略過（名稱、會變成 repository 的、連結、子模組、硬連結、不是檔案、不見了、讀不到）寫進報告且跳脫、截短；解壓後用真的 git 確認不是 repository；時間夾邊界；上限；沒追蹤的資料夾不進去；碰到代理人資料夾整個拒絕；同時一個；取消與斷線時刪 zip；每個原因兩語都有說明 |
+| `unit/test_archive_names.py` | **zip 裡的名稱**（ADR-0332 PR B；禁令 18）：不能放的原因（git 的資料夾、會讓資料夾變成 repository 的、Windows 不能用的、雙向控制字元、捷徑類、`.env`）、一般名稱照放；不分大小寫的比對鍵；報告裡的跳脫與截短 |
+| `project_download.test.ts`、`useProjects.download.test.ts`、`ProjectsView.download.test.tsx`（ToukaChat） | **專案頁的下載**（ADR-0332 PR B）：每個被拒原因與錯誤碼有自己的說明（兩語），沒有權限說只有主人能下載；檔名安全；經 `fetchTouka` 拿 zip、過一會兒才收回網址；先跳提醒；打包時按鈕停用 |
 | `unit/test_project_files_no_follow_security.py` | **專案檔案清單頁不跟隨連結**（禁令 20）：指向根外或根裡的連結都不列也不進入；舊的判斷說「在根裡」也不跟隨；最多四層、隱藏名稱、資料夾在前；錨點本身、第二層、根之後被換成連到專用空間的連結都 403 |
 | `project_save_wording.test.ts`、`useProjects.save.test.ts`、`ProjectsView.saveFailure.test.tsx`（ToukaChat） | **專案頁說得出原因**：每個專用空間的原因與錯誤碼有自己的說明（兩語），其他是一般的「存不了」；`saveProject` 帶回錯誤碼與原因；被拒時表單保持開啟 |
 

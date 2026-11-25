@@ -36,6 +36,7 @@ from memory_server.utils.no_follow import (
     walk_no_follow,
     walk_open_no_follow,
     walk_pruned,
+    walk_select_pruned,
     write_bytes_no_follow,
     write_stream_no_follow,
     zip_open_file,
@@ -347,7 +348,10 @@ def test_walk_open_gives_open_files_and_closes_them(base, monkeypatch):
 
 
 def test_zip_open_file_matches_zipfile_write(base):
-    """走訪開好的檔案寫進 zip：大小、時間、權限、壓縮方式和 ``ZipFile.write`` 一樣."""
+    """走訪開好的檔案寫進 zip：大小、時間、壓縮方式和 ``ZipFile.write`` 一樣.
+
+    權限是 ``ZipFile.write`` 的再拿掉特殊位元與別人可寫（ADR-0332 PR B）。
+    """
     source = base / "note.txt"
     source.write_bytes(b"hello zone")
     os.utime(source, (1_700_000_000, 1_700_000_000))
@@ -358,8 +362,9 @@ def test_zip_open_file_matches_zipfile_write(base):
     with zipfile.ZipFile(base / "a.zip") as zf:
         expected, got = zf.getinfo("by_write.txt"), zf.getinfo("by_fd.txt")
         assert zf.read("by_fd.txt") == b"hello zone"
-    for name in ("file_size", "date_time", "external_attr", "compress_type", "CRC"):
+    for name in ("file_size", "date_time", "compress_type", "CRC"):
         assert getattr(got, name) == getattr(expected, name), name
+    assert got.external_attr == (stat.S_IFREG | (expected.external_attr >> 16) & 0o755) << 16
 
 
 def test_zip_open_file_writes_no_more_than_fstat_said(base):
@@ -372,6 +377,66 @@ def test_zip_open_file_writes_no_more_than_fstat_said(base):
         zip_open_file(zf, "growing.bin", handle, info)
     with zipfile.ZipFile(base / "b.zip") as zf:
         assert zf.read("growing.bin") == b"x" * 10
+
+
+@pytest.mark.parametrize(
+    ("mtime", "expected"),
+    [
+        pytest.param(0, (1980, 1, 1, 0, 0, 0), id="1970"),
+        pytest.param(-(10**12), (1980, 1, 1, 0, 0, 0), id="before-local-time-works"),
+        pytest.param(7_258_118_400, (2107, 12, 31, 23, 59, 58), id="2200"),
+        pytest.param(10**15, (2107, 12, 31, 23, 59, 58), id="after-local-time-works"),
+    ],
+)
+def test_zip_open_file_clamps_times_zip_cannot_store(base, mtime, expected):
+    """zip 只存得下 1980～2107 年：超出的夾到邊界，不讓整個打包失敗（ADR-0332 PR B）."""
+    source = base / "t.txt"
+    source.write_bytes(b"t")
+    with zipfile.ZipFile(base / "t.zip", "w") as zf, source.open("rb") as handle:
+        real = os.fstat(handle.fileno())
+        info = os.stat_result(
+            (real.st_mode, real.st_ino, real.st_dev, real.st_nlink, real.st_uid, real.st_gid,
+             real.st_size, mtime, mtime, mtime)
+        )
+        zip_open_file(zf, "t.txt", handle, info)
+    with zipfile.ZipFile(base / "t.zip") as zf:
+        assert zf.getinfo("t.txt").date_time == expected
+        assert zf.read("t.txt") == b"t"
+
+
+@pytest.mark.parametrize(
+    ("mode", "kept"),
+    [
+        pytest.param(0o7755, 0o755, id="setuid-setgid-sticky"),
+        pytest.param(0o777, 0o755, id="writable-by-everyone"),
+        pytest.param(0o640, 0o640, id="ordinary"),
+    ],
+)
+def test_zip_open_file_keeps_only_safe_permission_bits(base, mode, kept):
+    """setuid、setgid、sticky 與別人可寫不帶進 zip：解壓的人不會拿到這種檔案（ADR-0332 PR B）."""
+    source = base / "s.sh"
+    source.write_bytes(b"s")
+    with zipfile.ZipFile(base / "s.zip", "w") as zf, source.open("rb") as handle:
+        real = os.fstat(handle.fileno())
+        info = os.stat_result(
+            (stat.S_IFREG | mode, real.st_ino, real.st_dev, real.st_nlink, real.st_uid,
+             real.st_gid, real.st_size, real.st_mtime, real.st_mtime, real.st_mtime)
+        )
+        zip_open_file(zf, "s.sh", handle, info)
+    with zipfile.ZipFile(base / "s.zip") as zf:
+        assert zf.getinfo("s.sh").external_attr >> 16 == stat.S_IFREG | kept
+
+
+def test_walk_select_pruned_opens_only_wanted_files(base):
+    """下載的走訪：``want`` 為真的才開（名單以外的檔案不開）."""
+    _tree(base / "project", "wanted.txt", "other.txt", "sub/also.txt")
+    report = WalkReport()
+    walk = walk_select_pruned(
+        base / "project", ZoneRoots(base / "data", None), report,
+        want=lambda entry: entry.parts == ("wanted.txt",),
+    )
+    opened = {"/".join(entry.parts): handle is not None for entry, handle, _info in walk}
+    assert opened == {"other.txt": False, "sub": False, "sub/also.txt": False, "wanted.txt": True}
 
 
 # --- 剪枝走訪（R5） ------------------------------------------------------------

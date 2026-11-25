@@ -195,6 +195,7 @@ compose 多一個 named volume `touka-projects`，proxy 與執行器都掛在 `/
 - **沒人在場**（心跳、SNS）時，這些專案的指令照舊不跑。用你的帳號權杖打聊天端點的腳本算有人在場。
 - **刪除或改指專案**：當下還在跑的指令不會被停掉（背景指令最長 10 分鐘），這段時間它還讀寫得到那個資料夾與 HOME；要換人用同一個資料夾，等 15 分鐘再登記。
 - **不在備份裡**：`docker compose down -v` 會連同裡面所有專案一起刪掉，不要把唯一的一份放在這裡；要拿回來用 `docker compose cp touka-proxy:/app/workspace/touka-projects/myapp ./myapp`。
+- **從網頁下載**：專案頁每張卡片有「下載」，只有登記這個專案的人（本人）能用。zip 只放 git 追蹤的檔案（`git add` 過的，內容是現在磁碟上的，含還沒 commit 的修改）；專案還沒用 git 管理時不能下載。`.git` 本身、`.env`、連結、子模組、硬連結、Windows 不能用的名稱與檔案總管會自動處理的捷徑類檔案不放，放不進去的列在 zip 裡的 `TOUKA_DOWNLOAD_REPORT.txt`。上限是 5 萬個檔案、512 MB，同時只能有一個人在下載。**zip 裡是代理人寫的程式**：用 VS Code 開時選「不信任」（受限模式），看過再信任，不要直接執行裡面的程式。
 - 工作區掛載點的來源裡會多一個空的 `touka-projects` 資料夾（Docker 建的掛載點）。**放在這裡的東西容器裡看不到**（被 volume 蓋住），專案要照上面放進 volume。
 - 沒有執行器的部署（原生 Windows 開發模式）：路徑用了 `touka-projects` 的專案一律拒絕，不會改用別的方式跑。
 - 你在 Touka 裝了會讀專案內容的 lint 類 hook 時，那個 hook 以 Touka 的權限跑，不受隔離。

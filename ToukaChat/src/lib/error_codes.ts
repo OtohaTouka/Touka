@@ -344,6 +344,12 @@ export const ERRORS = {
     msg: "清不掉這個資料夾上次留下的暫存資料（執行器可能還沒準備好），請稍後再試",
     i18n: "error.project.home_not_cleared"
   },
+  PROJECT_DOWNLOAD_BUSY: {
+    id: 1228,
+    status: 429,
+    msg: "另一個專案下載正在進行，請等它完成再試",
+    i18n: "error.project.download_busy"
+  },
   TERMINAL_APPROVAL_NOT_FOUND: {
     id: 1208,
     status: 404,

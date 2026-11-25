@@ -43,6 +43,15 @@ def test_create_archive_preserves_prefix_and_excludes(src_skill, tmp_path):
     assert not any(".DS_Store" in n for n in names)
 
 
+def test_create_archive_packs_files_older_than_zip_can_store(src_skill, tmp_path):
+    """1980 年以前的檔案時間夾到 1980-01-01，不讓整個打包失敗（ADR-0332 PR B）."""
+    os.utime(src_skill / "SKILL.md", (0, 0))
+    out = tmp_path / "old.skill"
+    resource_manager.create_archive(src_skill, out, arc_base=src_skill.parent)
+    with zipfile.ZipFile(out) as zf:
+        assert zf.getinfo("demo/SKILL.md").date_time == (1980, 1, 1, 0, 0, 0)
+
+
 def test_iter_files_no_50_limit(tmp_path):
     """iter_files 無 50 檔上限 (glob_search 的限制)。"""
     d = tmp_path / "many"

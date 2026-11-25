@@ -2335,6 +2335,30 @@
         "scan_limit": "This folder couldn't be fully checked: it may be too large, or a folder inside had its permissions changed and can't be read. If it's too large, make the project smaller; for permissions, see the project space section of README_QUICKSTART.",
         "executor_no_project_root": "The executor has no project space set up (compose wasn't updated after the upgrade, or the executor is still the old version). Update compose following the upgrade steps, rebuild, then try again.",
         "executor_project_root_mismatch": "The executor's project space location doesn't match Touka's setting. Check the touka-projects settings in compose following the upgrade steps."
+      },
+      "download_button": "Download",
+      "download_aria": "Download project {{name}}",
+      "download_confirm_message": "The zip holds only files tracked by git, and they are code written by agents. When you open it in VS Code, choose \"Don't Trust\" (Restricted Mode) and look through it before trusting it; don't run anything in it straight away.",
+      "download_confirm_button": "Download",
+      "download_in_progress": "Packing…",
+      "download_failed": "Failed to download the project. Try again in a little while.",
+      "download_not_allowed": "Only the project's owner can download it (an old project without an owner is for admins only).",
+      "download_folder_missing": "This project's folder isn't in the project space.",
+      "download_reasons": {
+        "not_dedicated_space": "Only projects in the dedicated project space (touka-projects) can be downloaded from the web page.",
+        "no_git": "This project isn't managed by git yet (there is no .git folder). The download holds only files git tracks, so run git init in the project and add files first.",
+        "git_not_folder": "This project's .git is a file, not a folder (for example a git worktree), so Touka can't read its file list.",
+        "git_is_link": "This project's .git is a shortcut (link). Touka doesn't follow links, so it can't download this project.",
+        "no_index": "Git doesn't track any files yet. Run git add first.",
+        "index_unsupported": "This git's file list uses a format Touka can't read. If split index or sparse index is on, run git update-index --no-split-index or git sparse-checkout disable in the project and try again; SHA-256 repositories can't be downloaded from the web page yet.",
+        "index_invalid": "Git's file list (.git/index) can't be read or is damaged.",
+        "protected_location": "This project's location, or something in it, is protected by Touka, so it can't be downloaded.",
+        "index_too_large": "Git's file list is too large for a download.",
+        "too_many_files": "There are too many files or folders to download.",
+        "too_large": "The files are too large to download.",
+        "walk_too_large": "The project folder has too many entries, or reading it took too long.",
+        "outside_workspace": "This project isn't in the workspace, so it can't be downloaded.",
+        "scan_limit": "Touka hasn't finished checking this project's folder yet (it may still be checking in the background). Try again in a little while. If this keeps happening, the project may be too large, or a folder in it has had its permissions changed and can't be read: make the project smaller, or see the \"Project space\" section of README_QUICKSTART for permissions."
       }
     },
     "project_sidebar_view": {
@@ -2690,7 +2714,8 @@
     "project": {
       "folder_taken": "This folder is already registered as another project. A folder can only be one project.",
       "folder_missing": "This folder isn't in the project space yet. Put the project there first, then register it.",
-      "home_not_cleared": "Touka couldn't clear the temporary data this folder left from last time (the executor may not be ready yet). Try again in a little while."
+      "home_not_cleared": "Touka couldn't clear the temporary data this folder left from last time (the executor may not be ready yet). Try again in a little while.",
+      "download_busy": "Another project download is in progress. Try again when it finishes."
     }
   }
 }

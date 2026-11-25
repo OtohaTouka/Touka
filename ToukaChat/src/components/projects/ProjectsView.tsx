@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useTranslation } from "react-i18next";
-import { Folder, Plus, Calendar, HardDrive, Trash2, AlertCircle } from 'lucide-react';
+import { Folder, Plus, Calendar, HardDrive, Trash2, AlertCircle, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useChat } from '@/lib/providers/ChatProvider';
 import { useModels } from '@/lib/providers/ModelProvider';
@@ -11,16 +11,19 @@ import { getSystemEpoch, formatToTaipeiDate } from '@/lib/time_utils';
 import { toast } from 'sonner';
 import { useProjects, Project } from '@/hooks/useProjects';
 import { projectSaveFailureText } from '@/lib/project_save_wording';
+import { projectDownloadFailureText } from '@/lib/project_download';
 import { useConfirmToast } from '@/hooks/useConfirmToast';
 
 export function ProjectsView() {
     const { t } = useTranslation();
     const { handleNewSession } = useChat();
     const { availableModels } = useModels();
-    const { projects, isLoading, fetchProjects, saveProject, deleteProject } = useProjects();
+    const { projects, isLoading, fetchProjects, saveProject, deleteProject, downloadProject } = useProjects();
     const { confirmToast } = useConfirmToast();
     const [isAdding, setIsAdding] = useState(false);
-    
+    // 正在打包下載的專案（伺服器同時只做一個，打包時按鈕停用）
+    const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
     // Form state
     const [form, setForm] = useState({
         name: '',
@@ -63,6 +66,23 @@ export function ProjectsView() {
         );
     };
 
+
+    // 下載專用空間的專案（ADR-0332 PR B）：zip 裡是代理人寫的程式，先提醒用 VS Code 時選不信任。
+    const handleDownload = (project: Project) => {
+        confirmToast(
+            t('projects.projects_view.download_confirm_message'),
+            async () => {
+                setDownloadingId(project.id);
+                try {
+                    const result = await downloadProject(project);
+                    if (!result.ok) toast.error(projectDownloadFailureText(t, result));
+                } finally {
+                    setDownloadingId(null);
+                }
+            },
+            t('projects.projects_view.download_confirm_button'),
+        );
+    };
 
     const startProjectSession = (project: Project) => {
         if (availableModels.length > 0) {
@@ -192,6 +212,18 @@ export function ProjectsView() {
                                         onClick={() => startProjectSession(project)}
                                     >
                                         <Plus size={14} /> {t('projects.projects_view.open_session_button')}
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        aria-label={t('projects.projects_view.download_aria', { name: project.name })}
+                                        className="rounded-xl font-bold text-xs gap-2 py-5"
+                                        disabled={downloadingId !== null}
+                                        onClick={() => handleDownload(project)}
+                                    >
+                                        <Download size={14} />{' '}
+                                        {downloadingId === project.id
+                                            ? t('projects.projects_view.download_in_progress')
+                                            : t('projects.projects_view.download_button')}
                                     </Button>
                                 </div>
                             </div>

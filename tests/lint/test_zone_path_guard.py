@@ -3982,6 +3982,16 @@ T3_ALLOWED: dict[str, tuple[int, str]] = {
         1,
         "關掉事前的包含判斷，證明走訪途中遇到區根仍整個拒絕（第二道檢查）",
     ),
+    "tests.unit.test_resource_manager_string_zone:"
+    "test_a_drive_met_during_the_download_walk_refuses_it": (
+        1,
+        "關掉事前的包含判斷，證明下載的走訪途中遇到區根仍整個拒絕（第二道檢查）",
+    ),
+    "tests.unit.test_project_download_security:"
+    "test_a_download_that_reaches_an_agent_folder_is_refused": (
+        1,
+        "關掉事前的包含判斷，證明下載途中遇到區根仍整個拒絕、不留 zip（第二道檢查）",
+    ),
     "tests.unit.test_resource_manager_zone:events": (2, _OBSERVE),
     "tests.unit.test_zone_paths:_same_identity": (1, _ALIAS),
     "tests.unit.test_zone_paths:events": (2, _OBSERVE),

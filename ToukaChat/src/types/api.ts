@@ -5748,6 +5748,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ui/projects/{project_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Project
+         * @description 下載專用空間的專案（ADR-0332 PR B）：只放 git 名單上的檔案，zip 送完就刪.
+         */
+        get: operations["download_project_v1_ui_projects__project_id__download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ui/mission": {
         parameters: {
             query?: never;
@@ -6085,6 +6105,26 @@ export interface paths {
          * @description 遞迴掃描專案目錄並生成 JSON 格式的檔案樹。
          */
         get: operations["get_project_files_ui_projects__project_id__files_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ui/projects/{project_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Project
+         * @description 下載專用空間的專案（ADR-0332 PR B）：只放 git 名單上的檔案，zip 送完就刪.
+         */
+        get: operations["download_project_ui_projects__project_id__download_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -21287,6 +21327,37 @@ export interface operations {
             };
         };
     };
+    download_project_v1_ui_projects__project_id__download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_current_mission_v1_ui_mission_get: {
         parameters: {
             query?: never;
@@ -21859,6 +21930,37 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_project_ui_projects__project_id__download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
