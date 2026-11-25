@@ -55,7 +55,7 @@ describe('IsolationNotice — executor deployments (C2-2)', () => {
     expect(lead()).toMatch(/^這個專案（或資料夾）不在執行器裡，這次會在 Touka 主容器內以檔案隔離執行：/);
     expect(lead()).toContain('；但擋不住它連到 Touka 內部服務與本機上游埠');
     const [project, net] = reasonLines();
-    expect(project).toContain('專案資料夾沒有掛進執行器');
+    expect(project).toContain('專案不在專用空間（touka-projects）裡');
     expect(net).toContain('net.mptcp.enabled: 0');
     expect(net).toContain('touka-proxy 與 touka-executor');
   });
@@ -171,7 +171,7 @@ describe('IsolationNotice — executor deployments (C2-2)', () => {
     ['executor_restarted', /重新啟動過/],
     ['executor_rejected', /執行器拒絕了這條指令/],
     ['agent_dir_not_in_executor', /代理人的資料夾不在執行器裡/],
-    ['project_not_in_executor', /專案資料夾沒有掛進執行器/],
+    ['project_not_in_executor', /專案不在專用空間[\s\S]*放進專用空間再登記/],
     ['block_ports_incomplete', /約半分鐘內會自動恢復/],
     ['block_ports_overflow', /超過 1024 個/],
     ['interpreter_untrusted', /啟動隔離的 Python 不可信[\s\S]*docker compose up -d --build[\s\S]*Python 的安裝位置/],
