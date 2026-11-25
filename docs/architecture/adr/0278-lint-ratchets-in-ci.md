@@ -122,7 +122,7 @@
      - 範圍有兩組：`PRODUCT_SOURCE_ROOTS`（完整 ruff、CI F 步驟）與 Guard #44 的 `SCAN_DIRS`。
   2. **連結與子模組**：範圍內不准有（git mode 120000、160000），ruff 不跟進去。
   3. **設定允許清單**：`ruff.toml` 最上層只准有 `target-version`、`line-length`、`extend-include`、`lint`；`extend-include` 只能是 `["*.pyw"]`；`[lint]` 不准有含 `exclude` 的鍵。`[lint] exclude` 的檔 `--show-files` 照樣會列，比對抓不到，只能靠這條擋。
-  4. **指令整組釘住**：`collect_ruff`、Guard #44 與 CI F 步驟（`test_ci_pr_checks`）的指令都要整組相等。挑檔參數只寫在 `lint_ratchet.RUFF_CHECK_ARGS` 一處，這個常數本身也以字面值釘住（否則常數和 CI 一起改時，三個釘子都跟著變、不會紅）；CI F 步驟為此調成 `ruff check --no-cache --config ruff.toml --select F <五個資料夾>`，只換參數順序。
+  4. **指令整組釘住**：`collect_ruff`、Guard #44 與 CI F 步驟（`test_ci_pr_checks`）的指令都要整組相等。挑檔參數只寫在 `lint_ratchet.RUFF_CHECK_ARGS` 一處，這個常數本身也以字面值釘住（否則常數和 CI 一起改時，`collect_ruff` 與 CI F 步驟兩個釘子都跟著變、不會紅；Guard #44 的釘子是字面值）；CI F 步驟為此調成 `ruff check --no-cache --config ruff.toml --select F <五個資料夾>`，只換參數順序。
   - git 與檢查工具都經 `lint_ratchet._run` 這一個子程序入口，不經 shell。下列情況都當失敗，各有不同訊息：git 找不到或異常結束、ruff 異常結束、範圍資料夾不見、一個 Python 檔都沒列出。
   - `ruff.toml` 加 `extend-include = ["*.pyw"]`，`.pyw` 也會被檢查。repo 目前沒有 `.pyw`，基準不變。
 - **本機和 CI 的差異**：`.git/info/exclude` 與全域 gitignore 只在本機有。用它們藏的已追蹤檔，以及還沒 add、放在 `dist` 這類資料夾的新檔，只有本機會紅。
