@@ -195,8 +195,8 @@ async def stop_agent_commands(identity: AgentIdentity, *, error: Exception | Non
     ``error`` 是寫進紀錄的原因，預設是「正在重置或刪除」；派子代理的那一輪結束時用
     ``ParentTurnEndedError``（ADR-0333）。
     """
-    key = identity.agent_id.casefold()
     reason = error if error is not None else AgentBusyError()
+    key = identity.agent_id.casefold()
     for record in _ASYNC_RESULTS.values():
         if str(record.get("agent_id", "")).casefold() == key and record["status"] in _UNFINISHED:
             record["status"] = "stopped"

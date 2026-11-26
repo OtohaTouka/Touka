@@ -877,7 +877,7 @@ async def _dispatch_and_wait(
     parent_stream_id: str | None = None,
     why: str = _NO_BOARD_WAIT,
 ) -> str:
-    """沒有看板工具時：等子代理做完，直接把結果放進工具回覆（ADR-0316 PR 2 補記）。
+    """沒有看板工具、或子代理能跑指令時：等它做完，直接把結果放進工具回覆（ADR-0316、ADR-0333）。
 
     和 ``run_subagent_group`` 同一條路（同一個 ``_run_subagent``）；不產生憑證、不寫耐久結果。
     """
@@ -927,7 +927,8 @@ async def dispatch_subagent(
 
     立即回傳 ``callback_token``；主 agent 之後以
     ``mission_tools(action="await_dispatch_result", callback_token=...)`` 等待結果。
-    這一輪沒列 ``mission_tools`` 時改成等子代理做完、直接帶回結果（``_dispatch_and_wait``）。
+    這一輪沒列 ``mission_tools``、或子代理能在專案裡跑指令（ADR-0333）時，改成等它做完、直接
+    帶回結果（``_dispatch_and_wait``）。
 
     Args:
         goal: 子任務目標與完整指示（子代理只看得到這段，必須自包含）。
