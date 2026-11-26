@@ -6,7 +6,7 @@
 
 from typing import Any
 
-from src.utils.auth_mode import normalize_auth_mode
+from src.utils.auth_mode import AUTO_MODES, normalize_auth_mode
 
 # 這些 run 都沒有人在場：子代理只收文字（卡會被吞掉）、派工是代理人交辦、心跳是排程。
 # 判斷只看伺服器設定的情境標記，不看角色名稱。
@@ -17,10 +17,10 @@ SUBAGENT_PROJECT_COMMANDS = "subagent_project_commands"  # 這個子代理能在
 PARENT_SESSION_ID = "parent_session_id"  # 派它的對話（擋下次數合併計算、停止）
 PARENT_STREAM_ID = "parent_stream_id"  # 派它的那一輪的回覆串流（那一輪結束就不能再跑）
 PARENT_IDENTITY = "parent_identity"  # 派它的靈魂（審查員的費用記在這裡）
+# 這一輪自己的回覆串流（dispatcher 建好串流緩衝後寫；沒有串流的請求沒有）
+TURN_STREAM_ID = "turn_stream_id"
 # 派它的那一輪結束、指令被收掉或不開時給模型看的原因碼（政策與終端共用）
 PARENT_TURN_ENDED = "parent_turn_ended"
-# 子代理能跑指令的模式：Manual 要人逐條按卡，子代理那邊沒有卡
-SUBAGENT_COMMAND_MODES = frozenset({"Auto", "YOLO"})
 
 
 def is_human_present(ctx: Any) -> bool:
@@ -36,14 +36,15 @@ def subagent_project_commands(
     """派出時判斷：這個子代理能不能在專案裡跑指令（ADR-0333）。
 
     全部成立才算：派它的那一輪有人在場、有對話（停止監看看得到）、有回覆串流（``stream_id``）、
-    不是無痕、派出時的模式是 Auto 或 YOLO；專案在專用空間（``dedicated``）；不是只能看。
+    不是無痕、派出時的模式是 Auto 或 YOLO（Manual 要逐條按卡，子代理那邊沒有卡）；專案在專用空間
+    （``dedicated``）；不是只能看。
     """
     return (
         is_human_present(parent_ctx)
         and bool(parent_ctx.get("session_id"))
         and bool(stream_id)
         and not parent_ctx.get("incognito")
-        and normalize_auth_mode(parent_ctx.get("auth_level")) in SUBAGENT_COMMAND_MODES
+        and normalize_auth_mode(parent_ctx.get("auth_level")) in AUTO_MODES
         and dedicated
         and not read_only
     )

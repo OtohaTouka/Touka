@@ -138,11 +138,16 @@ PROJECT_NOTE = '這個任務可以用對話綁定的專案：檔案工具帶 sco
 READ_ONLY_NOTE = "你只能查看，不能修改任何檔案；發現的問題請寫在回報裡。"
 # 窄開關打開時（ADR-0333）：怎麼在專案裡跑指令、什麼情況會被拒
 COMMANDS_NOTE = (
-    "這個專案裡可以用 execute_command 跑指令：指令從專案根目錄開始，路徑用相對路徑；"
-    "前景指令最多 30 秒，跑測試這類長指令加 background=true，再用 get_command_result 取結果。"
+    "這個專案裡可以用 execute_command 跑指令：指令從專案根目錄開始，路徑用相對路徑，子資料夾用"
+    "工具自己的參數（例如 pytest web/tests、npm --prefix web test）；前景指令最多 30 秒，跑測試"
+    "這類長指令加 background=true，再用 get_command_result（可帶 wait_seconds）取結果。"
     "Auto 模式每條指令都先送審查員，被拒絕不要重試，寫進回報交給派你的主代理；"
-    "不要用 $(...)、反引號，也不要用 ;、|、&& 串接指令。派你的那一輪結束後就不能再跑指令。"
+    "不要用 $(...)、反引號、$變數、> 寫檔，也不要用 ;、|、&& 串接指令。"
+    "派你的那一輪結束後就不能再跑指令。"
 )
+# 同步派工時告訴主代理為什麼等做完才回
+_NO_BOARD_WAIT = "因為這一輪沒有任務看板工具（mission_tools），這次等子代理做完才回。"
+_COMMANDS_WAIT = "因為這個子代理能在專案裡跑指令（你這一輪結束就會被收掉），這次等它做完才回。"
 
 # --------------------------------------------------------------------------- #
 # 內部：子代理請求組裝與子 loop 執行
@@ -491,15 +496,16 @@ async def _run_subagent(
 
 
 async def _subagent_scope(
-    base_ctx: Any, sub_identity: AgentIdentity, read_only: bool, parent_stream_id: str | None
+    base_ctx: Any, identity: AgentIdentity | None, read_only: bool, parent_stream_id: str | None
 ) -> SubagentScope:
     """派出時算一次這個子代理碰得到什麼（ADR-0309、ADR-0333）。"""
     project_id = await session_project_id(base_ctx, base_ctx.get("session_id"))
     # 對話的 project_id 可能只是佔位值（心跳建的家是 "default"）：解析得到路徑才算有專案
-    root = await resource_manager.get_project_path(project_id, sub_identity) if project_id else None
-    dedicated = bool(root) and structural_scope(Path(root), configured_projects_root()).dedicated
+    root = await resource_manager.get_project_path(project_id, identity) if project_id else None
+    # 專用空間裡被拒的形狀（路上有連結、第二層以下…）不打開：每條指令都會被拒
+    usable = bool(root) and structural_scope(Path(root), configured_projects_root()).kind == "ok"
     commands = subagent_project_commands(
-        base_ctx, dedicated=dedicated, read_only=read_only, stream_id=parent_stream_id
+        base_ctx, dedicated=usable, read_only=read_only, stream_id=parent_stream_id
     )
     return SubagentScope(project_id, bool(root), read_only, commands, parent_stream_id)
 
@@ -582,7 +588,10 @@ async def _cancel_when_parent_stops(
             task.cancel()
             return
         if turn is not None and turn.turn_over():
-            await turn.collect()
+            try:
+                await turn.collect()
+            except Exception:  # 這次沒收到下次再收；監看不能停（停止鈕也靠它）
+                logger.exception("Collecting a sub-agent's commands after its turn failed")
         await asyncio.sleep(STOP_CHECK_SECONDS)
 
 
@@ -847,6 +856,15 @@ def _can_await_later(ctx: Any) -> bool:
     return "mission_tools" in advertised.native
 
 
+async def _needs_turn(
+    ctx: Any, identity: AgentIdentity | None, read_only: bool, stream_id: str | None
+) -> bool:
+    """能在專案裡跑指令的子代理一律等它做完：先回憑證的話，那一輪一結束指令就被收掉（ADR-0333）."""
+    if not subagent_project_commands(ctx, dedicated=True, read_only=read_only, stream_id=stream_id):
+        return False  # 不必查專案
+    return (await _subagent_scope(ctx, identity, read_only, stream_id)).project_commands
+
+
 async def _dispatch_and_wait(
     *,
     goal: str,
@@ -857,6 +875,7 @@ async def _dispatch_and_wait(
     task_id: str | None,
     read_only: bool,
     parent_stream_id: str | None = None,
+    why: str = _NO_BOARD_WAIT,
 ) -> str:
     """沒有看板工具時：等子代理做完，直接把結果放進工具回覆（ADR-0316 PR 2 補記）。
 
@@ -882,8 +901,7 @@ async def _dispatch_and_wait(
         _log_failure(exc, "in-process subagent (sync dispatch)")
         payload = _result_from_error(exc, label)
     return tool_errors.build_tool_success(
-        f"子代理（{label}）已結束：{_OUTCOME_WORDS[_outcome(payload)]}。因為這一輪沒有任務看板工具"
-        "（mission_tools），這次等子代理做完才回。",
+        f"子代理（{label}）已結束：{_OUTCOME_WORDS[_outcome(payload)]}。{why}",
         result=payload,
         dispatch_mode="in-process-sync",
     )
@@ -937,8 +955,13 @@ async def dispatch_subagent(
     # 派它的那一輪：在第一個 await 之前記下（ADR-0333）
     parent_stream_id = current_stream_id(_ctx)
 
-    if not _can_await_later(_ctx):
+    board = _can_await_later(_ctx)
+    commands = board and await _needs_turn(
+        _ctx, identity, _is_read_only(read_only), parent_stream_id
+    )
+    if commands or not board:
         return await _dispatch_and_wait(
+            why=_COMMANDS_WAIT if commands else _NO_BOARD_WAIT,
             goal=str(goal),
             identity=identity,
             request_id=request_id,

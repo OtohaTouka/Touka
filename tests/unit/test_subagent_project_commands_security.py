@@ -5,7 +5,7 @@
 - 綁的是專用空間的專案。
 - 不是只能看的子代理。
 - 派出時是 Auto 或 YOLO；無痕一律不行。
-- 派它的那一輪（比對串流編號）還在回覆。
+- 派它的那一輪（比對那一輪自己的串流編號）還在回覆；能跑指令的子代理一律等它做完才回。
 
 能跑時一律在執行器裡跑；Auto 每條送審查員（不看全域的 ``headless_terminal``），審查員的費用記在
 派它的靈魂身上，擋下次數和派它的對話合併計算。那一輪結束後，指令被收掉（原因寫明），之後也不能
@@ -25,7 +25,11 @@ from src.models.advertised_tools import AdvertisedTools
 from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.models.policy import PolicyContext
-from src.models.safety import SUBAGENT_DENY_PREFIX, AuthPoliciesConfig
+from src.models.safety import (
+    PROJECT_SPACE_DENY_PREFIX,
+    SUBAGENT_DENY_PREFIX,
+    AuthPoliciesConfig,
+)
 from src.services import auto_reviewer as reviewer_module
 from src.services import parent_turn
 from src.services import tool_executor as executor_module
@@ -34,7 +38,7 @@ from src.services.isolation import policy as policy_module
 from src.services.isolation.agent_command import CommandScope
 from src.services.isolation.consent import ExecutionGrant
 from src.services.isolation.executor_session import PROJECT_ROOT_NAME
-from src.services.isolation.status import LevelDecision
+from src.services.isolation.status import PROJECT_NOT_IN_EXECUTOR, LevelDecision
 from src.services.parent_turn import ParentTurnEndedError
 from src.services.resource_manager import resource_manager
 from src.services.stream_buffer_service import stream_buffer_service
@@ -47,6 +51,7 @@ from src.utils.presence import (
     PARENT_STREAM_ID,
     PARENT_TURN_ENDED,
     SUBAGENT_PROJECT_COMMANDS,
+    TURN_STREAM_ID,
     commands_attended,
     subagent_project_commands,
 )
@@ -79,6 +84,7 @@ from tests.unit.test_subagent_project_access import (  # noqa: F401 — fixture
 SOUL = AgentIdentity.for_role(agent_id="SeiaSoul", role="Owner", is_human=False)
 SUB = AgentIdentity.for_role(agent_id="__subagent_cmdprobe__", role="Subagent")
 EXAMPLE = Path(__file__).resolve().parents[2] / "ToukaProxy" / "config"
+COMMAND_TOOLS = {"execute_command", "get_command_result", "stop_command"}
 
 
 @pytest.fixture(autouse=True)
@@ -200,11 +206,15 @@ async def test_parent_turn_active_needs_the_flag_and_the_same_stream(stream):
     assert not parent_turn.subagent_turn_over({"identity": SOUL})  # 不是這種子代理
 
 
-async def test_current_stream_id_reads_the_dispatching_turn(stream):
+async def test_current_stream_id_only_reads_the_requests_own_turn(stream):
     stream_id = await stream("s-parent")
-    assert parent_turn.current_stream_id({"session_id": "s-parent"}) == stream_id
-    assert parent_turn.current_stream_id({"session_id": None}) is None
+    own = {"session_id": "s-parent", TURN_STREAM_ID: stream_id}
+    assert parent_turn.current_stream_id(own) == stream_id
+    # 同一個對話裡沒有自己串流的請求（例如 stream:false 的 API 腳本）借不到網頁那一輪
+    assert parent_turn.current_stream_id({"session_id": "s-parent"}) is None
     assert parent_turn.current_stream_id({}) is None
+    await stream("s-parent")  # 被新的一輪取代之後，舊一輪的工具也拿不到新編號
+    assert parent_turn.current_stream_id(own) is None
 
 
 # ── 政策（工具清單與執行兩道關卡）──────────────────────────────────
@@ -308,6 +318,65 @@ def test_other_tools_and_souls_are_not_touched():
                       environment={"auth_level": "Auto", "isolation": "executor"})
     )
     assert soul.effect == "REVIEW"
+
+
+@pytest.mark.parametrize("tool", ["get_command_result", "stop_command"])
+def test_the_result_and_stop_tools_follow_the_switch(tool):
+    def _check(**env: Any):
+        base = {"auth_level": "Auto", "subagent_run": True, **env}
+        return _policy().evaluate(
+            PolicyContext(actor=SUB, resource=tool, action="tool_call", environment=base)
+        )
+
+    off = _check(subagent_project_commands=False, parent_turn_active=False)
+    assert (off.effect, off.reason) == ("DENY", f"{SUBAGENT_DENY_PREFIX}not_allowed")
+    assert _check(subagent_project_commands=True, parent_turn_active=True).effect == "ALLOW"
+
+
+def test_a_refused_project_also_tells_a_subagent_to_report_back():
+    for reason in ("project_linked", "project_space_unavailable"):
+        _message, suggestion = policy_module.denial_text(
+            "execute_command", "Subagent", f"{PROJECT_SPACE_DENY_PREFIX}{reason}"
+        )
+        assert "agent that dispatched you" in suggestion
+    _message, soul = policy_module.denial_text(
+        "execute_command", "Owner", f"{PROJECT_SPACE_DENY_PREFIX}project_linked"
+    )
+    assert "tell the user" in soul  # 靈魂照舊
+
+
+async def test_a_subagent_never_runs_outside_a_dedicated_project(monkeypatch, tmp_path):
+    """派出後專案被刪或查不到：不退回自己的個人空間（層級 none，政策以 needs_executor 拒）。"""
+    level_for = AsyncMock(return_value=LevelDecision("executor"))
+    monitor = policy_module.isolation_monitor
+    monkeypatch.setattr(monitor, "ensure_ready", AsyncMock())
+    monkeypatch.setattr(monitor, "level_for", level_for)
+    monkeypatch.setattr(policy_module, "session_project_root", _no_root)
+    monkeypatch.setattr(policy_module, "configured_projects_root", lambda: tmp_path)
+    decision, root = await policy_module._decide(
+        SUB, _sub_ctx("t1"), None, "execute_command", True
+    )
+    assert (decision.level, decision.reason, root) == ("none", PROJECT_NOT_IN_EXECUTOR, None)
+    level_for.assert_not_called()
+    await policy_module._decide(SOUL, {"resumable_stream": True}, None, "execute_command", True)
+    level_for.assert_awaited_once()  # 靈魂照舊
+
+
+async def test_a_switched_on_subagent_counts_as_attended_for_its_project(monkeypatch, tmp_path):
+    """專用空間的專案：窄開關打開的子代理拿到 executor（在場），不是 project_unattended。"""
+    project = tmp_path / "repo"
+    level_for = AsyncMock(return_value=LevelDecision("executor"))
+    monitor = policy_module.isolation_monitor
+    monkeypatch.setattr(monitor, "ensure_ready", AsyncMock())
+    monkeypatch.setattr(monitor, "level_for", level_for)
+
+    async def _root(_ctx: Any, _session: Any) -> Path:
+        return project
+
+    monkeypatch.setattr(policy_module, "session_project_root", _root)
+    monkeypatch.setattr(policy_module, "configured_projects_root", lambda: tmp_path)
+    await policy_module._decide(SUB, _sub_ctx("t1"), None, "execute_command", True)
+    assert level_for.await_args.kwargs["attended"] is True
 
 
 def test_denial_text_tells_the_subagent_to_report_back():
@@ -492,6 +561,23 @@ async def test_a_command_after_the_turn_ended_is_not_started(space, stream):  # 
     assert PARENT_TURN_ENDED in result
 
 
+async def test_a_subagent_never_uses_the_old_approval_channel(
+    space, stream, monkeypatch  # noqa: F811 — fixture
+):
+    """YOLO 下的串接指令要人確認：子代理一律拒絕，ToukaUI 開著也不跳舊審批卡。"""
+    stream_id = await stream("s-parent")
+    monkeypatch.setattr(terminal, "_is_touka_ui_available", lambda: True)
+    result = await terminal.execute_command(
+        "ls; ls", SUB, auth_level="YOLO", session_id=None, _call_id="c-chain",
+        _ctx={**_terminal_ctx(stream_id), "auth_level": "YOLO"},
+    )
+    assert "ui_unavailable" in result
+    assert space.spawn.calls == []
+    assert not any(
+        r.get("status") == "approval_pending" for r in terminal._ASYNC_RESULTS.values()
+    )
+
+
 async def test_a_foreground_command_killed_at_the_end_of_the_turn_says_why(
     monkeypatch, stream
 ):
@@ -575,6 +661,70 @@ async def test_the_watch_keeps_collecting_commands_after_the_turn_ends(monkeypat
     await asyncio.wait_for(watch, WAIT_S)
 
 
+async def test_the_watch_survives_a_failed_collection(monkeypatch, stream):
+    stream_id = await stream("s-parent")
+    tries: list[int] = []
+
+    async def _broken(identity: AgentIdentity, *, error: Exception | None = None) -> int:
+        tries.append(1)
+        raise OSError
+
+    monkeypatch.setattr(subagent_tools, "stop_agent_commands", _broken)
+    monkeypatch.setattr(subagent_tools, "STOP_CHECK_SECONDS", 0.01)
+    gate = asyncio.Event()
+    work = asyncio.create_task(gate.wait())
+    turn = subagent_tools._TurnCommands(SUB, "s-parent", stream_id)
+    watch = asyncio.create_task(
+        subagent_tools._cancel_when_parent_stops(
+            {"session_id": "s-parent"}, work, asyncio.Event(), turn
+        )
+    )
+    await stream_buffer_service.finish("s-parent", stream_id=stream_id)
+    await asyncio.sleep(0.08)
+    assert len(tries) >= 2 and not watch.done()  # 收失敗也繼續看（停止鈕靠它）
+    gate.set()
+    await asyncio.wait_for(watch, WAIT_S)
+
+
+async def test_a_real_run_collects_after_its_turn_and_bills_the_soul(monkeypatch, stream):
+    """接線：_run_subagent 自己建監看；子代理的 ctx 記著派它的靈魂與那一輪。"""
+    stream_id = await stream("s-parent")
+    collected: list[Any] = []
+    seen: dict[str, Any] = {}
+    release = asyncio.Event()
+
+    async def _stop(identity: AgentIdentity, *, error: Exception | None = None) -> int:
+        collected.append(type(error))
+        return 0
+
+    async def _scope(*_args: Any) -> subagent_tools.SubagentScope:
+        return subagent_tools.SubagentScope(None, False, False, True, stream_id)
+
+    async def _work(**kwargs: Any) -> str:
+        ctx = PipelineContext()
+        subagent_tools._mark_subagent_run(ctx, kwargs["base_ctx"], "做", kwargs["scope"])
+        seen.update({key: ctx.get(key) for key in (PARENT_IDENTITY, PARENT_STREAM_ID)})
+        await release.wait()
+        return "完成"
+
+    monkeypatch.setattr(subagent_tools, "stop_agent_commands", _stop)
+    monkeypatch.setattr(subagent_tools, "_subagent_scope", _scope)
+    monkeypatch.setattr(subagent_tools, "_assemble_and_run", _work)
+    monkeypatch.setattr(subagent_tools, "STOP_CHECK_SECONDS", 0.01)
+    run = asyncio.create_task(subagent_tools._run_subagent(
+        goal="做", parent_identity=SOUL, parent_request_id="p", model="m",
+        base_ctx={**_parent(), "identity": SOUL}, parent_stream_id=stream_id,
+    ))
+    await asyncio.sleep(0.05)
+    assert seen == {PARENT_IDENTITY: SOUL, PARENT_STREAM_ID: stream_id}
+    assert collected == []
+    await stream_buffer_service.finish("s-parent", stream_id=stream_id)
+    await asyncio.sleep(0.05)
+    assert ParentTurnEndedError in collected and not run.done()
+    release.set()
+    await asyncio.wait_for(run, WAIT_S)
+
+
 async def test_a_finished_subagent_also_stops_its_commands(monkeypatch):
     stopped: list[str] = []
 
@@ -606,7 +756,10 @@ async def test_dispatch_records_the_turn_before_any_await(monkeypatch, stream):
         return "{}"
 
     monkeypatch.setattr(subagent_tools, "_dispatch_and_wait", _wait)
-    ctx = {**_parent(), "advertised_tools": AdvertisedTools.from_schemas([])}  # 沒有看板工具
+    ctx = {  # 沒有看板工具
+        **_parent(**{TURN_STREAM_ID: stream_id}),
+        "advertised_tools": AdvertisedTools.from_schemas([]),
+    }
     await subagent_tools.dispatch_subagent(goal="做", identity=SOUL, request_id="r", _ctx=ctx)
     assert seen == [stream_id]
 
@@ -622,7 +775,8 @@ async def test_a_group_records_the_turn_before_waiting_for_a_slot(monkeypatch, s
 
     monkeypatch.setattr(subagent_tools, "_run_subagent", _one)
     await subagent_tools.dispatch_subagent_group(
-        subtasks=[{"goal": "a"}, {"goal": "b"}], identity=SOUL, request_id="r", _ctx=_parent()
+        subtasks=[{"goal": "a"}, {"goal": "b"}], identity=SOUL, request_id="r",
+        _ctx=_parent(**{TURN_STREAM_ID: stream_id}),
     )
     assert seen == [stream_id, stream_id]
 
@@ -653,7 +807,8 @@ async def _advertised_for(session_id: str, mode: str, *, read_only: bool = False
         protocol_manager=MagicMock(get_all_tools=AsyncMock(return_value=[])),
         tool_registry=tool_registry, memory_tool_registry={}, plugin_registry={},
         request_id="parent", t0=0.0, agent_id=A.agent_id, identity=A, session_id=session_id,
-        auth_level=mode, resumable_stream=True, **extra,
+        auth_level=mode, resumable_stream=True,
+        turn_stream_id=stream_buffer_service.active_stream_id(session_id), **extra,
     )
     stream_id = parent_turn.current_stream_id(parent)
     await subagent_tools._run_subagent(
@@ -667,13 +822,14 @@ async def _advertised_for(session_id: str, mode: str, *, read_only: bool = False
 async def test_the_command_tool_is_listed_only_in_auto_and_yolo(dedicated, stream, mode, listed):
     session_id = await _bind(dedicated / "repo", "repo")
     await stream(session_id)
-    assert ("execute_command" in await _advertised_for(session_id, mode)) is listed
+    tools = COMMAND_TOOLS & set(await _advertised_for(session_id, mode))
+    assert tools == (COMMAND_TOOLS if listed else set())  # 取結果、停指令也跟著開關
 
 
 async def test_a_read_only_subagent_does_not_get_it(dedicated, stream):
     session_id = await _bind(dedicated / "repo", "repo")
     await stream(session_id)
-    assert "execute_command" not in await _advertised_for(session_id, "YOLO", read_only=True)
+    assert not COMMAND_TOOLS & set(await _advertised_for(session_id, "YOLO", read_only=True))
 
 
 async def test_without_a_streaming_turn_it_does_not_get_it(dedicated):
@@ -687,7 +843,7 @@ async def test_a_heartbeat_subagent_does_not_get_it(dedicated, stream):
     advertised = await _advertised_for(
         session_id, "YOLO", heartbeat_run=True, enable_autonomy=True
     )
-    assert "execute_command" not in advertised
+    assert not COMMAND_TOOLS & set(advertised)
 
 
 async def test_a_project_outside_the_dedicated_space_does_not_get_it(
@@ -696,3 +852,53 @@ async def test_a_project_outside_the_dedicated_space_does_not_get_it(
     session_id = await _bind(world / "elsewhere", "elsewhere")
     await stream(session_id)
     assert "execute_command" not in await _advertised_for(session_id, "YOLO")
+
+
+async def test_a_refused_shape_in_the_dedicated_space_does_not_get_it(dedicated, stream):
+    session_id = await _bind(dedicated / "outer" / "inner", "nested")  # 第二層：每條指令都會被拒
+    await stream(session_id)
+    assert not COMMAND_TOOLS & set(await _advertised_for(session_id, "YOLO"))
+
+
+async def test_a_subagent_that_can_run_commands_is_always_awaited(dedicated, stream, monkeypatch):
+    """列了看板工具也一樣：先回憑證的話，你這一輪一結束它的指令就被收掉。"""
+    session_id = await _bind(dedicated / "repo", "repo")
+    stream_id = await stream(session_id)
+    waited: list[str] = []
+
+    async def _wait(**kwargs: Any) -> str:
+        waited.append(kwargs["why"])
+        return "{}"
+
+    async def _background(**_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(subagent_tools, "_dispatch_and_wait", _wait)
+    monkeypatch.setattr(subagent_tools, "_run_and_deliver", _background)
+    board = AdvertisedTools(native=frozenset({"dispatch_subagent", "mission_tools"}))
+    ctx = {
+        **_parent(session_id=session_id, **{TURN_STREAM_ID: stream_id}),
+        "identity": A, "advertised_tools": board,
+    }
+    await subagent_tools.dispatch_subagent(goal="做", identity=A, request_id="r", _ctx=ctx)
+    assert waited == [subagent_tools._COMMANDS_WAIT]
+    result = await subagent_tools.dispatch_subagent(
+        goal="做", identity=A, request_id="r", _ctx={**ctx, "auth_level": "Manual"}
+    )
+    assert "callback_token" in result and len(waited) == 1  # 不能跑指令的照舊回憑證
+
+
+async def test_assembled_after_the_turn_ended_it_does_not_get_it(dedicated, stream, monkeypatch):
+    """派出時打開，但組裝工具清單前那一輪就結束了：工具清單那一關也擋。"""
+    session_id = await _bind(dedicated / "repo", "repo")
+    stream_id = await stream(session_id)
+    original = subagent_tools._subagent_scope
+
+    async def _then_end(*args: Any) -> subagent_tools.SubagentScope:
+        scope = await original(*args)
+        assert scope.project_commands
+        await stream_buffer_service.finish(session_id, stream_id=stream_id)
+        return scope
+
+    monkeypatch.setattr(subagent_tools, "_subagent_scope", _then_end)
+    assert not COMMAND_TOOLS & set(await _advertised_for(session_id, "YOLO"))

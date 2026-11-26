@@ -32,6 +32,7 @@ from src.services.isolation.status import (
     CHECK_FAILED,
     EXECUTOR_UNREACHABLE,
     PROBE_PENDING,
+    PROJECT_NOT_IN_EXECUTOR,
     LevelDecision,
     isolation_monitor,
 )
@@ -138,12 +139,16 @@ async def _decide(
     if tool == "scaffold_mcp":
         return isolation_monitor.local_level(), None
     project_root = await session_project_root(ctx, session_id) if tool in PROJECT_TOOLS else None
+    projects = configured_projects_root()
+    if ctx.get("subagent_run") is True and not structural_scope(project_root, projects).dedicated:
+        # 子代理只在專用空間的專案裡跑指令，不退回自己的個人空間（ADR-0333）
+        return LevelDecision("none", PROJECT_NOT_IN_EXECUTOR), project_root
     attended = commands_attended(ctx)
     try:
         decision = await isolation_monitor.level_for(identity, project_root, attended=attended)
     except Exception:
         # 專用空間的專案判定出錯也直接拒絕、不跳卡（ADR-0332）；其他照舊交給外層當成 none
-        if not structural_scope(project_root, configured_projects_root()).dedicated:
+        if not structural_scope(project_root, projects).dedicated:
             raise
         logger.exception("Isolation level check failed for a project space command (%s)", tool)
         return LevelDecision("none", CHECK_FAILED, refused=True), project_root
@@ -206,6 +211,8 @@ def denial_text(tool: str, role: str, reason: str | None) -> tuple[str, str]:
         f"Commands in this project cannot run ({refused}): projects in the dedicated project "
         "space only run in the isolated executor, and this one did not pass its checks."
     )
+    if role == "Subagent":  # 子代理碰不到使用者，交回派它的主代理（ADR-0333）
+        return message, f"Do not retry the command; {no_human_followup({'subagent_run': True})}."
     if refused in _TEMPORARY_REFUSALS:
         return message, (
             "This is usually temporary; you may try again in a few minutes. "

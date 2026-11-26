@@ -3537,7 +3537,8 @@
           "model",
           "task_id",
           "read_only",
-          "parent_stream_id"
+          "parent_stream_id",
+          "why"
         ],
         "kwargs": null,
         "reads": [],
@@ -3707,7 +3708,7 @@
       "_subagent_scope": {
         "parameters": [
           "base_ctx",
-          "sub_identity",
+          "identity",
           "read_only",
           "parent_stream_id"
         ],
@@ -3733,6 +3734,17 @@
             "session_id"
           ]
         ],
+        "dynamic": []
+      },
+      "_needs_turn": {
+        "parameters": [
+          "ctx",
+          "identity",
+          "read_only",
+          "stream_id"
+        ],
+        "kwargs": null,
+        "reads": [],
         "dynamic": []
       }
     },
@@ -3990,6 +4002,10 @@
         ],
         "kwargs": "kwargs",
         "reads": [
+          [
+            "ctx",
+            "subagent_run"
+          ],
           [
             "kwargs",
             "_approved_by"

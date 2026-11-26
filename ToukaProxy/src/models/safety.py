@@ -184,19 +184,21 @@ def _refused_project(context: PolicyContext, decision: PolicyDecision) -> Policy
 SUBAGENT_DENY_PREFIX = "subagent_commands:"
 SUBAGENT_COMMANDS_NOT_ALLOWED = "not_allowed"  # 派出時不符合（心跳、只能看、Manual、別的專案…）
 SUBAGENT_COMMANDS_NEED_EXECUTOR = "needs_executor"  # 這次不在執行器裡跑
+# 窄開關管的工具：終端，加上取結果、停指令（沒有開關的子代理不列）
+SUBAGENT_COMMAND_TOOLS = TERMINAL_TOOLS | frozenset({"get_command_result", "stop_command"})
 
 
 def _subagent_command_denial(context: PolicyContext, terminal: bool) -> PolicyDecision | None:
-    """子代理呼叫終端：窄開關、派它的那一輪、執行器三者缺一就 DENY（其他情況回 None）.
+    """子代理的指令工具：窄開關、派它的那一輪、執行器三者缺一就 DENY（其他情況回 None）.
 
-    工具清單階段（``schema_injection``）resource 是工具名，沒有隔離層級，不看執行器；執行階段
-    （``terminal_execute``）resource 是指令。專用空間的專案被拒絕（``isolation_refused``）時
+    只有終端看執行器（``terminal_execute`` 的 resource 是指令）；工具清單階段與取結果、停指令的
+    resource 是工具名。專用空間的專案被拒絕（``isolation_refused``）時
     不在這裡判，交給 ``_require_isolation`` 帶它自己的原因。
     """
     environment = context.environment
     if environment.get("subagent_run") is not True:
         return None
-    if not terminal and context.resource not in TERMINAL_TOOLS:
+    if not terminal and context.resource not in SUBAGENT_COMMAND_TOOLS:
         return None
     if environment.get("subagent_project_commands") is not True:
         reason = SUBAGENT_COMMANDS_NOT_ALLOWED

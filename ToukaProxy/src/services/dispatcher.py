@@ -45,6 +45,7 @@ from src.utils.async_db import SessionPersistenceError, SessionSnapshot, session
 from src.utils.brain_persistence import record_working_brain
 from src.utils.history_manager import TreeMessageManager
 from src.utils.mcp_request_identity import is_group_model
+from src.utils.presence import TURN_STREAM_ID
 from src.utils.session_scope import is_ui_turn_base
 from src.utils.task_utils import spawn_logged
 from src.utils.time_utils import get_current_epoch
@@ -660,6 +661,7 @@ async def dispatch_request(
             )
         except StreamOwnershipError:
             raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED) from None
+        context[TURN_STREAM_ID] = entry.stream_id  # 子代理只認派它的這一輪（ADR-0333）
         producer = spawn_logged(
             _pump_ui_stream(
                 stream_generator(), session_id, entry.stream_id, model_name, requester, admission,
@@ -681,9 +683,10 @@ async def dispatch_request(
         and await _legacy_write_authorized(context, session_id)
     ):
         try:
-            await stream_buffer_service.create(session_id)
+            entry = await stream_buffer_service.create(session_id)
         except StreamOwnershipError:
             raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED) from None
+        context[TURN_STREAM_ID] = entry.stream_id
         producer = spawn_logged(
             _pump_stream_to_buffer(
                 stream_generator(),

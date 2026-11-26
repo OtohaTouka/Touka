@@ -733,7 +733,8 @@ async def execute_command(
         if scope.grant.policy_level == "none":
             # 舊通道的卡片顯示不出「未隔離」、也記不了同意：none 時直接拒絕
             return _isolation_unavailable(command, "legacy_approval_channel")
-        if not _is_touka_ui_available():
+        # 子代理不走舊通道：派它的那一輪結束後才按的核准不會再檢查（ADR-0333）
+        if ctx.get("subagent_run") is True or not _is_touka_ui_available():
             return tool_errors.build_tool_error(
                 tool_errors.PERMISSION_DENIED,
                 f"Dangerous command requires human approval, but no ToukaUI is "

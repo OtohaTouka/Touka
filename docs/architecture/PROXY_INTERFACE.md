@@ -4,10 +4,11 @@
 
 ## 子代理在專用空間的專案裡跑指令（2026-11-26，ADR-0333）
 
-- `dispatch_subagent`、`dispatch_subagent_group` 派出的子代理，下面全部成立才列出、才能執行 `execute_command`、`get_command_result`、`stop_command`：派它的那一輪是有人在場的聊天、有 `session_id` 與回覆串流、不是無痕、派出時的模式是 Auto 或 YOLO、綁定的專案在專用空間、不是 `read_only`。派出時算一次，模型改不到；派出後改模式不影響。
-- 只在派它的那一輪還在回覆時能跑（比串流編號，新的一輪不算）；那一輪結束後還在跑的指令被收掉、之後的指令不開，子代理照樣能寫完報告。子代理結束時一律收掉它的指令。
-- 指令在執行器裡跑（kind `project`，和靈魂一樣只有這個專案與它的暫存區）。Auto 一律送審查員（全域 `headless_terminal` 關著也送），審查員費用與擋下次數記在派它的靈魂與對話上；YOLO 直接跑。底線、黑名單、Auto 的動態 shell、YOLO 的串接指令照舊被拒（子代理沒人能按卡）。
-- 拒絕是結構化錯誤，`reason` 是 `subagent_commands:not_allowed`、`subagent_commands:parent_turn_ended` 或 `subagent_commands:needs_executor`（專用空間的專案被拒時照舊是它自己的原因）；終端紀錄被收掉時的原因是 `parent_turn_ended`。建議一律是「不要重試，寫進報告交給派你的主代理」。
+- `dispatch_subagent`、`dispatch_subagent_group` 派出的子代理，下面全部成立才列出、才能執行 `execute_command`、`get_command_result`、`stop_command`：派它的那一輪是有人在場的聊天、有 `session_id` 與它自己的回覆串流（沒有串流的請求不算）、不是無痕、派出時的模式是 Auto 或 YOLO、綁定的專案在專用空間而且結構檢查通過、不是 `read_only`。派出時算一次，模型改不到；派出後改模式不影響。
+- 能跑指令時 `dispatch_subagent` 一律等子代理做完才回（列了 `mission_tools` 也一樣），回覆是 `dispatch_mode="in-process-sync"` 帶 `result`，`message` 說明為什麼等；其他情況照舊。
+- 只在派它的那一輪還在回覆時能跑（比那一輪自己的串流編號，新的一輪不算；關掉分頁不算結束）；那一輪結束後還在跑的指令被收掉、之後的指令不開，子代理照樣能寫完報告。子代理結束時一律收掉它的指令。派出後專案查不到或不在專用空間時一律拒絕，不改在別處跑。
+- 指令在執行器裡跑（kind `project`，和靈魂一樣只有這個專案與它的暫存區）。Auto 一律送審查員（全域 `headless_terminal` 關著也送），審查員費用與擋下次數記在派它的靈魂與對話上；YOLO 直接跑。底線、黑名單、Auto 的動態 shell、YOLO 的串接指令照舊被拒（子代理沒人能按卡，也不走舊的 ToukaUI 審批通道）。
+- 拒絕是結構化錯誤，`reason` 是 `subagent_commands:not_allowed`、`subagent_commands:parent_turn_ended` 或 `subagent_commands:needs_executor`（專用空間的專案被拒時照舊是它自己的原因，建議也換成交回主代理）；終端紀錄被收掉時的原因是 `parent_turn_ended`。建議一律是「不要重試，寫進報告交給派你的主代理」。
 - `Subagent` 角色多三個指令工具（`permissions.json` 與 `.example` 一起改）；端點、請求／回應 schema 與 OpenAPI 不變；沒有新錯誤碼。
 
 ## 從網頁下載專用空間的專案（2026-11-25，ADR-0332 PR B）

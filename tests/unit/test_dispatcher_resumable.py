@@ -37,6 +37,7 @@ from src.services.models.routes import CustomRouteDisposition
 from src.services.stream_buffer_service import PendingRequest, StreamBufferService
 from src.utils.async_db import SessionSnapshot, get_async_db, init_db_async, session_service
 from src.utils.history_manager import TreeMessageManager
+from src.utils.presence import TURN_STREAM_ID
 
 UI_OWNER = AgentIdentity.for_role(agent_id="synthetic-owner", role="normal", is_human=True)
 UI_TREE = {
@@ -854,6 +855,42 @@ async def test_resumable_path_buffers_and_persists_server_side(
         _sse("world"),
         "data: [DONE]\n\n",
     ]
+
+
+def _capture_turn_stream(monkeypatch, seen: list) -> None:
+    async def capture(_model, _request, _identity, _request_id, _start, context, **_kw):
+        seen.append(context.get(TURN_STREAM_ID))
+        return _fake_gen()
+
+    monkeypatch.setattr(dispatcher_mod, "get_stream_generator", capture)
+
+
+@pytest.mark.asyncio
+async def test_each_turn_records_its_own_stream_id(sandbox_db, fresh_buffer, monkeypatch):
+    """ADR-0333：子代理只認派它的那一輪，伺服器把這一輪的串流編號寫進它自己的 ctx。"""
+    sid = "sess-turn-id"
+    identity = AgentIdentity(agent_id="DebugAgent")
+    await _seed_user_turn(sid, identity)
+    seen: list = []
+    _capture_turn_stream(monkeypatch, seen)
+    ctx = PipelineContext(session_id=sid, identity=identity)
+    ctx["resumable_stream"] = True
+    await dispatcher_mod.dispatch_request("test-model", _FakeRequest(), identity, "r", 0.0, ctx)
+    state = await _wait_status(fresh_buffer, sid, "done")
+    assert seen == [state["stream_id"]] and ctx.get(TURN_STREAM_ID) == state["stream_id"]
+
+
+@pytest.mark.asyncio
+async def test_a_ui_turn_records_its_own_stream_id(sandbox_db, fresh_buffer, monkeypatch):
+    await _ui_seed("ui-turn")
+    request = await _ui_request("ui-turn")
+    seen: list = []
+    _capture_turn_stream(monkeypatch, seen)
+    monkeypatch.setattr(dispatcher_mod, "record_working_brain", Mock())
+    monkeypatch.setattr(dispatcher_mod, "_maybe_trim_after_chat", AsyncMock())
+    response = await _ui_dispatch(request)
+    await _response_events(response)
+    assert seen and seen[0] == fresh_buffer.get_state("ui-turn")["stream_id"]
 
 
 @pytest.mark.asyncio

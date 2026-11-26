@@ -537,7 +537,8 @@ DISPATCH_SUBAGENT_SCHEMA = {
             "也無法再派子代理。對話綁專案時，子代理看得到同一個專案（scope=project）；"
             "要它只看不改（例如審查者）就加 read_only=true。專案在專用空間（touka-projects）、"
             "這一輪有人在場、模式是 Auto 或 YOLO 時，可寫的子代理也能在專案裡跑指令"
-            "（Auto 每條交審查員），你這一輪結束後它就不能再跑。何時不要用：任務依賴目前對話上下文，"
+            "（Auto 每條交審查員）；這時會等它做完才回，你這一輪結束後它就不能再跑。"
+            "何時不要用：任務依賴目前對話上下文，"
             "或你幾步內就能自己完成時。"
         ),
         "parameters": {
@@ -580,7 +581,8 @@ DISPATCH_SUBAGENT_GROUP_SCHEMA = {
             "同時派多個 in-process 子代理各跑各的獨立子任務，阻塞至全部完成後把每個"
             "子任務的結構化回報匯總回來。適合把一個大任務拆成數個**彼此獨立**的子任務"
             "並行完成再收斂。並發與子任務數皆有上限。對話綁專案時，子代理看得到同一個專案；"
-            "每個子任務可各自加 read_only=true。何時不要用：子任務彼此相依（改逐一"
+            "每個子任務可各自加 read_only=true；可寫的子代理照 dispatch_subagent 的條件能跑指令。"
+            "何時不要用：子任務彼此相依（改逐一"
             "派）、或需要「先派了先做別的」的非阻塞語義（改用 dispatch_subagent 拿 token）。"
         ),
         "parameters": native_parameters("dispatch_subagent_group"),

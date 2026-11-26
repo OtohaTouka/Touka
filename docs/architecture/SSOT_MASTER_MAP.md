@@ -718,12 +718,12 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 
 | 項目 | SSOT |
 |---|---|
-| 窄開關（派出時算一次）與 ctx 欄位名 | `utils/presence.subagent_project_commands`；`SUBAGENT_PROJECT_COMMANDS`、`PARENT_SESSION_ID`、`PARENT_STREAM_ID`、`PARENT_IDENTITY`、`SUBAGENT_COMMAND_MODES`；寫入只在 `tools/subagent_tools._mark_subagent_run`（`_subagent_scope` 算） |
+| 窄開關（派出時算一次）與 ctx 欄位名 | `utils/presence.subagent_project_commands`（模式用 `auth_mode.AUTO_MODES`）；`SUBAGENT_PROJECT_COMMANDS`、`PARENT_SESSION_ID`、`PARENT_STREAM_ID`、`PARENT_IDENTITY`；寫入只在 `tools/subagent_tools._mark_subagent_run`（`_subagent_scope` 算；派出前 `_needs_turn` 決定要不要同步） |
 | 指令算不算有人在場 | `utils/presence.commands_attended`（`policy._decide`、`terminal.execute_command` 用） |
-| 派它的那一輪還在不在 | `services/parent_turn`（`current_stream_id`、`turn_active`、`parent_turn_active`、`subagent_turn_over`、`ParentTurnEndedError`）；底層 `stream_buffer_service.is_stream_active` |
-| 政策的拒絕與原因 | `models/safety._subagent_command_denial`、`SUBAGENT_DENY_PREFIX` 與原因常數；`PARENT_TURN_ENDED` 在 `utils/presence`；給模型的說法 `services/isolation/policy.denial_text` |
+| 派它的那一輪還在不在 | `services/parent_turn`（`current_stream_id`、`turn_active`、`parent_turn_active`、`subagent_turn_over`、`ParentTurnEndedError`）；這一輪自己的編號 `presence.TURN_STREAM_ID`，只由 `dispatcher.dispatch_request` 建好串流緩衝後寫；底層 `stream_buffer_service.is_stream_active` |
+| 政策的拒絕與原因 | `models/safety._subagent_command_denial`、`SUBAGENT_COMMAND_TOOLS`、`SUBAGENT_DENY_PREFIX` 與原因常數；子代理只在專用空間的專案 `services/isolation/policy._decide`；`PARENT_TURN_ENDED` 在 `utils/presence`；給模型的說法 `services/isolation/policy.denial_text` |
 | 審查員送不送、記在誰身上 | `services/auto_reviewer.ReviewRequest.subagent_command`；`services/tool_executor._review_identity`、`_review_conversation_key` |
-| 那一輪結束時收指令 | `tools/subagent_tools._TurnCommands`；`tools/terminal.stop_agent_commands(..., error=)` |
+| 那一輪結束時收指令 | `tools/subagent_tools._TurnCommands`；`tools/terminal.stop_agent_commands(..., error=)`；登記表的鎖 `process_registry.ProcessRegistry._agent_lock` |
 
 ### 3-K. 資訊安全守衛層：登入憑證綁後端（ADR-0297）
 
