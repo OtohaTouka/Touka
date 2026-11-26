@@ -481,9 +481,12 @@ async def test_subagent_tools_see_headless_interactive_flag(monkeypatch):
 
 
 async def test_subagent_inheriting_yolo_still_cannot_run_floor_command(monkeypatch):
-    """不放寬：子代理繼承父代理的 YOLO，底線指令仍是 HUMAN_ONLY，無人在場直接拒絕。
+    """不放寬：子代理繼承父代理的 YOLO，底線指令照樣不跑，也不跳卡。
 
     真實政策（tracked .example）；身分刻意用 Owner，證明判斷靠子代理標記而不是角色名稱。
+    ADR-0333 起子代理的指令另有窄開關：沒打開（這裡沒有）時任何指令都直接 DENY，比底線的
+    HUMAN_ONLY 更早擋下，所以原因是 ``subagent_commands:not_allowed``，非底線的指令也不跑。
+    窄開關打開時底線仍然擋下，見 ``test_subagent_project_commands_security``。
     """
     ran: list[str] = []
 
@@ -502,13 +505,14 @@ async def test_subagent_inheriting_yolo_still_cannot_run_floor_command(monkeypat
     ctx = _subagent_ctx(_OWNER, "YOLO")
 
     result, events = await _run(executor, "execute_command", {"command": "cat .env"}, ctx)
-    assert json.loads(result)["reason"] == "human_only"
+    assert json.loads(result)["reason"] == "subagent_commands:not_allowed"
     assert "tool_approval_request" not in [e.get("type") for e in events]
     assert approval_service.pending_count() == 0
     assert ran == []
 
-    await _run(executor, "execute_command", {"command": "echo hi"}, ctx)
-    assert ran == ["echo hi"]  # 陽性對照：繼承的 YOLO 對非底線指令照常生效
+    result, _events = await _run(executor, "execute_command", {"command": "echo hi"}, ctx)
+    assert json.loads(result)["reason"] == "subagent_commands:not_allowed"
+    assert ran == []  # 沒有窄開關：繼承的 YOLO 也不讓子代理跑任何指令（ADR-0333）
 
 
 # ── 6. MCP：execution_kind／origin 依 run 標記，子代理不綁互動出口 ─────────────────

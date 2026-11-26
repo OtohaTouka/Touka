@@ -32,12 +32,16 @@ _PROD_PERMISSIONS = _REPO / "ToukaProxy" / "config" / "permissions.json"
 # ——後者是為了「零 import 副作用」而做的近似，測試沒有那個限制，直接讀本體更忠實。
 ALL_TOOLS = frozenset(tool_registry)
 
-# Subagent 的 13 項白名單（ADR-0245：逐項照抄改名前的 Guest）：**刻意硬編**——它是一份
-# 人工維護的清單，任何增減都是權限變更，必須讓本檔紅。（相對地 `ALL_TOOLS` 由 registry
-# 推導：新增工具自動落進 Owner 的開放式授權是既定語意，不該讓基線假紅。）
+# Subagent 的 16 項白名單：**刻意硬編**——它是一份人工維護的清單，任何增減都是權限變更，
+# 必須讓本檔紅。（相對地 `ALL_TOOLS` 由 registry 推導：新增工具自動落進 Owner 的開放式授權
+# 是既定語意，不該讓基線假紅。）
+# - 前 13 項：ADR-0245 逐項照抄改名前的 Guest。
+# - 後 3 項：ADR-0333（融合段 3）加的指令工具。角色只是第一道；程式另外限制，只有窄開關打開的
+#   子代理（專用空間的專案、派它的那一輪有人在場且還在回覆、Auto 或 YOLO）列得出、跑得動。
 SUBAGENT_TOOLS = frozenset({
     "delete", "edit", "find", "grep", "ide_open_diff", "insert", "list",
     "project_tools", "read", "research", "undo", "vault_tools", "write",
+    "execute_command", "get_command_result", "stop_command",
 })
 
 ROLES = ["Owner", "Debugger", "Subagent", "Base", None]

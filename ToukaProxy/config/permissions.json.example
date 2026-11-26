@@ -12,7 +12,7 @@
       "allowed_skills": ["*"]
     },
     "Subagent": {
-      "desc": "子代理專用（in-process 派發）：可執行研發、讀寫專案檔案；不可改靈魂、不可再派子代理。",
+      "desc": "子代理專用（in-process 派發）：可執行研發、讀寫專案檔案；指令只在專用空間的專案、派它的那一輪有人在場且還在回覆、Auto 或 YOLO 時能跑（程式另外限制）；不可改靈魂、不可再派子代理。",
       "inherits": ["Base"],
       "allowed_tools": [
         "research",
@@ -27,7 +27,10 @@
         "delete",
         "project_tools",
         "vault_tools",
-        "ide_open_diff"
+        "ide_open_diff",
+        "execute_command",
+        "get_command_result",
+        "stop_command"
       ],
       "denied_tools": ["update_my_soul", "edit_soul"],
       "allowed_mcp_servers": []

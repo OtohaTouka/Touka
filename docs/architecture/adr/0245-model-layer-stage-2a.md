@@ -4,7 +4,7 @@
 
 > 🔧 **[ADR-0327](0327-sns-reach-only-the-bot-owners-souls.md) 修訂（2026-11-21）**：「沒有身分的路徑照舊不檢查」不再適用於群聊：SNS 進來的群聊照機器人綁的靈魂（`sns_soul`）檢查每位成員，沒有身分也沒有 `sns_soul` 的群聊不派發。
 
-- 狀態：✅ 已接受（維護者 2026-10-12 核准模型層總計畫與 AGENTS 大綱）
+- 狀態：✅ 已接受（維護者 2026-10-12 核准模型層總計畫與 AGENTS 大綱；[ADR-0333](0333-subagent-project-commands.md) 修訂 P4：Subagent 在照抄 Guest 的清單之外多三個指令工具）
 - 日期：2026-10-12
 - 決策者：維護者
 - 影響範圍：聊天端點（`routers/proxy.py`）與上傳（`routers/chat_upload.py`）、`MonitorLayer`／`SoulLayer`／`CustomModelLayer`（靈魂目標授權，修補）、`authorization_gateway`（`can_drive_soul`／`require_soul_access`，修補）、自訂模型路由與 `custom_soul` 路徑（修補）、計分卡路由（修補）、前情摘要與舊串流寫回的 session 綁定（`SoulLayer`／`dispatcher`，修補）、`SkillLayer`、`models/identity.py` 的角色集合、`permission_service`（角色解析、讀到舊值略過）、`agent_service.holds_agent_role`、`identity_router` 的 X-Agent-ID 切換、`/identity` 路由、子代理（`subagent_tools`）、群聊（`group_router`、`dispatchers/group.py`、`group_settings`、SNS `@別名`）、三個 `.example` 設定與 `permission_defaults`、`endpoint_auth_allowlist`、`guard_role_plane` 鏡像、ToukaChat 身分對應／心跳白名單／群聊設定頁、AGENTS.md（身分、禁令 16、群聊）

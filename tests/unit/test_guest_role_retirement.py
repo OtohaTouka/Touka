@@ -1,6 +1,7 @@
 """ADR-0245（U2a-2）：Guest 角色退役，子代理改用專屬的 Subagent 角色。
 
-- Subagent 的工具集合與改名前的 Guest **逐項相同**（字面值清單；決策 P4）。
+- Subagent 的工具集合與改名前的 Guest **逐項相同**（字面值清單；決策 P4），只多 ADR-0333 加的
+  三個指令工具。
 - Owner 不再繼承 Guest；Owner 本來就是 ``*``，三軸答案不變。
 - 使用者自己的舊檔仍可能有 Guest：permissions／identity_map 讀到舊的 Guest 值時略過並記
   警告、不改檔。舊 Guest 不再當 Subagent 用：沒有 Subagent 的檔＝Subagent 沒有工具。
@@ -31,6 +32,8 @@ PRE_RENAME_GUEST_TOOLS = frozenset({
     "project_tools", "read", "research", "undo", "vault_tools", "write",
 })
 PRE_RENAME_GUEST_DENIED = frozenset({"update_my_soul", "edit_soul"})
+# ADR-0333（修訂 P4）：Subagent 在照抄的清單之外只多這三個指令工具；能不能真的跑由窄開關決定
+SUBAGENT_COMMAND_TOOLS = frozenset({"execute_command", "get_command_result", "stop_command"})
 
 # 改名前的出貨版面（Owner 繼承 Guest），代表尚未手動更新的 live 設定。
 _LEGACY_ROLES = {
@@ -83,10 +86,12 @@ def _retirement_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
 
 
 def test_subagent_tools_equal_pre_rename_guest_list(build):
+    """P4 照抄 Guest，再加 ADR-0333 的三個指令工具（只多這三個，其他不變）."""
+    expected = PRE_RENAME_GUEST_TOOLS | SUBAGENT_COMMAND_TOOLS
     svc = build(_layout("example"))
     grants = svc.resolve_grants("Subagent")
     assert grants.tools.open_ended is False
-    assert grants.tools.explicit == PRE_RENAME_GUEST_TOOLS
+    assert grants.tools.explicit == expected
     assert grants.tools.denied == PRE_RENAME_GUEST_DENIED
     assert grants.tools.deny_all is False
     assert grants.mcp == McpGrant()
@@ -94,12 +99,8 @@ def test_subagent_tools_equal_pre_rename_guest_list(build):
 
     sub = AgentIdentity.for_role("__subagent_probe__", "Subagent")
     advertised = svc.get_allowed_tools(sub)
-    assert frozenset(t for t in ALL_TOOLS if svc.is_tool_allowed(t, advertised)) == (
-        PRE_RENAME_GUEST_TOOLS
-    )
-    assert frozenset(t for t in ALL_TOOLS if svc.is_authorized(sub, t, {}, {})) == (
-        PRE_RENAME_GUEST_TOOLS
-    )
+    assert frozenset(t for t in ALL_TOOLS if svc.is_tool_allowed(t, advertised)) == expected
+    assert frozenset(t for t in ALL_TOOLS if svc.is_authorized(sub, t, {}, {})) == expected
 
 
 @pytest.mark.parametrize("layout", ["example", "legacy"])

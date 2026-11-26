@@ -23,6 +23,8 @@ F5、F6 在 Auto 下都改成 HUMAN_ONLY（只有人能核准），但不把 DEN
 YOLO 下 dangerous 的 MCP 工具在 ``human_present`` 不是 True 時也是 HUMAN_ONLY（ADR-0272 決定 4）。
 只能看的子代理（environment 的 ``read_only_run``）：不是 read_only 類一律 DENY，
 三種模式都一樣（ADR-0309）。
+子代理的指令（environment 的 ``subagent_run``）：窄開關沒打開、派它的那一輪已經結束、或這次不在
+執行器裡跑，一律 DENY，三種模式都一樣（ADR-0333）；打開時照決策表（Auto 送審、YOLO 放行）。
 """
 
 import logging
@@ -37,7 +39,8 @@ from src.utils.hard_floor import (
     HUMAN_ONLY_CATEGORIES,
     classify_hard_floor,
 )
-from src.utils.isolation_policy import normalize_isolation, requires_isolation
+from src.utils.isolation_policy import TERMINAL_TOOLS, normalize_isolation, requires_isolation
+from src.utils.presence import PARENT_TURN_ENDED
 
 from .permissions import BasePolicyModel
 from .policy import PolicyContext, PolicyDecision
@@ -177,6 +180,39 @@ def _refused_project(context: PolicyContext, decision: PolicyDecision) -> Policy
     )
 
 
+# 子代理的指令（ADR-0333）：不符合窄開關就直接拒絕，任何模式都一樣；拒絕訊息由執行端依前綴挑
+SUBAGENT_DENY_PREFIX = "subagent_commands:"
+SUBAGENT_COMMANDS_NOT_ALLOWED = "not_allowed"  # 派出時不符合（心跳、只能看、Manual、別的專案…）
+SUBAGENT_COMMANDS_NEED_EXECUTOR = "needs_executor"  # 這次不在執行器裡跑
+
+
+def _subagent_command_denial(context: PolicyContext, terminal: bool) -> PolicyDecision | None:
+    """子代理呼叫終端：窄開關、派它的那一輪、執行器三者缺一就 DENY（其他情況回 None）.
+
+    工具清單階段（``schema_injection``）resource 是工具名，沒有隔離層級，不看執行器；執行階段
+    （``terminal_execute``）resource 是指令。專用空間的專案被拒絕（``isolation_refused``）時
+    不在這裡判，交給 ``_require_isolation`` 帶它自己的原因。
+    """
+    environment = context.environment
+    if environment.get("subagent_run") is not True:
+        return None
+    if not terminal and context.resource not in TERMINAL_TOOLS:
+        return None
+    if environment.get("subagent_project_commands") is not True:
+        reason = SUBAGENT_COMMANDS_NOT_ALLOWED
+    elif environment.get("parent_turn_active") is not True:
+        reason = PARENT_TURN_ENDED
+    elif (
+        terminal
+        and not environment.get("isolation_refused")
+        and normalize_isolation(environment.get("isolation")) != "executor"
+    ):
+        reason = SUBAGENT_COMMANDS_NEED_EXECUTOR
+    else:
+        return None
+    return PolicyDecision(effect="DENY", reason=f"{SUBAGENT_DENY_PREFIX}{reason}")
+
+
 def _require_isolation(context: PolicyContext, decision: PolicyDecision) -> PolicyDecision:
     """不放寬：要隔離的動作在層級 none（缺鍵、看不懂的值也算）時，Auto、YOLO 只有人能核准。
 
@@ -291,6 +327,11 @@ class AuthPoliciesConfig(BasePolicyModel):
                 context.environment.get("tool_action"),
                 advertisement=(context.action == "schema_injection"),
             )
+
+        # --- 子代理的指令：窄開關以外一律拒絕，YOLO 也放不寬（ADR-0333）---
+        subagent_denial = _subagent_command_denial(context, terminal)
+        if subagent_denial is not None:
+            return subagent_denial
 
         # --- 只能看的子代理：排在模式決策表之前，YOLO 也放不寬（ADR-0309）---
         if context.environment.get("read_only_run") and risk != "read_only":

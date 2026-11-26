@@ -55,6 +55,7 @@ from src.services.isolation.policy import (
     session_project_id,
 )
 from src.services.local_bridge import ACTION_NEEDING_CONFIRM
+from src.services.parent_turn import parent_turn_active
 from src.services.permission_service import permission_service
 from src.services.soul_service import soul_service
 from src.tools.builtin import BUILTIN_EXECUTION_BINDINGS, LEGACY_ADVERTISED_SUCCESSORS
@@ -66,7 +67,13 @@ from src.utils.command_safety import effective_shell
 from src.utils.hard_floor import floor_tool_action
 from src.utils.mcp_request_identity import mcp_request_context as build_mcp_request_context
 from src.utils.mcp_request_identity import user_scoped_mcp_allowed
-from src.utils.presence import blocked_call_suggestion, is_human_present
+from src.utils.presence import (
+    PARENT_IDENTITY,
+    PARENT_SESSION_ID,
+    SUBAGENT_PROJECT_COMMANDS,
+    blocked_call_suggestion,
+    is_human_present,
+)
 from src.utils.progress_events import repair_event
 from src.utils.secret_text import sanitize_error_text
 from src.utils.time_utils import (
@@ -319,6 +326,32 @@ class _Clearance:
     resolution: ApprovalResolution | None = None  # 人按卡片的解算（預覽決定要看誰決定的）
 
 
+def _subagent_commands(ctx: dict[str, Any]) -> bool:
+    """窄開關打開的子代理（ADR-0333；欄位只由伺服器在派出時寫）。"""
+    return ctx.get("subagent_run") is True and ctx.get(SUBAGENT_PROJECT_COMMANDS) is True
+
+
+def _review_identity(call: _ApprovalCall) -> AgentIdentity:
+    """審查員的費用與上限記在誰身上：窄開關的子代理記在派它的靈魂，其他是呼叫者本人。"""
+    parent = call.ctx.get(PARENT_IDENTITY)
+    if _subagent_commands(call.ctx) and isinstance(parent, AgentIdentity):
+        return parent
+    return call.identity
+
+
+def _review_denied_suggestion(ctx: dict[str, Any]) -> str | None:
+    """審查員判 deny 時的建議：子代理交回派它的主代理（ADR-0333），其他用預設說法。"""
+    return blocked_call_suggestion(ctx) if ctx.get("subagent_run") is True else None
+
+
+def _review_conversation_key(call: _ApprovalCall) -> str:
+    """P7 擋下次數的對話鍵：窄開關的子代理用派它的對話（合併計算），其他照舊。"""
+    parent_session = call.ctx.get(PARENT_SESSION_ID)
+    if _subagent_commands(call.ctx) and isinstance(parent_session, str) and parent_session:
+        return parent_session
+    return call.session_id or call.request_id
+
+
 def _unattended_denial(
     call: _ApprovalCall, review: ReviewOutcome | None, *, human_only: bool
 ) -> str | None:
@@ -554,7 +587,9 @@ class ToolExecutor:
             if review.verdict == "allow":
                 approved_by = APPROVED_BY_AUTO_REVIEWER
             elif review.verdict == "deny":
-                denied_text = approval_flow.auto_review_denied_error(call.name, review.reason)
+                denied_text = approval_flow.auto_review_denied_error(
+                    call.name, review.reason, suggestion=_review_denied_suggestion(call.ctx)
+                )
             else:
                 needs_human = True
                 escalated_reason = review.reason
@@ -579,10 +614,14 @@ class ToolExecutor:
         return _Clearance(approved_by=approved_by, escalated_reason=escalated_reason)
 
     async def _run_auto_review(self, call: _ApprovalCall, interactive: bool) -> ReviewOutcome:
-        """REVIEW 送 Auto 審查員；``interactive`` 由呼叫端在送審前算好（只算一次）。"""
+        """REVIEW 送 Auto 審查員；``interactive`` 由呼叫端在送審前算好（只算一次）。
+
+        窄開關打開的子代理（ADR-0333）：指令照樣送審（不看全域 ``headless_terminal``），費用記在
+        派它的靈魂身上，擋下次數和派它的對話合併計算。
+        """
         args, session_id = call.args, call.session_id
         return await auto_reviewer.review(
-            call.identity,
+            _review_identity(call),
             ReviewRequest(
                 tool_name=call.name,
                 arguments=args,
@@ -592,8 +631,9 @@ class ToolExecutor:
                 human_present=interactive,
                 user_intent=call.ctx.get("user_intent"),
                 session_id=session_id,
-                conversation_key=session_id or call.request_id,
+                conversation_key=_review_conversation_key(call),
                 isolation=reviewer_level(call.name, call.isolation, builtin=call.builtin),
+                subagent_command=call.is_terminal and _subagent_commands(call.ctx),
             ),
         )
 
@@ -882,6 +922,10 @@ class ToolExecutor:
                 "isolation_refused": isolation.refused_reason,  # 專用空間（ADR-0332）
                 "human_present": is_human_present(ctx),
                 "read_only_run": bool(ctx.get("subagent_read_only")),
+                # 子代理的指令（ADR-0333）：窄開關與派它的那一輪還在不在
+                "subagent_run": ctx.get("subagent_run") is True,
+                "subagent_project_commands": ctx.get(SUBAGENT_PROJECT_COMMANDS) is True,
+                "parent_turn_active": parent_turn_active(ctx),
             },
         )
 

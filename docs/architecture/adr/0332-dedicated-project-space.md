@@ -1,6 +1,6 @@
 # ADR-0332：專用空間的專案在執行器裡跑
 
-- 狀態：✅ 已實作（融合段 2 PR B：從網頁下載專案〔決定 9〕；PR A：專用空間、執行器 kind `project`、登記規則、部署、兩個列檔不跟隨連結的小洞、專案頁的原因說明）。一頁計畫由維護者核准（2026-11-25，總覽板第 58 項全部照建議）；產品程式超過計畫的停止線，維護者 2026-11-25 決定照計畫做完（PR A 總覽板第 108 項、PR B 第 109 項）。
+- 狀態：✅ 已實作（融合段 2 PR B：從網頁下載專案〔決定 9〕；PR A：專用空間、執行器 kind `project`、登記規則、部署、兩個列檔不跟隨連結的小洞、專案頁的原因說明）。一頁計畫由維護者核准（2026-11-25，總覽板第 58 項全部照建議）；產品程式超過計畫的停止線，維護者 2026-11-25 決定照計畫做完（PR A 總覽板第 108 項、PR B 第 109 項）。[ADR-0333](0333-subagent-project-commands.md) 修訂決定 2：專用空間的「有人在場」改看 `commands_attended`（窄開關打開的子代理也算）。
 - 日期：2026-11-25
 - 決策者：維護者
 - 相關：[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md)（執行器；本 ADR 修訂它「綁了專案一律不在執行器範圍」：只剩專用空間以外的專案）、[ADR-0292](0292-hooks.md)（決定 12：檔案動詞不跟隨連結）、[ADR-0293](0293-agent-folders-no-follow.md)（區與 ResourceManager 的區內方法）、[ADR-0326](0326-deleted-soul-leftovers-not-inherited.md)／[ADR-0328](0328-retired-archives-for-reused-soul-names.md)（同名不繼承）、[ADR-0331](0331-complexity-ratchet.md)（複雜度棘輪）

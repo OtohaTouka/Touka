@@ -6,6 +6,7 @@
 
 ## 現況
 
+- **子代理在專用空間的專案裡跑指令（2026-11-26，ADR-0333；在 `dev`，等下一版）**：有人在場、Auto 或 YOLO 的聊天派出的子代理，專案在專用空間而且不是只能看時，能在執行器裡跑指令（Auto 送審查員），只在派它的那一輪還在回覆時。權限檔兩份一起改，更新 Docker 後就生效、不用自己勾；要關掉時切 Manual（不要在設定頁改權限表，會弄髒被追蹤的檔）。未解限制：那一輪結束後子代理仍可用檔案工具改專案最長 10 分鐘；子代理整趟 10 分鐘、前景指令 30 秒夠不夠跑測試，第 7 項驗收時看；子代理自己的模型費用仍記在臨時身分上（候選）。
 - **新的不跟隨搬移與退役資料夾（2026-11-21，ADR-0328；在 `dev`，等下一版）**：`no_follow.move_entry_no_follow` 跨資料夾搬（`rename_entry_no_follow` 改成呼叫它）；`data/retired` 是受保護路徑，只有建立靈魂時搬殘留封存的 `retire_legacy_dir` 寫。`soul_io._remove_soul_drive` 改名 `remove_soul_drive`。
 - **代理人資料夾不跟隨連結 PR 2（2026-10-30，ADR-0293）**：演化的工具資料夾（`data/mcp_servers/managed`）、文件輸出（`data/temp/docgen_output`）與 sandbox state 也只經區內方法讀寫，路上有連結就以固定原因拒絕（演化回 `skill_changed`，清除沙盒 home 回 `proxy_state_link`）；計分卡只讀輸出區裡的產出檔；靈魂檔名只能是單層；還原只寫回備份會寫的 data 資料夾。執行器改成只掛 `data/mcp_servers/managed`：**GHCR 安裝升級前先建好這個資料夾**（擁有者與 `data` 相同），`docker-compose.yml` 的 `touka-init` 會自動建；單獨開發用的 `ToukaProxy/docker-compose.yml` 沒有 `touka-init`，Linux 上也要先建（擁有者 1001；這份 compose 的資料夾是 `${MEMORY_APP_DATA_DIR:-./data}`，相對於 `ToukaProxy/`）。技能名稱不能再用執行器保留的 7 個名字（`soul`、`personal_drive` 等，見 ADR-0293「PR 2」的後果）。測試多了 TF、G3、G4 三道靜態檢查。ADR-0292 的「暫時不要啟用 command hook」解除。
 - **隔離規則只給字面位置（2026-11-03，ADR-0293 後續 PR）**：Touka 幫沙盒算規則時不再跟著連結走：MCP 條目經連結引用另一個技能資料夾時，還是判成自建、那個技能還是凍結，但不給它的讀與執行（`literal_managed_skills`、`frozen_managed_skills`）；公開設定檔從字面位置往上找，解析後和字面不同的不給；專案根核對用解析後的位置、授與用字面位置。人經連結設定 data 根時兩種寫法都認（`data_root_spellings`），第三種寫法不認（ADR「升級」）。G4 的已知界線清空。
@@ -40,7 +41,7 @@
   - **MCP 現況由 C2-3 接續**：自建依層級隔離啟動，第三方／scaffold 看本機 Landlock；創建卡依實際層級，部署能力禁止再演化。來源分檔、手動同意與不可用時的處理見本檔最前面的 C2-3 項目。
   - 設定讀不到時不放寬：`auth_policies.json` 啟動讀不到全部拒絕、`autonomy.json` 讀不到取最嚴（這時不要在安全設定頁按存檔）、MCP 設定讀不到時寫入改丟錯；側欄 `system_notices` 寫原因與恢復方法（AGENTS §11 一句）。代理人工作區權限被改時依白名單補回擁有者位元，Touka 自己的資料夾不修（`touka-init`＋重啟）。
   - **升級要做的事**（細節見 ADR-0272 的升級說明）：`docker compose up -d --build`，以後每次更新都要 `--build`；約 90 秒內確認 `touka-executor` 是 healthy，而且 `docker compose logs touka-executor` 沒有 `Executor is not serving`；聊天分頁先重新整理再看橫幅；Manual 下讓代理人跑 `id -u; echo $HOME`，看到 `1001` 與 `/app/executor_state/agents/…`。回復：`docker rm -f touka-executor` 後切回舊版再 `up -d --build`。
-  - **會改變的行為**：心跳、SNS 等無人在場的執行不能在專案跑指令；綁專用空間以外專案的對話與 DebugAgent 每條要人核准、在主容器內以檔案隔離跑（專用空間的專案在執行器裡跑，ADR-0332）；代理人在執行器裡起的服務，主容器的工具與 MCP（例如 Fetch）連不到（目前不支援，C2-3 之後再評估）；`~` 換到執行器的暫存區；多三個 volume 與 `touka-exec-net` 網路，dev compose 的映像改名 `touka-proxy:local`。
+  - **會改變的行為**：心跳、SNS 等無人在場的執行不能在專案跑指令（例外：窄開關打開的子代理，ADR-0333）；綁專用空間以外專案的對話與 DebugAgent 每條要人核准、在主容器內以檔案隔離跑（專用空間的專案在執行器裡跑，ADR-0332）；代理人在執行器裡起的服務，主容器的工具與 MCP（例如 Fetch）連不到（目前不支援，C2-3 之後再評估）；`~` 換到執行器的暫存區；多三個 volume 與 `touka-exec-net` 網路，dev compose 的映像改名 `touka-proxy:local`。
   - CI：新增 `.github/workflows/isolation.yml`（`landlock` job 每個 PR、push、手動都跑；`container` job 在 PR 改到隔離路徑時自動跑、`isolation` 標籤強制跑），還沒在 GitHub 上跑過。AGENTS.md §2 隔離層級、§11 一句、禁令 66；SECURITY.md 多列；NOQA `IO_PRISON_VIOLATION` +3、`S314` +1；openapi、`api.ts` 重產。經對抗式審查，沒有未解的 BLOCKING／HIGH。
 
 ## 待排小項

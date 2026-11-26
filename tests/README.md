@@ -246,6 +246,7 @@ tests/
 | `unit/test_local_bridge_pairing.py` | ADR-0312：配對只存雜湊、換新與解除、檔案壞掉算沒配對 |
 | `unit/test_local_bridge_service.py` | ADR-0312：小幫手的工作佇列：來回、上限、逾時、兩段確認、取消、換配對、輪詢取代 |
 | `unit/test_subagent_project_access.py` | ADR-0309：子代理看得到對話綁定的專案、照模式寫入；只能看的子代理在任何模式都不能改檔案；真的走派工、工具清單與權限判定，只有模型是假的 |
+| `unit/test_subagent_project_commands_security.py` | ADR-0333：子代理在專用空間的專案裡跑指令的窄開關（每個條件逐一拿掉）、只認派它的那一輪（串流編號）、政策兩道關卡的拒絕原因、審查員照送而且記在靈魂身上、那一輪結束後收指令也不再開、做完也收、子代理不建個人空間；真的走派工與工具清單，只有模型是假的 |
 | `lint/test_patrol_notify_workflow.py` | 每月巡查的通知流程：只能手動觸發、參數是固定選項、只有開 issue 的權限、只從 main 跑；有事不重複開、沒事開完就關 |
 | `lint/test_dep_audit_workflow.py` | 每日依賴檢查的 workflow（ADR-0299）：掃描只能讀、只有回報能寫 issue 且只從 main 跑、action 釘 commit SHA、輸入不直接進 shell |
 | `lint/test_chat_dev_terminal_security.py` | `npm run dev` 只啟動 `next dev`、不啟動其他伺服器；`terminal_server.mjs` 不存在；`src/` 沒有程式開 socket 伺服器或 pty |

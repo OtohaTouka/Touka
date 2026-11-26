@@ -322,12 +322,16 @@ def human_only_unavailable_error(name: str, reason: str | None, *, suggestion: s
     )
 
 
-def auto_review_denied_error(name: str, reason: str) -> str:
-    """Auto 審查員判 deny（ADR-0246 U2c-3）：不執行、不跳卡。"""
+def auto_review_denied_error(name: str, reason: str, *, suggestion: str | None = None) -> str:
+    """Auto 審查員判 deny（ADR-0246 U2c-3）：不執行、不跳卡。
+
+    ``suggestion`` 由執行器依情境給（子代理交回派它的主代理，ADR-0333）；沒給用預設說法。
+    """
     return tool_errors.build_tool_error(
         tool_errors.PERMISSION_DENIED,
         f"Tool '{name}' was refused by the Auto reviewer: {reason}",
-        suggestion="Do not retry or work around this call; explain the refusal to the user.",
+        suggestion=suggestion
+        or "Do not retry or work around this call; explain the refusal to the user.",
         denied_tool=name,
         reason="auto_review_denied",
         touka_error_code=ErrorCode.AUTO_REVIEW_DENIED.value,

@@ -297,6 +297,21 @@ class StreamBufferService:
             self._pending.get(session_id)
         )
 
+    def active_stream_id(self, session_id: str | None) -> str | None:
+        """這個對話現在正在回覆的那一輪的串流編號；沒有在回覆就是 None（ADR-0333）."""
+        if not session_id:
+            return None
+        self._sweep()
+        entry = self._streams.get(session_id)
+        return entry.stream_id if entry is not None and entry.status == "active" else None
+
+    def is_stream_active(self, session_id: str | None, stream_id: str | None) -> bool:
+        """指定的那一輪是否還在回覆：同一個串流編號、而且還是 active（ADR-0333）.
+
+        新的一輪會換新的串流編號，所以結果只會從真變假，不會再變回真。
+        """
+        return bool(stream_id) and self.active_stream_id(session_id) == stream_id
+
     def stop_pending_requests(self, session_id: str, identity: AgentIdentity) -> bool:
         """把 ``identity`` 在這個對話還在等的請求標成已停止；條件同 ``has_pending_request``。"""
         if not self.has_pending_request(session_id, identity):

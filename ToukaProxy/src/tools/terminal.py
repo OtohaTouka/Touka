@@ -41,6 +41,7 @@ from src.services.isolation.runners import (
     IsolationUnavailableError,
     executor_max_seconds,
 )
+from src.services.parent_turn import ParentTurnEndedError, subagent_turn_over
 from src.services.permission_service import permission_service
 from src.services.process_registry import (
     process_registry,
@@ -56,7 +57,12 @@ from src.utils.command_safety import (
     has_chaining_metacharacters,
 )
 from src.utils.isolation_policy import IsolationLevel
-from src.utils.presence import blocked_call_suggestion, is_human_present
+from src.utils.presence import (
+    PARENT_TURN_ENDED,
+    blocked_call_suggestion,
+    commands_attended,
+    no_human_followup,
+)
 from src.utils.time_utils import get_current_epoch
 from src.utils.tool_events import tool_stream_event
 
@@ -179,19 +185,22 @@ def _track_task(identity: AgentIdentity, task: asyncio.Task[None]) -> asyncio.Ta
     return task
 
 
-async def stop_agent_commands(identity: AgentIdentity) -> int:
+async def stop_agent_commands(identity: AgentIdentity, *, error: Exception | None = None) -> int:
     """停掉這個代理人的全部指令（ADR-0293 R11；重置、刪除靈魂與自訂模型在動手前呼叫）.
 
     結果存放區裡還沒結束的紀錄改成 ``stopped``；取消還沒結束的背景與待審批工作（含被擠出存放區
     的）並等它們收掉自己的行程；再殺掉其他登記的行程（前景指令、互審驗證指令）。之後到操作結束
     之間，新指令由 ``destructive_ops.is_held`` 擋下。回傳送出終止訊號的行程數。
-    子代理沒做完時也呼叫（ADR-0318）：那時沒有 hold，子代理身分之後也不再用。
+    子代理結束時也呼叫（ADR-0318、ADR-0333）：那時沒有 hold，子代理身分之後也不再用。
+    ``error`` 是寫進紀錄的原因，預設是「正在重置或刪除」；派子代理的那一輪結束時用
+    ``ParentTurnEndedError``（ADR-0333）。
     """
     key = identity.agent_id.casefold()
+    reason = error if error is not None else AgentBusyError()
     for record in _ASYNC_RESULTS.values():
         if str(record.get("agent_id", "")).casefold() == key and record["status"] in _UNFINISHED:
             record["status"] = "stopped"
-            record["result"] = _not_run(record.get("command", ""), AgentBusyError())
+            record["result"] = _not_run(record.get("command", ""), reason)
     tasks = _AGENT_TASKS.pop(key, set())
     for task in tasks:
         task.cancel()
@@ -272,6 +281,8 @@ def _not_run(command: str, exc: Exception) -> str:
             suggestion="Run it again after the reset or deletion ends.",
             reason="agent_busy",
         )
+    if isinstance(exc, ParentTurnEndedError):
+        return _turn_ended(command)
     if isinstance(exc, ZoneSegmentError):
         return tool_errors.build_tool_error(
             tool_errors.VALIDATION_ERROR,
@@ -283,6 +294,45 @@ def _not_run(command: str, exc: Exception) -> str:
         f"Command was not run in the personal drive: {LINK_REFUSED_MESSAGE} Command: {command}",
         suggestion="Do not run it another way; tell the user the personal drive needs checking.",
         reason="drive_link_refused",
+    )
+
+
+def _turn_ended(command: str) -> str:
+    """派子代理的那一輪已經結束：指令沒開，或開著的被收掉（ADR-0333）."""
+    return tool_errors.build_tool_error(
+        tool_errors.PERMISSION_DENIED,
+        f"Command was stopped or not run: the turn that dispatched you has ended: {command}",
+        suggestion=f"Do not retry it; {no_human_followup({'subagent_run': True})}.",
+        reason=PARENT_TURN_ENDED,
+    )
+
+
+def _command_drive(identity: AgentIdentity, ctx: Any) -> ZonePath:
+    """指令的個人空間；子代理不建（只在專用空間的專案裡跑，起點是專案根；ADR-0333）."""
+    drive = _get_agent_drive_path(identity)
+    if ctx.get("subagent_run") is not True:
+        resource_manager.zone_make_dir(drive)  # 個人空間路上有連結就拒絕
+    return drive
+
+
+def _foreground_result(
+    command: str,
+    ctx: Any,
+    exit_code: int,
+    output: str,
+    duration_ms: int,
+    dangerous: bool,
+) -> str:
+    """前景指令跑完的回覆；派子代理的那一輪結束時被殺掉的，改說原因（ADR-0333）."""
+    if exit_code < 0 and subagent_turn_over(ctx):
+        return _turn_ended(command)
+    return _wrap_output(
+        command,
+        f"[EXIT_CODE: {exit_code}]\n" + output,
+        exit_code=exit_code,
+        duration_ms=duration_ms,
+        dangerous=dangerous,
+        _approved=True,
     )
 
 
@@ -618,9 +668,9 @@ async def execute_command(
     """
     if destructive_ops.is_held(identity):  # 正在重置或刪除：不開新指令（R11）
         return _not_run(command, AgentBusyError())
+    ctx = kwargs.get("_ctx") or {}
     try:
-        drive = _get_agent_drive_path(identity)
-        resource_manager.zone_make_dir(drive)  # 個人空間路上有連結就拒絕
+        drive = _command_drive(identity, ctx)
     except (LinkRefusedError, ZoneSegmentError) as exc:
         return _not_run(command, exc)
 
@@ -633,9 +683,8 @@ async def execute_command(
         tool="execute_command",
         args={"command": command, "env": env},
     )
-    ctx = kwargs.get("_ctx") or {}
     project_root = await session_project_root(ctx, session_id)
-    scope = await command_scope(identity, project_root, grant, attended=is_human_present(ctx))
+    scope = await command_scope(identity, project_root, grant, attended=commands_attended(ctx))
 
     # --- 🛡️ 統一安全政策核查 (SSOT Permission Gate) ---
     auth_level = kwargs.get("auth_level", "Manual")
@@ -661,6 +710,9 @@ async def execute_command(
             suggestion="Use the file verbs (read/write/edit) or propose a safer command.",
             reason="policy_block",
         )
+    # 開指令前再確認一次：審查員回覆期間派子代理的那一輪結束了，就不開（ADR-0333）
+    if subagent_turn_over(ctx):
+        return _turn_ended(command)
 
     dangerous = strategy != "ALLOW"
     exec_id = str(uuid.uuid4())[:8]
@@ -748,15 +800,7 @@ async def execute_command(
     except _NOT_RUN as exc:
         return _not_run(command, exc)
     _push_result_safely(exec_id, identity, command, exit_code, output, duration_ms)
-    header = f"[EXIT_CODE: {exit_code}]\n"
-    return _wrap_output(
-        command,
-        header + output,
-        exit_code=exit_code,
-        duration_ms=duration_ms,
-        dangerous=dangerous,
-        _approved=True,
-    )
+    return _foreground_result(command, ctx, exit_code, output, duration_ms, dangerous)
 
 
 async def get_command_result(
