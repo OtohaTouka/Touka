@@ -5,6 +5,9 @@ ADR-0293 R11：登記時可帶 ``agent_id``，重置與刪除以 ``terminate_age
 """
 from __future__ import annotations
 
+import threading
+from typing import Any
+
 from src.models.identity import AgentIdentity
 from src.services.process_registry import ProcessRegistry
 
@@ -101,3 +104,41 @@ def test_unregister_with_agent_id_removes_both():
     assert reg.count("s1") == 0
     assert reg._agent_processes == {}
     assert reg.terminate_agent(ALICE) == 0 and not p.killed
+
+
+class _PausingAdd(dict):
+    """登記時拿到集合之後、加入之前停住（模擬事件迴圈正要加入時，執行緒插進來取出）。"""
+
+    def __init__(self, entered: threading.Event, release: threading.Event) -> None:
+        super().__init__()
+        self.entered, self.release, self.armed = entered, release, False
+
+    def setdefault(self, key: Any, default: Any = None) -> Any:
+        found = super().setdefault(key, default)
+        if self.armed:
+            self.armed = False
+            self.entered.set()
+            self.release.wait(5)
+        return found
+
+
+def test_a_proc_registered_while_the_agent_is_being_stopped_is_not_lost():
+    """ADR-0333：子代理的監看一直在執行緒裡收；取出和加入要互斥，不然新行程加進已取出的集合。"""
+    reg = ProcessRegistry()
+    entered, release = threading.Event(), threading.Event()
+    table = _PausingAdd(entered, release)
+    reg._agent_processes = table
+    first, late = _FakeProc(), _FakeProc()
+    reg.register(None, first, agent_id="Alice")
+    table.armed = True
+    adder = threading.Thread(target=reg.register, args=(None, late), kwargs={"agent_id": "Alice"})
+    adder.start()
+    assert entered.wait(5)
+    stopper = threading.Thread(target=reg.terminate_agent, args=(ALICE,))
+    stopper.start()
+    stopper.join(0.2)  # 沒有鎖時，這段時間它已經取出舊集合、收完
+    release.set()
+    adder.join(5)
+    stopper.join(5)
+    assert first.killed
+    assert late.killed or reg.terminate_agent(ALICE) == 1

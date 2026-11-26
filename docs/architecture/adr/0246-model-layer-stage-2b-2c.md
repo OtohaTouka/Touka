@@ -1,6 +1,6 @@
 # ADR-0246：模型溝通層第 2b＋2c 段（審批管線、Manual／Auto／YOLO 三模式、底線與審查員）
 
-- 狀態：✅ 已接受（2b＋2c 已完成；取代 ADR-0021 的四階矩陣與 MonitorLayer 降級閘；修訂 ADR-0143 的四級決策表；修訂 ADR-0018 §5、§6 的四級與等級鎖定；修訂 ADR-0089 的「全等級（含 ReadOnly）」；修訂 ADR-0078 的「UI 重新觸發強制 SafeAuto」。細節見「取代與修訂」；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 修訂：決策表多「隔離層級」一個維度〔`none` 時 Auto／YOLO 只有人能核准〕、ADR-0272 決定 4〔YOLO 無人在場的 dangerous MCP 只有人能核准〕、F5 的兩個演化舊別名、審查員 `<environment>` 的 `isolation`）
+- 狀態：✅ 已接受（2b＋2c 已完成；取代 ADR-0021 的四階矩陣與 MonitorLayer 降級閘；修訂 ADR-0143 的四級決策表；修訂 ADR-0018 §5、§6 的四級與等級鎖定；修訂 ADR-0089 的「全等級（含 ReadOnly）」；修訂 ADR-0078 的「UI 重新觸發強制 SafeAuto」。細節見「取代與修訂」；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 修訂：決策表多「隔離層級」一個維度〔`none` 時 Auto／YOLO 只有人能核准〕、ADR-0272 決定 4〔YOLO 無人在場的 dangerous MCP 只有人能核准〕、F5 的兩個演化舊別名、審查員 `<environment>` 的 `isolation`；[ADR-0333](0333-subagent-project-commands.md) 修訂決定 8：全域 `headless_terminal` 不變，窄開關打開的子代理的指令沒人在場也送審）
 - 修正（[ADR-0254](0254-iso-c1-small-fixes-and-execution-gaps.md)）：已知限制「互審驗證指令被審查員轉人時，那張卡不顯示審查理由」已修；「Auto 下 F5 的自帶審批工具會出兩張卡」的清單少了 `evolution_implement_and_verify`（改為一般分類，Auto 下仍是兩張卡）
 - 2026-10-16 由 [ADR-0271](0271-claude-5-5-thinking-by-purpose.md) 修訂（r55）：`auto_review.timeout_s` 預設 20→60 秒（逾時仍是轉人／拒絕，不是放行條件）；設定頁可看可改；審查員照模型預設思考強度（不在少想用途表）
 - 日期：2026-10-12

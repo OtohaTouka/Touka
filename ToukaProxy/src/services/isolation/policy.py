@@ -13,7 +13,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from src.models.identity import AgentIdentity
-from src.models.safety import PROJECT_SPACE_DENY_PREFIX
+from src.models.safety import (
+    PROJECT_SPACE_DENY_PREFIX,
+    SUBAGENT_COMMANDS_NEED_EXECUTOR,
+    SUBAGENT_COMMANDS_NOT_ALLOWED,
+    SUBAGENT_DENY_PREFIX,
+)
 from src.sandbox_kernel.spec import RELAY_FAILURE_CODES
 from src.services.isolation.consent import (
     ConsentKey,
@@ -27,6 +32,7 @@ from src.services.isolation.status import (
     CHECK_FAILED,
     EXECUTOR_UNREACHABLE,
     PROBE_PENDING,
+    PROJECT_NOT_IN_EXECUTOR,
     LevelDecision,
     isolation_monitor,
 )
@@ -39,7 +45,7 @@ from src.utils.isolation_policy import (
     TERMINAL_TOOLS,
     VERIFY_ACTION,
 )
-from src.utils.presence import is_human_present
+from src.utils.presence import PARENT_TURN_ENDED, commands_attended, no_human_followup
 from src.utils.touka_dirs import SCAN_LIMIT
 
 if TYPE_CHECKING:
@@ -61,6 +67,20 @@ _TEMPORARY_REFUSALS = frozenset(
     {SCAN_LIMIT, PROBE_PENDING, BLOCK_PORTS_INCOMPLETE, EXECUTOR_UNREACHABLE, CHECK_FAILED}
     | RELAY_FAILURE_CODES
 )
+# 子代理的指令被拒絕的原因（ADR-0333）
+_SUBAGENT_DENIALS = {
+    SUBAGENT_COMMANDS_NOT_ALLOWED: (
+        "a sub-agent may run commands only for a project in the dedicated project space, "
+        "dispatched from a conversation where someone is present, in Auto or YOLO mode, and "
+        "not as read-only."
+    ),
+    PARENT_TURN_ENDED: (
+        "the turn that dispatched you has ended, so no more commands run for you."
+    ),
+    SUBAGENT_COMMANDS_NEED_EXECUTOR: (
+        "sub-agent commands only run in the isolated executor, and it is not available now."
+    ),
+}
 
 
 async def session_project_id(
@@ -119,12 +139,16 @@ async def _decide(
     if tool == "scaffold_mcp":
         return isolation_monitor.local_level(), None
     project_root = await session_project_root(ctx, session_id) if tool in PROJECT_TOOLS else None
-    attended = is_human_present(ctx)
+    projects = configured_projects_root()
+    if ctx.get("subagent_run") is True and not structural_scope(project_root, projects).dedicated:
+        # 子代理只在專用空間的專案裡跑指令，不退回自己的個人空間（ADR-0333）
+        return LevelDecision("none", PROJECT_NOT_IN_EXECUTOR), project_root
+    attended = commands_attended(ctx)
     try:
         decision = await isolation_monitor.level_for(identity, project_root, attended=attended)
     except Exception:
         # 專用空間的專案判定出錯也直接拒絕、不跳卡（ADR-0332）；其他照舊交給外層當成 none
-        if not structural_scope(project_root, configured_projects_root()).dedicated:
+        if not structural_scope(project_root, projects).dedicated:
             raise
         logger.exception("Isolation level check failed for a project space command (%s)", tool)
         return LevelDecision("none", CHECK_FAILED, refused=True), project_root
@@ -167,8 +191,19 @@ async def policy_level(
     return decision
 
 
+def _subagent_denial_text(code: str) -> tuple[str, str]:
+    """子代理的指令被拒絕（ADR-0333）：說原因，叫它交回派它的主代理."""
+    why = _SUBAGENT_DENIALS.get(code, _SUBAGENT_DENIALS[SUBAGENT_COMMANDS_NOT_ALLOWED])
+    return (
+        f"Commands cannot run here ({code}): {why}",
+        f"Do not retry the command; {no_human_followup({'subagent_run': True})}.",
+    )
+
+
 def denial_text(tool: str, role: str, reason: str | None) -> tuple[str, str]:
     """政策拒絕給模型的（說明、建議）；專用空間被拒絕時說原因，暫時的說可以稍後再試."""
+    if (reason or "").startswith(SUBAGENT_DENY_PREFIX):
+        return _subagent_denial_text((reason or "").removeprefix(SUBAGENT_DENY_PREFIX))
     refused = (reason or "").removeprefix(PROJECT_SPACE_DENY_PREFIX)
     if not reason or refused == reason:
         return f"Tool '{tool}' was denied by policy for role '{role}'.", _GENERIC_DENIAL_SUGGESTION
@@ -176,6 +211,8 @@ def denial_text(tool: str, role: str, reason: str | None) -> tuple[str, str]:
         f"Commands in this project cannot run ({refused}): projects in the dedicated project "
         "space only run in the isolated executor, and this one did not pass its checks."
     )
+    if role == "Subagent":  # 子代理碰不到使用者，交回派它的主代理（ADR-0333）
+        return message, f"Do not retry the command; {no_human_followup({'subagent_run': True})}."
     if refused in _TEMPORARY_REFUSALS:
         return message, (
             "This is usually temporary; you may try again in a few minutes. "

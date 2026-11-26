@@ -1,6 +1,6 @@
 # ADR-0134: In-Process 子代理派發——dispatch_subagent（Phase 1 MVP）
 
-> **現況**：enable_autonomy 改成繼承（ADR-0146 修訂）；後果③「唯讀」本來就不準；子代理改用 Subagent 角色（ADR-0245）。
+> **現況**：enable_autonomy 改成繼承（ADR-0146 修訂）；後果③「唯讀」本來就不準；子代理改用 Subagent 角色（ADR-0245）；「子代理一律沒人在場」對指令有一個窄例外（[ADR-0333](0333-subagent-project-commands.md) 修訂：專用空間的專案、派它的那一輪有人在場且還在回覆、Auto 或 YOLO）。
 
 ## 狀態
 

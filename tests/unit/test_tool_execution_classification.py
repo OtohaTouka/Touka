@@ -282,7 +282,8 @@ async def test_terminal_denial_precedes_approval_and_execution(
     policy.policies.critical_blacklist.append("^echo blocked-fixture$")
     context = _ctx("FullYOLO", True)
     if reason == "grant":
-        context["identity"] = AgentIdentity.for_role(agent_id="SubagentProbe", role="Subagent")
+        # Base 沒有終端工具（Subagent 自 ADR-0333 起有 execute_command，改由窄開關把關）
+        context["identity"] = AgentIdentity.for_role(agent_id="BaseProbe", role="Base")
     result = await ToolExecutor(
         None, tool_registry, {}, {}, enforce_advertised=False
     ).execute_to_queue(

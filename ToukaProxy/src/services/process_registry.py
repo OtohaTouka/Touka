@@ -17,6 +17,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 from typing import TYPE_CHECKING, Any
 
 from src.utils.task_utils import spawn_logged
@@ -142,6 +143,8 @@ class ProcessRegistry:
         """初始化登記表。"""
         self._session_processes: dict[str, set[Any]] = {}
         self._agent_processes: dict[str, set[Any]] = {}
+        # terminate_agent 在執行緒裡取出、register 在事件迴圈上加入：不鎖會加進已取出的集合
+        self._agent_lock = threading.Lock()
 
     def register(self, session_id: str | None, proc: Any, *, agent_id: str | None = None) -> None:
         """登記一個執行中子進程到指定會話與代理人（兩者都為空則略過）。
@@ -156,7 +159,8 @@ class ProcessRegistry:
         if session_id:
             self._session_processes.setdefault(session_id, set()).add(proc)
         if agent_id:
-            self._agent_processes.setdefault(agent_id.casefold(), set()).add(proc)
+            with self._agent_lock:
+                self._agent_processes.setdefault(agent_id.casefold(), set()).add(proc)
 
     def unregister(self, session_id: str | None, proc: Any, *, agent_id: str | None = None) -> None:
         """子進程結束後從會話與代理人的登記中移除。
@@ -169,7 +173,8 @@ class ProcessRegistry:
         if session_id:
             _discard(self._session_processes, session_id, proc)
         if agent_id:
-            _discard(self._agent_processes, agent_id.casefold(), proc)
+            with self._agent_lock:
+                _discard(self._agent_processes, agent_id.casefold(), proc)
 
     def pop_session(self, session_id: str) -> list[Any]:
         """取出並移除某會話登記中的子進程（在事件迴圈上呼叫；之後才到執行緒裡殺）。
@@ -204,7 +209,8 @@ class ProcessRegistry:
         Returns:
             int: 實際送出終止訊號的子進程數量。
         """
-        procs = list(self._agent_processes.pop(identity.agent_id.casefold(), None) or ())
+        with self._agent_lock:
+            procs = list(self._agent_processes.pop(identity.agent_id.casefold(), None) or ())
         return terminate_processes(procs, f"agent {identity.agent_id}")
 
     def count(self, session_id: str) -> int:

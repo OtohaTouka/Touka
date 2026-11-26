@@ -19,6 +19,7 @@ from src.services.agent_service import agent_service
 from src.services.authorization_gateway import has_another_owner
 from src.services.local_bridge import get_local_bridge
 from src.services.local_bridge_pairing import get_local_pairing_store
+from src.services.parent_turn import parent_turn_active
 from src.services.permission_service import permission_service
 from src.services.prompt_blocks import (
     MCP_UNAVAILABLE,
@@ -50,7 +51,7 @@ from src.utils.mcp_request_identity import (
     mcp_request_context,
     user_scoped_mcp_allowed,
 )
-from src.utils.presence import is_human_present, no_human_followup
+from src.utils.presence import SUBAGENT_PROJECT_COMMANDS, is_human_present, no_human_followup
 from src.utils.soul_tool_selection import ToolSelection, companions_of
 
 logger = logging.getLogger(__name__)
@@ -246,6 +247,10 @@ class ToolLayer(ProxyLayer):
                      "auth_level": auth_level,
                      "session_id": session_id,
                      "read_only_run": bool(ctx.get("subagent_read_only")),
+                     # 子代理的指令只在窄開關打開、派它的那一輪還在時列出（ADR-0333）
+                     "subagent_run": ctx.get("subagent_run") is True,
+                     "subagent_project_commands": ctx.get(SUBAGENT_PROJECT_COMMANDS) is True,
+                     "parent_turn_active": parent_turn_active(ctx),
                  },
              )
              decision = permission_service.evaluate_policy(eval_ctx)

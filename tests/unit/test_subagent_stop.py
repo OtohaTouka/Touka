@@ -193,10 +193,10 @@ async def test_a_stop_in_another_conversation_does_not_reach_it(monkeypatch, fak
         await child.started.wait()
         rhythm_service.interrupt_session("s-someone-else")
         await asyncio.sleep(st.STOP_CHECK_SECONDS * 5)
+        assert not kill.called  # 跑的期間沒被收；做完時的收尾見下一組（ADR-0333）
         child.release.set()
         payload = json.loads(await tool)
     assert payload["result"]["status"] == "DONE"
-    assert not kill.called
 
 
 async def test_without_a_conversation_nothing_stops_it(monkeypatch, fake_assemble, kill):
@@ -260,12 +260,19 @@ async def test_a_stop_during_the_turns_own_teardown_is_still_a_cancel(
             await tool
 
 
-async def test_a_finished_subagent_leaves_its_processes_alone(monkeypatch, fake_assemble, kill):
+async def test_a_finished_subagent_also_stops_its_leftover_commands(
+    monkeypatch, fake_assemble, kill
+):
+    """ADR-0333 起做完也收：子代理身分之後不再用，還在跑的背景指令沒人能取結果。"""
     child = _Child(monkeypatch)
     child.release.set()
     payload = json.loads(await (await _sync(_stop_ctx("s-done"))))
     assert payload["result"]["status"] == "DONE"
-    assert not kill.called
+    for _ in range(100):
+        if kill.called:
+            break
+        await asyncio.sleep(0.01)
+    assert kill.call_count == 1
 
 
 async def test_a_timed_out_subagent_has_its_processes_stopped(monkeypatch, fake_assemble, kill):

@@ -3262,6 +3262,14 @@
         "reads": [
           [
             "base_ctx",
+            "identity"
+          ],
+          [
+            "base_ctx",
+            "session_id"
+          ],
+          [
+            "base_ctx",
             "user_intent"
           ]
         ],
@@ -3329,7 +3337,8 @@
           "model",
           "read_only",
           "label",
-          "notices"
+          "notices",
+          "parent_stream_id"
         ],
         "kwargs": null,
         "reads": [
@@ -3368,7 +3377,8 @@
           "base_ctx",
           "model",
           "task_id",
-          "read_only"
+          "read_only",
+          "parent_stream_id"
         ],
         "kwargs": null,
         "reads": [
@@ -3400,7 +3410,8 @@
           "parent_request_id",
           "base_ctx",
           "model",
-          "concurrency"
+          "concurrency",
+          "parent_stream_id"
         ],
         "kwargs": null,
         "reads": [
@@ -3525,7 +3536,9 @@
           "base_ctx",
           "model",
           "task_id",
-          "read_only"
+          "read_only",
+          "parent_stream_id",
+          "why"
         ],
         "kwargs": null,
         "reads": [],
@@ -3597,24 +3610,20 @@
           "sub_request_id",
           "base_ctx",
           "model",
-          "read_only",
+          "scope",
           "parent_label",
           "parts",
           "notices"
         ],
         "kwargs": null,
-        "reads": [
-          [
-            "base_ctx",
-            "session_id"
-          ]
-        ],
+        "reads": [],
         "dynamic": []
       },
       "_unless_parent_stops": {
         "parameters": [
           "work",
-          "base_ctx"
+          "base_ctx",
+          "turn"
         ],
         "kwargs": null,
         "reads": [],
@@ -3624,7 +3633,8 @@
         "parameters": [
           "base_ctx",
           "task",
-          "stopped"
+          "stopped",
+          "turn"
         ],
         "kwargs": null,
         "reads": [
@@ -3677,6 +3687,64 @@
             "tools"
           ]
         ],
+        "dynamic": []
+      },
+      "_TurnCommands.turn_over": {
+        "parameters": [
+          "self"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_TurnCommands.collect": {
+        "parameters": [
+          "self"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_subagent_scope": {
+        "parameters": [
+          "base_ctx",
+          "identity",
+          "read_only",
+          "parent_stream_id"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "base_ctx",
+            "session_id"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_turn_commands": {
+        "parameters": [
+          "sub_identity",
+          "base_ctx",
+          "scope"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "base_ctx",
+            "session_id"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_needs_turn": {
+        "parameters": [
+          "ctx",
+          "identity",
+          "read_only",
+          "stream_id"
+        ],
+        "kwargs": null,
+        "reads": [],
         "dynamic": []
       }
     },
@@ -3753,7 +3821,8 @@
       },
       "stop_agent_commands": {
         "parameters": [
-          "identity"
+          "identity",
+          "error"
         ],
         "kwargs": null,
         "reads": [
@@ -3934,6 +4003,10 @@
         "kwargs": "kwargs",
         "reads": [
           [
+            "ctx",
+            "subagent_run"
+          ],
+          [
             "kwargs",
             "_approved_by"
           ],
@@ -4043,6 +4116,41 @@
           "duration_ms",
           "dangerous",
           "_approved"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_turn_ended": {
+        "parameters": [
+          "command"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_command_drive": {
+        "parameters": [
+          "identity",
+          "ctx"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "ctx",
+            "subagent_run"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_foreground_result": {
+        "parameters": [
+          "command",
+          "ctx",
+          "exit_code",
+          "output",
+          "duration_ms",
+          "dangerous"
         ],
         "kwargs": null,
         "reads": [],

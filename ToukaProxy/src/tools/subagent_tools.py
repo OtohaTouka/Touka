@@ -34,6 +34,7 @@ import logging
 import uuid
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from src.adapters.schemas import AnthropicRequest
@@ -47,7 +48,10 @@ from src.services.dispatchers.factory import get_stream_generator
 from src.services.hooks.lifecycle import notify_subagent_stop, run_subagent_start_hooks
 from src.services.hooks.stopping import stopped_since_start
 from src.services.isolation.policy import session_project_id
+from src.services.isolation.profiles import configured_projects_root
+from src.services.isolation.project_space import structural_scope
 from src.services.model_manager import model_manager
+from src.services.parent_turn import ParentTurnEndedError, current_stream_id, turn_active
 from src.services.resource_manager import resource_manager
 from src.services.rhythm_service import HEADLESS_FALLBACK_ROUNDS
 from src.services.subagent_registry import FinishedSubagent, RunningSubagent, subagent_registry
@@ -62,7 +66,14 @@ from src.tools.terminal import stop_agent_commands
 from src.utils.auth_mode import enforce_incognito_manual
 from src.utils.brain_persistence import get_active_brain
 from src.utils.model_text import single_line
-from src.utils.presence import is_human_present
+from src.utils.presence import (
+    PARENT_IDENTITY,
+    PARENT_SESSION_ID,
+    PARENT_STREAM_ID,
+    SUBAGENT_PROJECT_COMMANDS,
+    is_human_present,
+    subagent_project_commands,
+)
 from src.utils.secret_text import sanitize_error_text
 from src.utils.task_utils import spawn_logged
 from src.utils.time_utils import get_current_epoch
@@ -125,6 +136,18 @@ _DEFAULT_GROUP_CONCURRENCY = SUBAGENT_GROUP_CONCURRENCY
 # 給子代理的固定提示（ADR-0309）：不放專案的真實路徑
 PROJECT_NOTE = '這個任務可以用對話綁定的專案：檔案工具帶 scope="project"，路徑相對於專案根目錄。'
 READ_ONLY_NOTE = "你只能查看，不能修改任何檔案；發現的問題請寫在回報裡。"
+# 窄開關打開時（ADR-0333）：怎麼在專案裡跑指令、什麼情況會被拒
+COMMANDS_NOTE = (
+    "這個專案裡可以用 execute_command 跑指令：指令從專案根目錄開始，路徑用相對路徑，子資料夾用"
+    "工具自己的參數（例如 pytest web/tests、npm --prefix web test）；前景指令最多 30 秒，跑測試"
+    "這類長指令加 background=true，再用 get_command_result（可帶 wait_seconds）取結果。"
+    "Auto 模式每條指令都先送審查員，被拒絕不要重試，寫進回報交給派你的主代理；"
+    "不要用 $(...)、反引號、$變數、> 寫檔，也不要用 ;、|、&& 串接指令。"
+    "派你的那一輪結束後就不能再跑指令。"
+)
+# 同步派工時告訴主代理為什麼等做完才回
+_NO_BOARD_WAIT = "因為這一輪沒有任務看板工具（mission_tools），這次等子代理做完才回。"
+_COMMANDS_WAIT = "因為這個子代理能在專案裡跑指令（你這一輪結束就會被收掉），這次等它做完才回。"
 
 # --------------------------------------------------------------------------- #
 # 內部：子代理請求組裝與子 loop 執行
@@ -133,14 +156,35 @@ READ_ONLY_NOTE = "你只能查看，不能修改任何檔案；發現的問題�
 
 @dataclass(frozen=True)
 class SubagentScope:
-    """這個子代理碰得到什麼：派出時算一次，組裝與執行用同一份（ADR-0309）。"""
+    """這個子代理碰得到什麼：派出時算一次，組裝與執行用同一份（ADR-0309）。
+
+    ``project_commands``：能在專案裡跑指令（ADR-0333 的窄開關）；``parent_stream_id`` 是派它的
+    那一輪的串流編號，派工工具一進入就記下。
+    """
 
     project_id: str | None = None
     has_project: bool = False
     read_only: bool = False
+    project_commands: bool = False
+    parent_stream_id: str | None = None
 
 
 _NO_SCOPE = SubagentScope()
+
+
+@dataclass(frozen=True)
+class _TurnCommands:
+    """派它的那一輪結束後要收掉的指令（ADR-0333）：子代理身分與那一輪的對話、串流編號。"""
+
+    identity: AgentIdentity
+    session_id: str
+    stream_id: str
+
+    def turn_over(self) -> bool:
+        return not turn_active(self.session_id, self.stream_id)
+
+    async def collect(self) -> None:
+        await stop_agent_commands(self.identity, error=ParentTurnEndedError())
 
 
 def _is_read_only(value: Any) -> bool:
@@ -219,6 +263,7 @@ def _subagent_user_prompt(
     notes = [
         *([PROJECT_NOTE] if scope.has_project else []),
         *([READ_ONLY_NOTE] if scope.read_only else []),
+        *([COMMANDS_NOTE] if scope.project_commands else []),
     ]
     limits = "".join(f"{note}\n" for note in notes)
     return (
@@ -255,6 +300,12 @@ def _mark_subagent_run(
     # 專案只來自對話的綁定，不收模型填的值；工具清單（組裝）與權限判定（執行）都讀這裡
     ctx["project_id"] = scope.project_id
     ctx["subagent_read_only"] = scope.read_only
+    # 窄開關（ADR-0333）：每次都覆寫，不從父 ctx 繼承；記帳身分只收真的身分物件
+    parent_identity = base_ctx.get("identity")
+    ctx[SUBAGENT_PROJECT_COMMANDS] = scope.project_commands
+    ctx[PARENT_SESSION_ID] = base_ctx.get("session_id")
+    ctx[PARENT_STREAM_ID] = scope.parent_stream_id
+    ctx[PARENT_IDENTITY] = parent_identity if isinstance(parent_identity, AgentIdentity) else None
     # 子代理不是網頁對話，失敗記號也從零開始：三種主代理派的子代理走同一條失敗路徑（ADR-0318）
     ctx["ui_authorized"] = False
     ctx["model_failed"] = False
@@ -372,13 +423,15 @@ async def _run_subagent(
     read_only: bool = False,
     label: str = "subagent",
     notices: list[dict[str, Any]] | None = None,
+    parent_stream_id: str | None = None,
 ) -> str:
     """開一個 in-process 子 ReAct loop 跑到完成，回傳最終文字產出（``notices`` 收拒答等小提示）。
 
     時限包住整段（SubagentStart hook、組裝、模型）。超過時丟 ``SubagentTimeoutError``、模型失敗丟
     ``SubagentModelError``、主代理那段對話被按停止丟 ``SubagentCancelledError``，都帶著已經收到的
-    文字，SubagentStop hook 也拿到它（ADR-0318）。跑的期間登記在 ``subagent_registry``；沒做完時
-    它開的指令行程一起收掉。
+    文字，SubagentStop hook 也拿到它（ADR-0318）。跑的期間登記在 ``subagent_registry``；結束時
+    （做完或沒做完）它開的指令行程一起收掉（ADR-0333）。``parent_stream_id`` 是派它的那一輪的
+    串流編號（派工工具一進入就記下）；能在專案裡跑指令時，那一輪結束後一直收它的指令。
     """
     seq = next(_SUB_SEQ)
     sub_identity = AgentIdentity.for_role(
@@ -400,13 +453,13 @@ async def _run_subagent(
 
     parts: list[str] = []
     reply = ""
-    finished = False
     deadline = asyncio.timeout(_SUB_TIMEOUT_SECONDS)
     key = subagent_registry.add(
         RunningSubagent(label, parent_label, base_ctx.get("session_id"), get_current_epoch())
     )
     try:
         async with deadline:
+            scope = await _subagent_scope(base_ctx, sub_identity, read_only, parent_stream_id)
             reply = await _unless_parent_stops(
                 _assemble_and_run(
                     goal=goal,
@@ -414,14 +467,14 @@ async def _run_subagent(
                     sub_request_id=sub_request_id,
                     base_ctx=base_ctx,
                     model=model,
-                    read_only=read_only,
+                    scope=scope,
                     parent_label=parent_label,
                     parts=parts,
                     notices=notices,
                 ),
                 base_ctx,
+                _turn_commands(sub_identity, base_ctx, scope),
             )
-        finished = True
     except TimeoutError as exc:
         if not deadline.expired():  # 子代理裡別的逾時照原樣往外
             raise
@@ -436,10 +489,35 @@ async def _run_subagent(
         raise
     finally:
         subagent_registry.finish(key)
-        if not finished:  # 逾時、被停、失敗或主代理這一輪被收掉：它的指令（含背景、待審）一起收掉
-            spawn_logged(stop_agent_commands(sub_identity), name="subagent-stop-commands")
+        # 不論做完沒有，它的指令（含背景、待審）一起收掉：子代理身分之後不再用（ADR-0318、0333）
+        spawn_logged(stop_agent_commands(sub_identity), name="subagent-stop-commands")
         notify_subagent_stop(base_ctx, sub_identity, reply)
     return reply
+
+
+async def _subagent_scope(
+    base_ctx: Any, identity: AgentIdentity | None, read_only: bool, parent_stream_id: str | None
+) -> SubagentScope:
+    """派出時算一次這個子代理碰得到什麼（ADR-0309、ADR-0333）。"""
+    project_id = await session_project_id(base_ctx, base_ctx.get("session_id"))
+    # 對話的 project_id 可能只是佔位值（心跳建的家是 "default"）：解析得到路徑才算有專案
+    root = await resource_manager.get_project_path(project_id, identity) if project_id else None
+    # 專用空間裡被拒的形狀（路上有連結、第二層以下…）不打開：每條指令都會被拒
+    usable = bool(root) and structural_scope(Path(root), configured_projects_root()).kind == "ok"
+    commands = subagent_project_commands(
+        base_ctx, dedicated=usable, read_only=read_only, stream_id=parent_stream_id
+    )
+    return SubagentScope(project_id, bool(root), read_only, commands, parent_stream_id)
+
+
+def _turn_commands(
+    sub_identity: AgentIdentity, base_ctx: Any, scope: SubagentScope
+) -> _TurnCommands | None:
+    """能在專案裡跑指令的子代理才要監看派它的那一輪（ADR-0333）。"""
+    session_id = base_ctx.get("session_id")
+    if not (scope.project_commands and session_id and scope.parent_stream_id):
+        return None
+    return _TurnCommands(sub_identity, str(session_id), scope.parent_stream_id)
 
 
 async def _assemble_and_run(
@@ -449,18 +527,12 @@ async def _assemble_and_run(
     sub_request_id: str,
     base_ctx: Any,
     model: str | None,
-    read_only: bool,
+    scope: SubagentScope,
     parent_label: str,
     parts: list[str],
     notices: list[dict[str, Any]] | None = None,
 ) -> str:
-    """看專案、組裝（含 SubagentStart hook）、執行；``parts`` 收已經收到的文字。"""
-    project_id = await session_project_id(base_ctx, base_ctx.get("session_id"))
-    # 對話的 project_id 可能只是佔位值（心跳建的家是 "default"）：解析得到路徑才算有專案
-    has_project = bool(
-        project_id and await resource_manager.get_project_path(project_id, sub_identity)
-    )
-    scope = SubagentScope(project_id, has_project, read_only)
+    """組裝（含 SubagentStart hook）、執行；``parts`` 收已經收到的文字。"""
     request = await _assemble_subagent_request(
         goal=goal,
         sub_identity=sub_identity,
@@ -474,17 +546,20 @@ async def _assemble_and_run(
     )
 
 
-async def _unless_parent_stops(work: Coroutine[Any, Any, str], base_ctx: Any) -> str:
+async def _unless_parent_stops(
+    work: Coroutine[Any, Any, str], base_ctx: Any, turn: _TurnCommands | None = None
+) -> str:
     """子代理在自己的 task 裡跑，旁邊有停止監看（ADR-0318）。
 
     主代理那段對話被按停止（``stopped_since_start``）就只取消子代理的 task，丟一般例外
     ``SubagentCancelledError``：主代理的工具 task 不被取消，照常收到「已取消」。主代理這一輪自己被
-    取消時，取消照樣往外傳（等待中的子代理 task 一起被取消）。
+    取消時，取消照樣往外傳（等待中的子代理 task 一起被取消）。``turn`` 不是 None 時，派它的那一輪
+    結束後監看一直收它的指令（ADR-0333）。
     """
     task = asyncio.create_task(work)
     stopped = asyncio.Event()
     watch = spawn_logged(
-        _cancel_when_parent_stops(base_ctx, task, stopped), name="subagent-stop-watch"
+        _cancel_when_parent_stops(base_ctx, task, stopped, turn), name="subagent-stop-watch"
     )
     try:
         return await task
@@ -498,9 +573,13 @@ async def _unless_parent_stops(work: Coroutine[Any, Any, str], base_ctx: Any) ->
 
 
 async def _cancel_when_parent_stops(
-    base_ctx: Any, task: asyncio.Task, stopped: asyncio.Event
+    base_ctx: Any, task: asyncio.Task, stopped: asyncio.Event, turn: _TurnCommands | None = None
 ) -> None:
-    """停止只有累計次數、沒有事件，所以每 ``STOP_CHECK_SECONDS`` 看一次；沒有對話（IDE）就不看。"""
+    """停止只有累計次數、沒有事件，所以每 ``STOP_CHECK_SECONDS`` 看一次；沒有對話（IDE）就不看。
+
+    ``turn``：派它的那一輪結束後，每次都收一次它的指令（政策檢查之後、等審查員期間才開的也收得到），
+    子代理本身不取消，還能把報告寫完（ADR-0333）。
+    """
     if not base_ctx.get("session_id"):
         return
     while not task.done():
@@ -508,6 +587,11 @@ async def _cancel_when_parent_stops(
             stopped.set()
             task.cancel()
             return
+        if turn is not None and turn.turn_over():
+            try:
+                await turn.collect()
+            except Exception:  # 這次沒收到下次再收；監看不能停（停止鈕也靠它）
+                logger.exception("Collecting a sub-agent's commands after its turn failed")
         await asyncio.sleep(STOP_CHECK_SECONDS)
 
 
@@ -647,6 +731,7 @@ async def _run_and_deliver(
     model: str | None,
     task_id: str | None,
     read_only: bool = False,
+    parent_stream_id: str | None = None,
 ) -> None:
     """背景執行子 loop，無論成敗一律 deliver（in-process 直呼，等待者絕不空等）。
 
@@ -665,6 +750,7 @@ async def _run_and_deliver(
             read_only=read_only,
             label=label,
             notices=notices,
+            parent_stream_id=parent_stream_id,
         )
         payload = _result_from_text(text, label, notices)
     except asyncio.CancelledError:
@@ -729,6 +815,7 @@ async def run_subagent_group(
     base_ctx: Any,
     model: str | None,
     concurrency: int = _DEFAULT_GROUP_CONCURRENCY,
+    parent_stream_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """同時派多個 in-process 子代理、並發上限內各跑各的、匯總結構化結果.
 
@@ -751,6 +838,7 @@ async def run_subagent_group(
                     read_only=_is_read_only(spec.get("read_only")),
                     label=label,
                     notices=notices,
+                    parent_stream_id=parent_stream_id,
                 )
                 return _result_from_text(text, label, notices)
             except Exception as exc:  # noqa: BLE001 — 隔離：一子失敗不沉全組
@@ -768,6 +856,15 @@ def _can_await_later(ctx: Any) -> bool:
     return "mission_tools" in advertised.native
 
 
+async def _needs_turn(
+    ctx: Any, identity: AgentIdentity | None, read_only: bool, stream_id: str | None
+) -> bool:
+    """能在專案裡跑指令的子代理一律等它做完：先回憑證的話，那一輪一結束指令就被收掉（ADR-0333）."""
+    if not subagent_project_commands(ctx, dedicated=True, read_only=read_only, stream_id=stream_id):
+        return False  # 不必查專案
+    return (await _subagent_scope(ctx, identity, read_only, stream_id)).project_commands
+
+
 async def _dispatch_and_wait(
     *,
     goal: str,
@@ -777,8 +874,10 @@ async def _dispatch_and_wait(
     model: str | None,
     task_id: str | None,
     read_only: bool,
+    parent_stream_id: str | None = None,
+    why: str = _NO_BOARD_WAIT,
 ) -> str:
-    """沒有看板工具時：等子代理做完，直接把結果放進工具回覆（ADR-0316 PR 2 補記）。
+    """沒有看板工具、或子代理能跑指令時：等它做完，直接把結果放進工具回覆（ADR-0316、ADR-0333）。
 
     和 ``run_subagent_group`` 同一條路（同一個 ``_run_subagent``）；不產生憑證、不寫耐久結果。
     """
@@ -794,6 +893,7 @@ async def _dispatch_and_wait(
             read_only=read_only,
             label=label,
             notices=notices,
+            parent_stream_id=parent_stream_id,
         )
         payload = _result_from_text(text, label, notices)
     except Exception as exc:
@@ -801,8 +901,7 @@ async def _dispatch_and_wait(
         _log_failure(exc, "in-process subagent (sync dispatch)")
         payload = _result_from_error(exc, label)
     return tool_errors.build_tool_success(
-        f"子代理（{label}）已結束：{_OUTCOME_WORDS[_outcome(payload)]}。因為這一輪沒有任務看板工具"
-        "（mission_tools），這次等子代理做完才回。",
+        f"子代理（{label}）已結束：{_OUTCOME_WORDS[_outcome(payload)]}。{why}",
         result=payload,
         dispatch_mode="in-process-sync",
     )
@@ -828,7 +927,8 @@ async def dispatch_subagent(
 
     立即回傳 ``callback_token``；主 agent 之後以
     ``mission_tools(action="await_dispatch_result", callback_token=...)`` 等待結果。
-    這一輪沒列 ``mission_tools`` 時改成等子代理做完、直接帶回結果（``_dispatch_and_wait``）。
+    這一輪沒列 ``mission_tools``、或子代理能在專案裡跑指令（ADR-0333）時，改成等它做完、直接
+    帶回結果（``_dispatch_and_wait``）。
 
     Args:
         goal: 子任務目標與完整指示（子代理只看得到這段，必須自包含）。
@@ -853,9 +953,16 @@ async def dispatch_subagent(
             "dispatch_subagent did not receive the pipeline context (_ctx).",
             suggestion="回報使用者：tool executor 未注入 _ctx，無法開子代理。",
         )
+    # 派它的那一輪：在第一個 await 之前記下（ADR-0333）
+    parent_stream_id = current_stream_id(_ctx)
 
-    if not _can_await_later(_ctx):
+    board = _can_await_later(_ctx)
+    commands = board and await _needs_turn(
+        _ctx, identity, _is_read_only(read_only), parent_stream_id
+    )
+    if commands or not board:
         return await _dispatch_and_wait(
+            why=_COMMANDS_WAIT if commands else _NO_BOARD_WAIT,
             goal=str(goal),
             identity=identity,
             request_id=request_id,
@@ -863,6 +970,7 @@ async def dispatch_subagent(
             model=(sub_model or "").strip() or (model or "").strip() or None,
             task_id=task_id,
             read_only=_is_read_only(read_only),
+            parent_stream_id=parent_stream_id,
         )
 
     store = get_callback_store()
@@ -881,6 +989,7 @@ async def dispatch_subagent(
             model=(sub_model or "").strip() or (model or "").strip() or None,
             task_id=task_id,
             read_only=_is_read_only(read_only),
+            parent_stream_id=parent_stream_id,
         ),
         name=f"subagent:{token[:8]}",
     )
@@ -946,6 +1055,7 @@ async def dispatch_subagent_group(
         base_ctx=_ctx,
         model=(model or "").strip() or None,
         concurrency=_DEFAULT_GROUP_CONCURRENCY,
+        parent_stream_id=current_stream_id(_ctx),  # 等名額之前就記下派它的那一輪
     )
     counts = Counter(_outcome(r) for r in results)
     tally = "／".join(f"{counts[key]} {word}" for key, word in _OUTCOME_WORDS.items())

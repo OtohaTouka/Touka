@@ -348,9 +348,10 @@
 | [ADR-0330](0330-local-helper-folders-in-settings.md) | [設定頁看得到本機小幫手開放的資料夾，並能縮小範圍](0330-local-helper-folders-in-settings.md) | ✅ 已實作（2a：協議第 3 版、回報開放名單、配對的人看清單、版本不符說清楚；2b：協議第 4 版、拿掉與改成只能讀、已開放直接回、包住上一層的說明） | 2026-11-24 | `ToukaLocal/touka_local/folder_report.py`、`touka_local/protocol.py`、`touka_local/grants.py`、`touka_local/service.py`、`ToukaProxy/src/models/local_bridge.py`、`services/local_bridge.py`、`routers/local_bridge.py`、`touka_local/revoke.py`、`touka_local/open_request.py`、前端 `useLocalHelperFolders`、`LocalHelperFolders`、`useLocalFolderRevoke`；修訂 ADR-0312、ADR-0317、ADR-0320 | 本機小幫手, 開放名單, folder-report, 設定頁, 完整路徑, 配對本人, version_problem, 協議第 3 版, instance, revision, revoke, already_open |
 | [ADR-0331](0331-complexity-ratchet.md) | [函式複雜度只減不增（上限 15）](0331-complexity-ratchet.md) | ✅ 已實作（相關 ADR-0278、0298） | 2026-11-24 | `scripts/lint_ratchet.py` 的 `complexity`・`tests/lint/complexity_baseline.json`・`tests/lint/test_complexity_ratchet.py`・CONTRIBUTING PR 前必做・`test_ci_pr_checks` | 複雜度, C901, 棘輪, 基準 |
 | [ADR-0332](0332-dedicated-project-space.md) | [專用空間的專案在執行器裡跑](0332-dedicated-project-space.md) | ✅ 已實作（融合段 2 PR A、PR B；修訂 ADR-0272） | 2026-11-25 | 執行器・隔離範圍判定・政策與 runner・專案登記・三份 compose 與 Dockerfile・底線的掛載證明・列檔不跟隨連結・專案頁・下載專案（git 名單、zip） | 專用空間, touka-projects, kind project, 一資料夾一專案, 清 HOME, refused 不降級, 下載專案, git index |
+| [ADR-0333](0333-subagent-project-commands.md) | [子代理在專用空間的專案裡跑指令（窄開關）](0333-subagent-project-commands.md) | ✅ 已實作（融合段 3；修訂 ADR-0246 決定 8、ADR-0245 P4、ADR-0309、ADR-0332、ADR-0134，五份都已回指） | 2026-11-26 | 在場判斷・串流編號・政策兩道關卡・審查員（記帳、擋下次數）・終端・子代理派出與監看・權限檔・Guard #45 基準 | 子代理, 窄開關, subagent_project_commands, parent_stream_id, 那一輪結束, parent_turn_ended, commands_attended, headless_terminal, 擋下次數合併, 記帳在靈魂 |
 
 ---
 
 
-*Last Updated: 2026-11-25*
+*Last Updated: 2026-11-26*
 
